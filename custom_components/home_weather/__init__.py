@@ -7,7 +7,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.typing import ConfigType
 
-from .const import DOMAIN, PANEL_ICON, PANEL_TITLE, PANEL_URL_PATH
+from .const import DOMAIN, PANEL_ICON, PANEL_TITLE, PANEL_URL_PATH, VERSION
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -75,7 +75,7 @@ async def _register_panel(hass: HomeAssistant) -> None:
                 frontend_url_path=PANEL_URL_PATH,
                 sidebar_title=PANEL_TITLE,
                 sidebar_icon=PANEL_ICON,
-                module_url=f"{panel_url}/weather-panel.js",
+                module_url=f"{panel_url}/weather-panel.js?v={VERSION}",
                 embed_iframe=False,
                 require_admin=False,
             )

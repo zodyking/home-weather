@@ -226,41 +226,42 @@ class HomeWeatherPanel extends HTMLElement {
         .btn-primary { background: var(--primary-color); color: var(--primary-color-text); }
         .btn-secondary { background: var(--secondary-background-color); color: var(--primary-text-color); }
         .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-        .weather-dashboard { --accent-color: var(--primary-color, #e6a23c); }
-        .current-section { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 24px; margin-bottom: 32px; padding: 24px; background: var(--card-background-color); border-radius: 16px; border: 1px solid var(--divider-color); }
-        .current-left { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
-        .current-icon { width: 64px; height: 64px; color: var(--accent-color); }
+        .weather-dashboard { --accent-color: #4285f4; --hero-gradient: linear-gradient(135deg, #4285f4 0%, #34a853 50%, #fbbc04 100%); }
+        .current-section { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 32px; margin-bottom: 24px; padding: 32px 28px; background: linear-gradient(180deg, rgba(66,133,244,0.15) 0%, transparent 100%); border-radius: 24px; border: none; box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
+        .current-left { display: flex; align-items: center; gap: 28px; flex-wrap: wrap; }
+        .current-icon { width: 96px; height: 96px; color: #fbbc04; filter: drop-shadow(0 2px 8px rgba(251,188,4,0.3)); }
         .current-icon svg { width: 100%; height: 100%; }
-        .current-temp-block { display: flex; flex-direction: column; gap: 4px; }
-        .current-temp { font-size: 48px; font-weight: 300; color: var(--primary-text-color); line-height: 1; }
-        .unit-toggle { display: flex; gap: 4px; }
-        .unit-btn { padding: 4px 8px; background: transparent; border: none; color: var(--secondary-text-color); cursor: pointer; font-size: 14px; }
+        .current-temp-block { display: flex; flex-direction: column; gap: 8px; }
+        .current-temp { font-size: 72px; font-weight: 200; color: var(--primary-text-color); line-height: 1; letter-spacing: -2px; }
+        .unit-toggle { display: flex; gap: 0; }
+        .unit-btn { padding: 6px 12px; background: transparent; border: none; color: var(--secondary-text-color); cursor: pointer; font-size: 16px; font-weight: 500; }
         .unit-btn:hover { color: var(--primary-text-color); }
-        .unit-btn.active { color: var(--accent-color); text-decoration: underline; }
-        .current-metrics { font-size: 14px; color: var(--secondary-text-color); line-height: 1.8; }
+        .unit-btn.active { color: var(--accent-color); text-decoration: underline; text-underline-offset: 4px; }
+        .current-metrics { font-size: 15px; color: var(--secondary-text-color); line-height: 2; font-weight: 400; }
         .current-right { text-align: right; }
-        .weather-title { margin: 0 0 8px; font-size: 24px; font-weight: 500; color: var(--primary-text-color); }
-        .weather-day { font-size: 16px; color: var(--secondary-text-color); }
-        .weather-condition { font-size: 18px; color: var(--primary-text-color); text-transform: capitalize; }
-        .graph-section { margin-bottom: 32px; }
-        .graph-tabs { display: flex; gap: 0; margin-bottom: 16px; border-bottom: 1px solid var(--divider-color); }
-        .graph-tab { padding: 12px 20px; background: transparent; border: none; border-bottom: 3px solid transparent; color: var(--secondary-text-color); cursor: pointer; font-size: 15px; }
+        .weather-title { margin: 0 0 4px; font-size: 22px; font-weight: 500; color: var(--primary-text-color); letter-spacing: -0.5px; }
+        .weather-day { font-size: 18px; color: var(--secondary-text-color); font-weight: 400; }
+        .weather-condition { font-size: 20px; color: var(--primary-text-color); text-transform: capitalize; font-weight: 500; }
+        .graph-section { margin-bottom: 28px; }
+        .graph-tabs { display: flex; gap: 0; margin-bottom: 16px; border-bottom: 2px solid var(--divider-color); }
+        .graph-tab { padding: 14px 24px; background: transparent; border: none; border-bottom: 3px solid transparent; margin-bottom: -2px; color: var(--secondary-text-color); cursor: pointer; font-size: 15px; font-weight: 500; }
         .graph-tab:hover { color: var(--primary-text-color); }
         .graph-tab.active { color: var(--accent-color); border-bottom-color: var(--accent-color); }
-        .graph-container { position: relative; height: 140px; background: var(--card-background-color); border-radius: 12px; padding: 20px 16px; border: 1px solid var(--divider-color); }
-        .graph-svg { width: 100%; height: 80px; display: block; }
+        .graph-container { position: relative; height: 160px; background: var(--card-background-color); border-radius: 16px; padding: 24px 20px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); border: none; }
+        .graph-svg { width: 100%; height: 90px; display: block; }
         .graph-labels { position: absolute; top: 20px; left: 16px; right: 16px; height: 20px; pointer-events: none; }
         .graph-label { position: absolute; transform: translate(-50%, 0); font-size: 12px; color: var(--primary-text-color); }
         .graph-times { position: absolute; bottom: 20px; left: 16px; right: 16px; height: 20px; font-size: 12px; color: var(--secondary-text-color); }
         .graph-time { position: absolute; transform: translate(-50%, 0); }
         .daily-section { margin-bottom: 24px; }
-        .daily-scroll { display: flex; gap: 12px; overflow-x: auto; padding: 16px 0; scroll-snap-type: x mandatory; }
-        .day-card { flex: 0 0 80px; scroll-snap-align: start; padding: 16px; background: var(--card-background-color); border-radius: 12px; text-align: center; border: 1px solid var(--divider-color); transition: all 0.2s; }
-        .day-card.current-day { background: var(--secondary-background-color); border-color: var(--accent-color); }
-        .day-abbr { font-size: 14px; font-weight: 500; color: var(--primary-text-color); margin-bottom: 8px; }
-        .day-icon { width: 36px; height: 36px; margin: 0 auto 8px; color: var(--accent-color); }
+        .daily-scroll { display: flex; gap: 16px; overflow-x: auto; padding: 20px 0; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; }
+        .day-card { flex: 0 0 88px; scroll-snap-align: start; padding: 20px 12px; background: var(--card-background-color); border-radius: 20px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.06); border: none; transition: all 0.25s ease; }
+        .day-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        .day-card.current-day { background: linear-gradient(180deg, rgba(66,133,244,0.12) 0%, rgba(66,133,244,0.04) 100%); box-shadow: 0 2px 12px rgba(66,133,244,0.2); }
+        .day-abbr { font-size: 15px; font-weight: 600; color: var(--primary-text-color); margin-bottom: 12px; letter-spacing: -0.3px; }
+        .day-icon { width: 44px; height: 44px; margin: 0 auto 12px; color: #fbbc04; }
         .day-icon svg { width: 100%; height: 100%; }
-        .day-temps { font-size: 14px; color: var(--secondary-text-color); }
+        .day-temps { font-size: 15px; color: var(--secondary-text-color); font-weight: 500; }
       </style>
       <div class="${this._isNarrow ? "narrow" : ""}">
         <div class="header">
@@ -402,12 +403,12 @@ class HomeWeatherPanel extends HTMLElement {
             <svg class="graph-svg" viewBox="0 0 400 120" preserveAspectRatio="none">
               <defs>
                 <linearGradient id="graphGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stop-color="var(--accent-color, #e6a23c)" stop-opacity="0.4"/>
-                  <stop offset="100%" stop-color="var(--accent-color, #e6a23c)" stop-opacity="0"/>
+                  <stop offset="0%" stop-color="#4285f4" stop-opacity="0.35"/>
+                  <stop offset="100%" stop-color="#4285f4" stop-opacity="0"/>
                 </linearGradient>
               </defs>
               <path class="graph-area" d="${graphPath.area}" fill="url(#graphGradient)"/>
-              <path class="graph-line" d="${graphPath.line}" fill="none" stroke="var(--accent-color, #e6a23c)" stroke-width="2"/>
+              <path class="graph-line" d="${graphPath.line}" fill="none" stroke="#4285f4" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
             <div class="graph-labels">${graphLabels.map((l, i) => `<span class="graph-label" style="left:${(i / (graphLabels.length - 1 || 1)) * 100}%">${l}</span>`).join("")}</div>
             <div class="graph-times">${graphData.map((d, i) => `<span class="graph-time" style="left:${(i / (graphData.length - 1 || 1)) * 100}%">${d.time}</span>`).join("")}</div>
