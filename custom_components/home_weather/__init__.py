@@ -79,43 +79,48 @@ async def _register_panel(hass: HomeAssistant) -> None:
             )
             _LOGGER.info("Registered static path for panel files at /local/home_weather")
         
-        # Register panel programmatically using frontend API
+        # Register panel using panel_custom component
+        # This is the correct way to register a custom panel programmatically
         try:
-            # Try to register via frontend component
-            if hasattr(hass.components, "frontend"):
-                # Register custom panel
-                hass.components.frontend.async_register_built_in_panel(
-                    component_name="custom",
-                    sidebar_title=PANEL_TITLE,
-                    sidebar_icon=PANEL_ICON,
-                    frontend_url_path=PANEL_URL_PATH,
-                    config={
-                        "name": "home-weather-panel",
-                        "module_url": f"/local/home_weather/weather-panel.js",
-                        "embed_iframe": False,
-                        "trust_external": False,
-                    },
-                    require_admin=False,
-                )
-                _LOGGER.info("Registered Home Weather panel at /%s", PANEL_URL_PATH)
-            else:
-                # Fallback: use panel_custom via YAML (user will need to add this)
-                _LOGGER.info(
-                    "Frontend component not available. Add to configuration.yaml:\n"
-                    "panel_custom:\n"
-                    f"  - name: {PANEL_URL_PATH}\n"
-                    f"    sidebar_title: {PANEL_TITLE}\n"
-                    f"    sidebar_icon: {PANEL_ICON}\n"
-                    f"    url_path: {PANEL_URL_PATH}\n"
-                    f"    module_url: /local/home_weather/weather-panel.js\n"
-                    "    embed_iframe: false"
-                )
-        except AttributeError:
-            # Alternative registration method
-            _LOGGER.warning(
-                "Could not register panel automatically. "
-                "Please add panel_custom entry to configuration.yaml"
+            from homeassistant.components import panel_custom
+            
+            # Register the panel with sidebar integration
+            await hass.components.panel_custom.async_register_panel(
+                hass=hass,
+                frontend_url_path=PANEL_URL_PATH,
+                webcomponent_name="home-weather-panel",
+                sidebar_title=PANEL_TITLE,
+                sidebar_icon=PANEL_ICON,
+                sidebar_path=PANEL_URL_PATH,
+                config={
+                    "module_url": f"/local/home_weather/weather-panel.js",
+                    "embed_iframe": False,
+                    "trust_external": False,
+                },
+                require_admin=False,
             )
+            _LOGGER.info("Registered Home Weather panel at /%s with hamburger menu", PANEL_URL_PATH)
+        except Exception as panel_error:
+            _LOGGER.error("Failed to register panel via panel_custom: %s", panel_error)
+            # Fallback: try alternative registration
+            try:
+                if hasattr(hass.components, "frontend"):
+                    hass.components.frontend.async_register_built_in_panel(
+                        component_name="custom",
+                        sidebar_title=PANEL_TITLE,
+                        sidebar_icon=PANEL_ICON,
+                        frontend_url_path=PANEL_URL_PATH,
+                        config={
+                            "name": "home-weather-panel",
+                            "module_url": f"/local/home_weather/weather-panel.js",
+                            "embed_iframe": False,
+                            "trust_external": False,
+                        },
+                        require_admin=False,
+                    )
+                    _LOGGER.info("Registered Home Weather panel via frontend fallback")
+            except Exception as fallback_error:
+                _LOGGER.error("Failed to register panel via fallback: %s", fallback_error)
         
     except Exception as e:
         _LOGGER.error("Failed to register panel: %s", e)
