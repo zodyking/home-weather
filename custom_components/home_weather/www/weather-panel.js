@@ -132,6 +132,17 @@ class HomeWeatherPanel extends HTMLElement {
     return new Date(dt).toLocaleDateString("en-US", { weekday: "short" });
   }
 
+  _formatDateLong(d) {
+    if (!d) return "";
+    const date = d instanceof Date ? d : new Date(d);
+    const weekday = date.toLocaleDateString("en-US", { weekday: "long" });
+    const month = date.toLocaleDateString("en-US", { month: "long" });
+    const day = date.getDate();
+    const suffix = day % 10 === 1 && day !== 11 ? "st" : day % 10 === 2 && day !== 12 ? "nd" : day % 10 === 3 && day !== 13 ? "rd" : "th";
+    const year = date.getFullYear();
+    return `${weekday}, ${month} ${day}${suffix} ${year}`;
+  }
+
   _getConditionIcon(condition, size) {
     const c = (condition || "").toLowerCase().replace(/\s+/g, "");
     const map = {
@@ -220,8 +231,10 @@ class HomeWeatherPanel extends HTMLElement {
         .weather-dashboard { --accent-color: #4285f4; --hero-gradient: linear-gradient(135deg, #4285f4 0%, #34a853 50%, #fbbc04 100%); }
         .current-section { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 24px; margin-bottom: 20px; padding: 24px 28px; background: var(--card-background-color); border-radius: 16px; border: 1px solid var(--divider-color); box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
         .current-left { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
+        .current-icon-block { display: flex; flex-direction: column; align-items: center; gap: 8px; }
         .current-icon { width: 88px; height: 72px; display: flex; align-items: center; justify-content: center; overflow: visible; }
         .current-icon .weather-icon { width: 88px; height: 72px; object-fit: contain; }
+        .current-condition { font-size: 16px; color: var(--primary-text-color); text-transform: capitalize; font-weight: 500; text-align: center; }
         .current-temp-block { display: flex; flex-direction: column; gap: 8px; }
         .current-temp { font-size: 72px; font-weight: 200; color: var(--primary-text-color); line-height: 1; letter-spacing: -2px; }
         .unit-toggle { display: flex; gap: 0; }
@@ -229,10 +242,8 @@ class HomeWeatherPanel extends HTMLElement {
         .unit-btn:hover { color: var(--primary-text-color); }
         .unit-btn.active { color: var(--accent-color); text-decoration: underline; text-underline-offset: 4px; }
         .current-metrics { font-size: 15px; color: var(--secondary-text-color); line-height: 2; font-weight: 400; }
-        .current-right { text-align: right; }
-        .weather-title { margin: 0 0 4px; font-size: 22px; font-weight: 500; color: var(--primary-text-color); letter-spacing: -0.5px; }
-        .weather-day { font-size: 18px; color: var(--secondary-text-color); font-weight: 400; }
-        .weather-condition { font-size: 20px; color: var(--primary-text-color); text-transform: capitalize; font-weight: 500; }
+        .current-right { display: flex; align-items: center; justify-content: flex-end; flex: 1; min-width: 0; }
+        .weather-date { font-size: 28px; font-weight: 500; color: var(--primary-text-color); letter-spacing: -0.5px; line-height: 1.2; text-align: right; }
         .graph-section { margin-bottom: 20px; }
         .graph-tabs { display: flex; gap: 0; margin-bottom: 12px; border-bottom: 2px solid var(--divider-color); }
         .graph-tab { padding: 10px 20px; background: transparent; border: none; border-bottom: 3px solid transparent; margin-bottom: -2px; color: var(--secondary-text-color); cursor: pointer; font-size: 14px; font-weight: 500; }
@@ -245,13 +256,13 @@ class HomeWeatherPanel extends HTMLElement {
         .graph-time { position: absolute; transform: translate(-50%, 0); }
         .daily-section { margin-bottom: 24px; overflow: visible; }
         .daily-scroll { display: flex; gap: 20px; overflow-x: auto; padding: 24px 8px; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; }
-        .day-card { flex: 0 0 110px; min-width: 110px; scroll-snap-align: start; padding: 20px 16px; background: var(--card-background-color); border-radius: 20px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.06); border: none; transition: all 0.25s ease; overflow: visible; }
+        .day-card { display: flex; flex-direction: column; align-items: center; flex: 0 0 110px; min-width: 110px; scroll-snap-align: start; padding: 20px 16px; background: var(--card-background-color); border-radius: 20px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.06); border: none; transition: all 0.25s ease; overflow: visible; }
         .day-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
         .day-card.current-day { background: linear-gradient(180deg, rgba(66,133,244,0.12) 0%, rgba(66,133,244,0.04) 100%); box-shadow: 0 2px 12px rgba(66,133,244,0.2); }
         .day-icon { width: 56px; height: 48px; margin: 0 auto 10px; display: flex; align-items: center; justify-content: center; overflow: visible; }
-        .day-abbr { font-size: 14px; font-weight: 600; color: var(--primary-text-color); margin-bottom: 8px; letter-spacing: -0.3px; }
+        .day-abbr { font-size: 14px; font-weight: 600; color: var(--primary-text-color); margin-bottom: 6px; letter-spacing: -0.3px; display: block; width: 100%; }
         .day-icon .weather-icon { width: 56px; height: 48px; object-fit: contain; }
-        .day-temps { font-size: 15px; color: var(--secondary-text-color); font-weight: 500; }
+        .day-temps { font-size: 15px; color: var(--secondary-text-color); font-weight: 500; display: block; width: 100%; line-height: 1.4; }
       </style>
       <div class="${this._isNarrow ? "narrow" : ""}">
         <div class="header">
@@ -323,8 +334,7 @@ class HomeWeatherPanel extends HTMLElement {
     const hourly = this._weatherData.hourly_forecast || [];
     const daily = (this._weatherData.daily_forecast || []).slice(0, 7);
     const now = new Date();
-    const todayLabel = now.toLocaleDateString("en-US", { weekday: "long" });
-    const dateStr = now.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
+    const dateLong = this._formatDateLong(now);
     const condition = current.condition || current.state || "—";
     const temp = current.temperature != null ? Math.round(current.temperature) : "—";
     const precipPct = hourly[0]?.precipitation_probability ?? 0;
@@ -366,7 +376,10 @@ class HomeWeatherPanel extends HTMLElement {
       <div class="weather-dashboard">
         <div class="current-section">
           <div class="current-left">
-            <div class="current-icon">${this._getConditionIcon(condition, "large")}</div>
+            <div class="current-icon-block">
+              <div class="current-icon">${this._getConditionIcon(condition, "large")}</div>
+              <div class="current-condition">${condition}</div>
+            </div>
             <div class="current-temp-block">
               <span class="current-temp">${temp}</span>
               <div class="unit-toggle">
@@ -381,9 +394,7 @@ class HomeWeatherPanel extends HTMLElement {
             </div>
           </div>
           <div class="current-right">
-            <h2 class="weather-title">Weather</h2>
-            <div class="weather-day">${todayLabel}, ${dateStr}</div>
-            <div class="weather-condition">${condition}</div>
+            <div class="weather-date">${dateLong}</div>
           </div>
         </div>
         <div class="graph-section">
@@ -393,7 +404,7 @@ class HomeWeatherPanel extends HTMLElement {
             <button class="graph-tab ${this._graphMode === "wind" ? "active" : ""}" data-graph="wind">Wind</button>
           </div>
           <div class="graph-container">
-            <svg class="graph-svg" viewBox="0 0 600 80" preserveAspectRatio="xMidYMid meet">
+            <svg class="graph-svg" viewBox="0 0 600 80" preserveAspectRatio="none">
               <defs>
                 <linearGradient id="graphGradient" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stop-color="#4285f4" stop-opacity="0.25"/>
