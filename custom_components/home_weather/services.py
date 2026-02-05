@@ -112,3 +112,7 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
 
         connection.send_result(msg["id"], {"data": data})
 
+    websocket_api.async_register_command(hass, handle_get_config)
+    websocket_api.async_register_command(hass, handle_set_config)
+    websocket_api.async_register_command(hass, handle_get_weather)
+

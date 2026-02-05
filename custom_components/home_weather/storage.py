@@ -26,10 +26,9 @@ class HomeWeatherStorage:
         try:
             data = await self._store.async_load()
             if data:
-                self._data = data
                 # Merge with defaults to ensure all keys exist
-                config = {**DEFAULT_CONFIG, **self._data}
-                return config
+                self._data = {**DEFAULT_CONFIG, **data}
+                return self._data.copy()
             else:
                 # No stored data, return defaults
                 self._data = DEFAULT_CONFIG.copy()

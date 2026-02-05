@@ -66,8 +66,9 @@ async def _register_panel(hass: HomeAssistant) -> None:
 
         # Register panel using panel_custom (same API as Home Energy)
         from homeassistant.components import panel_custom
+        from homeassistant.components.frontend import DATA_PANELS
 
-        if PANEL_URL_PATH not in hass.data.get("frontend_panels", {}):
+        if PANEL_URL_PATH not in hass.data.get(DATA_PANELS, {}):
             await panel_custom.async_register_panel(
                 hass,
                 webcomponent_name="home-weather-panel",
