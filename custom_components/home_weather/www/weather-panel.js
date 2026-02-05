@@ -132,24 +132,30 @@ class HomeWeatherPanel extends HTMLElement {
     return new Date(dt).toLocaleDateString("en-US", { weekday: "short" });
   }
 
-  _getConditionIcon(condition) {
+  _getConditionIcon(condition, size) {
     const c = (condition || "").toLowerCase().replace(/\s+/g, "");
-    const icons = {
-      sunny: '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="4"/><path d="M12 3v2m0 14v2M5.64 5.64l1.42 1.42m9.88 9.88l1.42 1.42M3 12h2m14 0h2M5.64 18.36l1.42-1.42m9.88-9.88l1.42-1.42" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" fill="none"/></svg>',
-      clear: '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="5"/></svg>',
-      partlycloudy: '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="9" r="3.5"/><path d="M17.5 15c-1.5 0-2.8.9-3.4 2.2-.8-.4-1.7-.2-2.3.4-.6.6-.7 1.5-.3 2.3-1.1.4-1.9 1.4-1.9 2.6 0 1.6 1.3 2.9 2.9 2.9h7.2c1.6 0 2.9-1.3 2.9-2.9 0-1.3-.9-2.4-2.1-2.8z"/></svg>',
-      partly_cloudy: '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="9" r="3.5"/><path d="M17.5 15c-1.5 0-2.8.9-3.4 2.2-.8-.4-1.7-.2-2.3.4-.6.6-.7 1.5-.3 2.3-1.1.4-1.9 1.4-1.9 2.6 0 1.6 1.3 2.9 2.9 2.9h7.2c1.6 0 2.9-1.3 2.9-2.9 0-1.3-.9-2.4-2.1-2.8z"/></svg>',
-      cloudy: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"/></svg>',
-      fog: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 15h18v1.5H3V15zm0 4h18v1.5H3V19zm0-8h18v1.5H3V11z"/></svg>',
-      rain: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 14h2v4H6v-4zm4-4h2v8h-2v-8zm4 2h2v6h-2v-6z"/><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z" opacity="0.4"/></svg>',
-      snowy: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"/><circle cx="12" cy="16" r="1.5" fill="#94c5eb"/></svg>',
-      snow: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"/><circle cx="12" cy="16" r="1.5" fill="#94c5eb"/></svg>',
-      lightning: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M13 2L3 14h8l-2 8 10-12h-8L13 2z"/></svg>',
-      thunderstorm: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M13 2L3 14h8l-2 8 10-12h-8L13 2z"/></svg>',
-      hail: '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="3"/></svg>',
-      overcast: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"/></svg>',
+    const map = {
+      sunny: "clear-day", clear: "clear-day", fair: "clear-day",
+      partlycloudy: "cloudy-1-day", partly_cloudy: "cloudy-1-day",
+      cloudy: "cloudy", overcast: "cloudy-2-day",
+      fog: "fog", foggy: "fog", mist: "fog", hazy: "fog",
+      rain: "rainy-1", rainy: "rainy-1", drizzle: "rainy-1", "rainy-1": "rainy-1", "rainy-2": "rainy-2",
+      snow: "snowy-1", snowy: "snowy-1", flurries: "snowy-1", "snowy-1": "snowy-1", "snowy-2": "snowy-2",
+      lightning: "thunderstorms", thunderstorm: "thunderstorms", thunderstorms: "thunderstorms",
+      hail: "hail", sleet: "rain-and-sleet-mix",
     };
-    return icons[c] || icons.partlycloudy;
+    let icon = map[c];
+    if (!icon) {
+      if (c.includes("rain")) icon = "rainy-1";
+      else if (c.includes("snow")) icon = "snowy-1";
+      else if (c.includes("cloud") || c.includes("overcast")) icon = "cloudy";
+      else if (c.includes("thunder") || c.includes("lightning")) icon = "thunderstorms";
+      else if (c.includes("fog") || c.includes("mist") || c.includes("haze")) icon = "fog";
+      else icon = "cloudy-1-day";
+    }
+    const w = size === "large" ? 88 : 48;
+    const h = size === "large" ? 72 : 40;
+    return `<img src="/local/home_weather/icons/${icon}.svg" alt="${condition || 'weather'}" width="${w}" height="${h}" class="weather-icon" loading="lazy"/>`;
   }
 
   _formatWindSpeed(val, unit) {
@@ -214,8 +220,8 @@ class HomeWeatherPanel extends HTMLElement {
         .weather-dashboard { --accent-color: #4285f4; --hero-gradient: linear-gradient(135deg, #4285f4 0%, #34a853 50%, #fbbc04 100%); }
         .current-section { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 32px; margin-bottom: 28px; padding: 36px 32px; background: var(--card-background-color); border-radius: 20px; border: 1px solid var(--divider-color); box-shadow: 0 4px 20px rgba(0,0,0,0.12); }
         .current-left { display: flex; align-items: center; gap: 28px; flex-wrap: wrap; }
-        .current-icon { width: 88px; height: 88px; color: #f9a825; }
-        .current-icon svg { width: 100%; height: 100%; }
+        .current-icon { width: 88px; height: 72px; display: flex; align-items: center; justify-content: center; overflow: visible; }
+        .current-icon .weather-icon { width: 88px; height: 72px; object-fit: contain; }
         .current-temp-block { display: flex; flex-direction: column; gap: 8px; }
         .current-temp { font-size: 72px; font-weight: 200; color: var(--primary-text-color); line-height: 1; letter-spacing: -2px; }
         .unit-toggle { display: flex; gap: 0; }
@@ -237,14 +243,14 @@ class HomeWeatherPanel extends HTMLElement {
         .graph-axis-y { position: absolute; left: 12px; top: 28px; bottom: 40px; display: flex; flex-direction: column; justify-content: space-between; font-size: 11px; font-weight: 500; color: var(--secondary-text-color); }
         .graph-times { position: absolute; bottom: 12px; left: 48px; right: 16px; height: 24px; font-size: 11px; font-weight: 500; color: var(--secondary-text-color); }
         .graph-time { position: absolute; transform: translate(-50%, 0); }
-        .daily-section { margin-bottom: 24px; }
-        .daily-scroll { display: flex; gap: 16px; overflow-x: auto; padding: 20px 0; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; }
-        .day-card { flex: 0 0 88px; scroll-snap-align: start; padding: 20px 12px; background: var(--card-background-color); border-radius: 20px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.06); border: none; transition: all 0.25s ease; }
+        .daily-section { margin-bottom: 24px; overflow: visible; }
+        .daily-scroll { display: flex; gap: 20px; overflow-x: auto; padding: 24px 8px; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; }
+        .day-card { flex: 0 0 110px; min-width: 110px; scroll-snap-align: start; padding: 20px 16px; background: var(--card-background-color); border-radius: 20px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.06); border: none; transition: all 0.25s ease; overflow: visible; }
         .day-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
         .day-card.current-day { background: linear-gradient(180deg, rgba(66,133,244,0.12) 0%, rgba(66,133,244,0.04) 100%); box-shadow: 0 2px 12px rgba(66,133,244,0.2); }
         .day-abbr { font-size: 15px; font-weight: 600; color: var(--primary-text-color); margin-bottom: 12px; letter-spacing: -0.3px; }
-        .day-icon { width: 40px; height: 40px; margin: 0 auto 10px; color: #f9a825; }
-        .day-icon svg { width: 100%; height: 100%; }
+        .day-icon { width: 56px; height: 48px; margin: 0 auto 12px; display: flex; align-items: center; justify-content: center; overflow: visible; }
+        .day-icon .weather-icon { width: 56px; height: 48px; object-fit: contain; }
         .day-temps { font-size: 15px; color: var(--secondary-text-color); font-weight: 500; }
       </style>
       <div class="${this._isNarrow ? "narrow" : ""}">
@@ -358,7 +364,7 @@ class HomeWeatherPanel extends HTMLElement {
       <div class="weather-dashboard">
         <div class="current-section">
           <div class="current-left">
-            <div class="current-icon">${this._getConditionIcon(condition)}</div>
+            <div class="current-icon">${this._getConditionIcon(condition, "large")}</div>
             <div class="current-temp-block">
               <span class="current-temp">${temp}</span>
               <div class="unit-toggle">
