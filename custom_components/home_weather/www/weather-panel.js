@@ -16,7 +16,6 @@ class HomeWeatherPanel extends HTMLElement {
     this._weatherData = null;
     this._settings = {};
     this._narrow = null;
-    this._drawerOpen = false;
   }
 
   get _isNarrow() {
@@ -136,18 +135,18 @@ class HomeWeatherPanel extends HTMLElement {
   _getConditionIcon(condition) {
     const c = (condition || "").toLowerCase().replace(/\s+/g, "");
     const icons = {
-      sunny: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 7c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5zM12 2L9 5h6l-3-3zm0 14l-3 3h6l-3-3zM2 12l3-3v6l-3-3zm14 0l3 3v-6l-3 3zM5 5L2 8h2L5 5zm14 0l3 3h-2l-1-3zM5 19l-3-3h2l1 3zm14 0l-3-3h2l3 3z"/></svg>',
-      clear: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 7c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5z"/></svg>',
-      partlycloudy: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 7c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5zm-5 8c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm10 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>',
-      partly_cloudy: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 7c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5zm-5 8c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm10 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>',
+      sunny: '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="4"/><path d="M12 3v2m0 14v2M5.64 5.64l1.42 1.42m9.88 9.88l1.42 1.42M3 12h2m14 0h2M5.64 18.36l1.42-1.42m9.88-9.88l1.42-1.42" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" fill="none"/></svg>',
+      clear: '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="5"/></svg>',
+      partlycloudy: '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="9" r="3.5"/><path d="M17.5 15c-1.5 0-2.8.9-3.4 2.2-.8-.4-1.7-.2-2.3.4-.6.6-.7 1.5-.3 2.3-1.1.4-1.9 1.4-1.9 2.6 0 1.6 1.3 2.9 2.9 2.9h7.2c1.6 0 2.9-1.3 2.9-2.9 0-1.3-.9-2.4-2.1-2.8z"/></svg>',
+      partly_cloudy: '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="9" r="3.5"/><path d="M17.5 15c-1.5 0-2.8.9-3.4 2.2-.8-.4-1.7-.2-2.3.4-.6.6-.7 1.5-.3 2.3-1.1.4-1.9 1.4-1.9 2.6 0 1.6 1.3 2.9 2.9 2.9h7.2c1.6 0 2.9-1.3 2.9-2.9 0-1.3-.9-2.4-2.1-2.8z"/></svg>',
       cloudy: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"/></svg>',
-      fog: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 15h18v2H3v-2zm0 4h18v2H3v-2zm0-8h18v2H3v-2zm0-4h18v2H3V7z"/></svg>',
-      rain: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 14h2v4H6v-4zm4-4h2v8h-2v-8zm4 2h2v6h-2v-6zm-8 2h2v4H6v-4zm4-4h2v8h-2v-8zm4 2h2v6h-2v-6z"/><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z" opacity="0.3"/></svg>',
-      snowy: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"/><path d="M12 18c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z" fill="#87CEEB"/></svg>',
-      snow: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"/><path d="M12 18c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z" fill="#87CEEB"/></svg>',
-      lightning: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 2v11h3v9l7-12h-4l4-8z"/></svg>',
-      thunderstorm: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 2v11h3v9l7-12h-4l4-8z"/></svg>',
-      hail: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 18c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/></svg>',
+      fog: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 15h18v1.5H3V15zm0 4h18v1.5H3V19zm0-8h18v1.5H3V11z"/></svg>',
+      rain: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 14h2v4H6v-4zm4-4h2v8h-2v-8zm4 2h2v6h-2v-6z"/><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z" opacity="0.4"/></svg>',
+      snowy: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"/><circle cx="12" cy="16" r="1.5" fill="#94c5eb"/></svg>',
+      snow: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"/><circle cx="12" cy="16" r="1.5" fill="#94c5eb"/></svg>',
+      lightning: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M13 2L3 14h8l-2 8 10-12h-8L13 2z"/></svg>',
+      thunderstorm: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M13 2L3 14h8l-2 8 10-12h-8L13 2z"/></svg>',
+      hail: '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="3"/></svg>',
       overcast: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"/></svg>',
     };
     return icons[c] || icons.partlycloudy;
@@ -167,7 +166,6 @@ class HomeWeatherPanel extends HTMLElement {
   _render() {
     const s = this.shadowRoot;
     if (!s) return;
-    if (!this._isNarrow) this._drawerOpen = false;
     s.innerHTML = `
       <style>
         :host { display: block; padding: 16px; max-width: 1200px; margin: 0 auto; }
@@ -178,22 +176,9 @@ class HomeWeatherPanel extends HTMLElement {
         .hamburger { display: none; padding: 8px; background: transparent; border: none; cursor: pointer; color: var(--primary-text-color); border-radius: 8px; }
         .hamburger:hover { background: var(--secondary-background-color); }
         .hamburger svg { width: 24px; height: 24px; display: block; }
-        .drawer-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 1000; opacity: 0; pointer-events: none; transition: opacity 0.2s; }
-        .drawer-overlay.open { opacity: 1; pointer-events: auto; }
-        .drawer { position: fixed; top: 0; left: 0; bottom: 0; width: 280px; max-width: 85vw; background: var(--card-background-color); box-shadow: 4px 0 16px rgba(0,0,0,0.2); z-index: 1001; transform: translateX(-100%); transition: transform 0.25s ease; }
-        .drawer.open { transform: translateX(0); }
-        .drawer-header { display: flex; justify-content: space-between; align-items: center; padding: 16px; border-bottom: 1px solid var(--divider-color); }
-        .drawer-header h2 { margin: 0; font-size: 18px; font-weight: 500; color: var(--primary-text-color); }
-        .drawer-close { padding: 8px; background: transparent; border: none; cursor: pointer; color: var(--secondary-text-color); border-radius: 8px; }
-        .drawer-close:hover { background: var(--secondary-background-color); color: var(--primary-text-color); }
-        .drawer-nav { padding: 16px; display: flex; flex-direction: column; gap: 4px; }
-        .drawer-nav .nav-tab { justify-content: flex-start; width: 100%; text-align: left; padding: 14px 16px; border-radius: 8px; margin-bottom: 0; }
-        .drawer-nav .view-toggle { flex-direction: column; margin: 16px 0 0; }
-        .drawer-nav .view-toggle button { width: 100%; text-align: left; padding: 12px 16px; }
         .main-nav { display: flex; gap: 8px; margin-bottom: 24px; }
-        @media (max-width: 768px) { .hamburger { display: block; } .main-nav { display: none; } }
+        @media (max-width: 768px) { .hamburger { display: block; } }
         .narrow .hamburger { display: block; }
-        .narrow .main-nav { display: none; }
         .nav-tabs { display: flex; gap: 8px; }
         .nav-tab { padding: 12px 24px; background: transparent; border: none; border-bottom: 2px solid transparent; color: var(--secondary-text-color); cursor: pointer; font-size: 16px; }
         .nav-tab:hover { color: var(--primary-text-color); }
@@ -227,9 +212,9 @@ class HomeWeatherPanel extends HTMLElement {
         .btn-secondary { background: var(--secondary-background-color); color: var(--primary-text-color); }
         .btn:disabled { opacity: 0.5; cursor: not-allowed; }
         .weather-dashboard { --accent-color: #4285f4; --hero-gradient: linear-gradient(135deg, #4285f4 0%, #34a853 50%, #fbbc04 100%); }
-        .current-section { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 32px; margin-bottom: 24px; padding: 32px 28px; background: linear-gradient(180deg, rgba(66,133,244,0.15) 0%, transparent 100%); border-radius: 24px; border: none; box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
+        .current-section { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 32px; margin-bottom: 28px; padding: 36px 32px; background: var(--card-background-color); border-radius: 20px; border: 1px solid var(--divider-color); box-shadow: 0 4px 20px rgba(0,0,0,0.12); }
         .current-left { display: flex; align-items: center; gap: 28px; flex-wrap: wrap; }
-        .current-icon { width: 96px; height: 96px; color: #fbbc04; filter: drop-shadow(0 2px 8px rgba(251,188,4,0.3)); }
+        .current-icon { width: 88px; height: 88px; color: #f9a825; }
         .current-icon svg { width: 100%; height: 100%; }
         .current-temp-block { display: flex; flex-direction: column; gap: 8px; }
         .current-temp { font-size: 72px; font-weight: 200; color: var(--primary-text-color); line-height: 1; letter-spacing: -2px; }
@@ -247,11 +232,10 @@ class HomeWeatherPanel extends HTMLElement {
         .graph-tab { padding: 14px 24px; background: transparent; border: none; border-bottom: 3px solid transparent; margin-bottom: -2px; color: var(--secondary-text-color); cursor: pointer; font-size: 15px; font-weight: 500; }
         .graph-tab:hover { color: var(--primary-text-color); }
         .graph-tab.active { color: var(--accent-color); border-bottom-color: var(--accent-color); }
-        .graph-container { position: relative; height: 160px; background: var(--card-background-color); border-radius: 16px; padding: 24px 20px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); border: none; }
-        .graph-svg { width: 100%; height: 90px; display: block; }
-        .graph-labels { position: absolute; top: 20px; left: 16px; right: 16px; height: 20px; pointer-events: none; }
-        .graph-label { position: absolute; transform: translate(-50%, 0); font-size: 12px; color: var(--primary-text-color); }
-        .graph-times { position: absolute; bottom: 20px; left: 16px; right: 16px; height: 20px; font-size: 12px; color: var(--secondary-text-color); }
+        .graph-container { position: relative; min-height: 200px; background: var(--card-background-color); border-radius: 16px; padding: 28px 32px 40px 48px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); border: 1px solid rgba(255,255,255,0.06); }
+        .graph-svg { width: 100%; height: 140px; display: block; }
+        .graph-axis-y { position: absolute; left: 12px; top: 28px; bottom: 40px; display: flex; flex-direction: column; justify-content: space-between; font-size: 11px; font-weight: 500; color: var(--secondary-text-color); }
+        .graph-times { position: absolute; bottom: 12px; left: 48px; right: 16px; height: 24px; font-size: 11px; font-weight: 500; color: var(--secondary-text-color); }
         .graph-time { position: absolute; transform: translate(-50%, 0); }
         .daily-section { margin-bottom: 24px; }
         .daily-scroll { display: flex; gap: 16px; overflow-x: auto; padding: 20px 0; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; }
@@ -259,13 +243,13 @@ class HomeWeatherPanel extends HTMLElement {
         .day-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
         .day-card.current-day { background: linear-gradient(180deg, rgba(66,133,244,0.12) 0%, rgba(66,133,244,0.04) 100%); box-shadow: 0 2px 12px rgba(66,133,244,0.2); }
         .day-abbr { font-size: 15px; font-weight: 600; color: var(--primary-text-color); margin-bottom: 12px; letter-spacing: -0.3px; }
-        .day-icon { width: 44px; height: 44px; margin: 0 auto 12px; color: #fbbc04; }
+        .day-icon { width: 40px; height: 40px; margin: 0 auto 10px; color: #f9a825; }
         .day-icon svg { width: 100%; height: 100%; }
         .day-temps { font-size: 15px; color: var(--secondary-text-color); font-weight: 500; }
       </style>
       <div class="${this._isNarrow ? "narrow" : ""}">
         <div class="header">
-          <button class="hamburger" id="hamburger-btn" aria-label="Open menu">
+          <button class="hamburger" id="hamburger-btn" aria-label="Open Home Assistant sidebar">
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></svg>
           </button>
           <h1>Home Weather</h1>
@@ -275,28 +259,14 @@ class HomeWeatherPanel extends HTMLElement {
           <button class="nav-tab ${this._currentView === "settings" ? "active" : ""}" data-view="settings">Settings</button>
         </div>
       </div>
-      <div class="drawer-overlay ${this._drawerOpen ? "open" : ""}" id="drawer-overlay"></div>
-      <aside class="drawer ${this._drawerOpen ? "open" : ""}" id="drawer">
-        <div class="drawer-header">
-          <h2>Menu</h2>
-          <button class="drawer-close" id="drawer-close" aria-label="Close menu">✕</button>
-        </div>
-        <div class="drawer-nav">
-          <button class="nav-tab ${this._currentView === "forecast" ? "active" : ""}" data-view="forecast">Forecast</button>
-          <button class="nav-tab ${this._currentView === "settings" ? "active" : ""}" data-view="settings">Settings</button>
-        </div>
-      </aside>
       ${this._renderContent()}
     `;
-    const openDrawer = () => { this._drawerOpen = true; this._render(); };
-    const closeDrawer = () => { this._drawerOpen = false; this._render(); };
-    s.getElementById("hamburger-btn")?.addEventListener("click", openDrawer);
-    s.getElementById("drawer-overlay")?.addEventListener("click", closeDrawer);
-    s.getElementById("drawer-close")?.addEventListener("click", closeDrawer);
+    s.getElementById("hamburger-btn")?.addEventListener("click", () => {
+      this.dispatchEvent(new CustomEvent("hass-toggle-menu", { bubbles: true, composed: true }));
+    });
     s.querySelectorAll(".nav-tab").forEach((btn) => {
-      btn.addEventListener("click", (e) => {
+      btn.addEventListener("click", () => {
         if (btn.dataset.view) this._currentView = btn.dataset.view;
-        if (this._isNarrow && s.getElementById("drawer")?.contains(btn)) closeDrawer();
         this._render();
       });
     });
@@ -353,21 +323,36 @@ class HomeWeatherPanel extends HTMLElement {
     const humidity = current.humidity != null ? Math.round(current.humidity) : "—";
     const wind = this._formatWindSpeed(current.wind_speed, current.wind_speed_unit);
 
-    const step = hourly.length >= 8 ? Math.floor(hourly.length / 8) : 1;
-    const hourlySample = hourly.filter((_, i) => i % step === 0).slice(0, 8);
-    const graphData = hourlySample.map((h) => ({
+    const graphData = hourly.slice(0, 24).map((h) => ({
       time: this._formatTime(h.datetime),
       temp: h.temperature != null ? Math.round(h.temperature) : null,
       precip: h.precipitation_probability ?? 0,
       wind: h.wind_speed ?? 0,
     }));
 
-    const graphPath = this._buildGraphPath(graphData, this._graphMode);
-    const graphLabels = graphData.map((d) => {
-      if (this._graphMode === "temperature") return d.temp != null ? String(d.temp) : "—";
-      if (this._graphMode === "precipitation") return `${d.precip}%`;
-      return d.wind != null ? String(Math.round(d.wind)) : "—";
+    const values = graphData.map((d) => {
+      if (this._graphMode === "temperature") return d.temp ?? 0;
+      if (this._graphMode === "precipitation") return d.precip ?? 0;
+      return d.wind ?? 0;
     });
+    const graphAxis = {
+      min: values.length ? Math.floor(Math.min(...values)) : 0,
+      max: values.length ? Math.ceil(Math.max(...values)) : 0,
+      suffix: this._graphMode === "precipitation" ? "%" : this._graphMode === "wind" ? " mph" : "°",
+    };
+    if (this._graphMode === "precipitation") {
+      graphAxis.max = Math.max(20, Math.min(100, graphAxis.max));
+      graphAxis.min = 0;
+    }
+    const graphPath = this._buildGraphPath(graphData, this._graphMode, graphAxis);
+    const timeStep = graphData.length > 12 ? 3 : graphData.length > 6 ? 2 : 1;
+    const graphTimeLabels = [];
+    for (let i = 0; i < graphData.length; i += timeStep) {
+      graphTimeLabels.push({ label: graphData[i].time, pct: (i / (graphData.length - 1 || 1)) * 100 });
+    }
+    if (graphData.length && graphTimeLabels[graphTimeLabels.length - 1]?.pct < 99) {
+      graphTimeLabels.push({ label: graphData[graphData.length - 1].time, pct: 100 });
+    }
 
     return `
       <div class="weather-dashboard">
@@ -400,18 +385,23 @@ class HomeWeatherPanel extends HTMLElement {
             <button class="graph-tab ${this._graphMode === "wind" ? "active" : ""}" data-graph="wind">Wind</button>
           </div>
           <div class="graph-container">
-            <svg class="graph-svg" viewBox="0 0 400 120" preserveAspectRatio="none">
+            <svg class="graph-svg" viewBox="0 0 600 140" preserveAspectRatio="xMidYMid meet">
               <defs>
                 <linearGradient id="graphGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stop-color="#4285f4" stop-opacity="0.35"/>
+                  <stop offset="0%" stop-color="#4285f4" stop-opacity="0.25"/>
                   <stop offset="100%" stop-color="#4285f4" stop-opacity="0"/>
                 </linearGradient>
               </defs>
+              <line x1="24" y1="16" x2="24" y2="124" stroke="var(--divider-color)" stroke-width="1" opacity="0.5"/>
+              <line x1="24" y1="124" x2="576" y2="124" stroke="var(--divider-color)" stroke-width="1" opacity="0.5"/>
               <path class="graph-area" d="${graphPath.area}" fill="url(#graphGradient)"/>
-              <path class="graph-line" d="${graphPath.line}" fill="none" stroke="#4285f4" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+              <path class="graph-line" d="${graphPath.line}" fill="none" stroke="#4285f4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
-            <div class="graph-labels">${graphLabels.map((l, i) => `<span class="graph-label" style="left:${(i / (graphLabels.length - 1 || 1)) * 100}%">${l}</span>`).join("")}</div>
-            <div class="graph-times">${graphData.map((d, i) => `<span class="graph-time" style="left:${(i / (graphData.length - 1 || 1)) * 100}%">${d.time}</span>`).join("")}</div>
+            <div class="graph-axis-y">
+              <span class="axis-max">${graphAxis.max}${graphAxis.suffix}</span>
+              <span class="axis-min">${graphAxis.min}${graphAxis.suffix}</span>
+            </div>
+            <div class="graph-times">${graphTimeLabels.map((t) => `<span class="graph-time" style="left:${t.pct}%">${t.label}</span>`).join("")}</div>
           </div>
         </div>
         <div class="daily-section">
@@ -429,28 +419,42 @@ class HomeWeatherPanel extends HTMLElement {
     `;
   }
 
-  _buildGraphPath(data, mode) {
+  _buildGraphPath(data, mode, axis) {
     if (!data.length) return { line: "", area: "" };
-    const w = 400;
-    const h = 100;
-    const pad = 10;
+    const w = 600;
+    const h = 140;
+    const padX = 24;
+    const padY = 16;
     const values = data.map((d) => {
       if (mode === "temperature") return d.temp ?? 0;
       if (mode === "precipitation") return d.precip ?? 0;
       return d.wind ?? 0;
     });
-    const min = Math.min(...values);
-    const max = Math.max(...values);
+    const min = axis ? axis.min : Math.min(...values);
+    const max = axis ? axis.max : Math.max(...values);
     const range = Math.max(max - min, 1);
     const points = data.map((d, i) => {
-      const x = pad + (i / (data.length - 1 || 1)) * (w - 2 * pad);
+      const x = padX + (i / (data.length - 1 || 1)) * (w - 2 * padX);
       const v = mode === "temperature" ? (d.temp ?? 0) : mode === "precipitation" ? (d.precip ?? 0) : (d.wind ?? 0);
-      const y = h - pad - ((v - min) / range) * (h - 2 * pad);
+      const y = h - padY - ((v - min) / range) * (h - 2 * padY);
       return [x, y];
     });
-    const lineD = points.map((p, i) => `${i === 0 ? "M" : "L"} ${p[0]} ${p[1]}`).join(" ");
-    const areaD = lineD + ` L ${points[points.length - 1][0]} ${h - pad} L ${points[0][0]} ${h - pad} Z`;
-    return { line: lineD, area: areaD };
+    const smoothPath = this._smoothPath(points);
+    const areaD = smoothPath + ` L ${points[points.length - 1][0]} ${h - padY} L ${points[0][0]} ${h - padY} Z`;
+    return { line: smoothPath, area: areaD };
+  }
+
+  _smoothPath(points) {
+    if (points.length < 2) return `M ${points[0][0]} ${points[0][1]} L ${points[1][0]} ${points[1][1]}`;
+    let d = `M ${points[0][0]} ${points[0][1]}`;
+    for (let i = 1; i < points.length; i++) {
+      const [x0, y0] = points[i - 1];
+      const [x1, y1] = points[i];
+      const cpX = (x0 + x1) / 2;
+      d += ` Q ${cpX} ${y0}, ${cpX} ${(y0 + y1) / 2}`;
+      d += ` Q ${cpX} ${y1}, ${x1} ${y1}`;
+    }
+    return d;
   }
 
   _renderSettings() {
