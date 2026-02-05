@@ -116,7 +116,7 @@ class WeatherCoordinator(DataUpdateCoordinator):
                 daily_forecast = []
                 if result_daily and weather_entity in result_daily:
                     forecast_data = result_daily[weather_entity].get("forecast", [])
-                    for item in forecast_data[:8]:
+                    for item in forecast_data[:7]:
                         forecast_time = item.get("datetime") or item.get("forecast_time")
                         if isinstance(forecast_time, str):
                             forecast_time = dt_util.parse_datetime(forecast_time)
