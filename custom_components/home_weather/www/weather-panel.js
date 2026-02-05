@@ -23,7 +23,7 @@ class HomeWeatherPanel extends HTMLElement {
   }
 
   set panel(panel) {
-    this._panelConfig = panel?.config;
+    this._panelConfig = panel && panel.config;
   }
 
   connectedCallback() {
@@ -42,7 +42,7 @@ class HomeWeatherPanel extends HTMLElement {
       const response = await this._hass.callWS({ type: "home_weather/get_config" });
       this._config = response.config || {};
       this._settings = { ...this._config };
-      if (!this._config.weather_entity || !this._config.tts_engine || !this._config.media_players?.length) {
+      if (!this._config.weather_entity || !this._config.tts_engine || !(this._config.media_players && this._config.media_players.length)) {
         this._currentView = "settings";
       }
       await this._loadWeatherData();
@@ -59,7 +59,7 @@ class HomeWeatherPanel extends HTMLElement {
   }
 
   async _loadWeatherData() {
-    if (!this._hass || !this._config?.weather_entity) return;
+    if (!this._hass || !this._config || !this._config.weather_entity) return;
     try {
       const response = await this._hass.callWS({ type: "home_weather/get_weather" });
       this._weatherData = response.data;
@@ -206,7 +206,7 @@ class HomeWeatherPanel extends HTMLElement {
   }
 
   _renderForecast() {
-    if (!this._weatherData?.configured) {
+    if (!this._weatherData || !this._weatherData.configured) {
       return `<div class="error">Weather data not available. Please configure the integration in Settings.</div>`;
     }
     const hourly = this._weatherData.hourly_forecast || [];
@@ -243,7 +243,7 @@ class HomeWeatherPanel extends HTMLElement {
   }
 
   _renderSettings() {
-    const entities = Object.keys(this._hass?.states || {});
+    const entities = Object.keys((this._hass && this._hass.states) || {});
     const weatherEntities = entities.filter((e) => e.startsWith("weather."));
     const ttsEngines = entities.filter((e) => e.startsWith("tts."));
     const mediaPlayers = entities.filter((e) => e.startsWith("media_player."));
@@ -274,8 +274,8 @@ class HomeWeatherPanel extends HTMLElement {
         </div>
         <div class="form-group">
           <label>Volume Level</label>
-          <input type="range" id="volume" min="0" max="1" step="0.1" value="${this._settings.volume_level ?? 0.7}">
-          <small>${((this._settings.volume_level ?? 0.7) * 100).toFixed(0)}%</small>
+          <input type="range" id="volume" min="0" max="1" step="0.1" value="${this._settings.volume_level != null ? this._settings.volume_level : 0.7}">
+          <small>${((this._settings.volume_level != null ? this._settings.volume_level : 0.7) * 100).toFixed(0)}%</small>
         </div>
         <div class="form-actions">
           <button class="btn btn-secondary" id="cancel-btn">Cancel</button>
