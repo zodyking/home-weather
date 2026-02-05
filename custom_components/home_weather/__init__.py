@@ -2,23 +2,14 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.typing import ConfigType
 
 from .const import DOMAIN, PANEL_ICON, PANEL_TITLE, PANEL_URL_PATH
-from .coordinator import WeatherCoordinator
-from .storage import HomeWeatherStorage
-from .automation import HomeWeatherAutomation
-from .services import async_setup_websocket_api
 
 _LOGGER = logging.getLogger(__name__)
-
-PLATFORMS: list[Platform] = []
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
@@ -29,6 +20,11 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Home Weather from a config entry."""
+    from .storage import HomeWeatherStorage
+    from .coordinator import WeatherCoordinator
+    from .automation import HomeWeatherAutomation
+    from .services import async_setup_websocket_api
+
     # Initialize storage
     storage = HomeWeatherStorage(hass)
     await storage.async_load()
