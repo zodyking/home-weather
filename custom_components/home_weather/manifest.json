@@ -2,7 +2,7 @@
   "domain": "home_weather",
   "name": "Home Weather",
   "codeowners": ["@zodyking"],
-  "config_flow": false,
+  "config_flow": true,
   "dependencies": ["weather", "tts"],
   "documentation": "https://github.com/zodyking/home-weather",
   "integration_type": "system",

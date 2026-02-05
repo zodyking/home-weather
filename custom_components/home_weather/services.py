@@ -26,11 +26,14 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
         hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
     ) -> None:
         """Handle get_config WebSocket command."""
-        if DOMAIN not in hass.data:
-            connection.send_error(msg["id"], "not_loaded", "Integration not loaded")
-            return
-
-        storage = hass.data[DOMAIN].get("storage")
+        # Find the first entry's storage
+        storage = None
+        if DOMAIN in hass.data:
+            for entry_id, data in hass.data[DOMAIN].items():
+                if isinstance(data, dict) and "storage" in data:
+                    storage = data["storage"]
+                    break
+        
         if not storage:
             connection.send_error(msg["id"], "no_storage", "Storage not available")
             return
@@ -53,9 +56,18 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
             connection.send_error(msg["id"], "not_loaded", "Integration not loaded")
             return
 
-        storage = hass.data[DOMAIN].get("storage")
-        automation = hass.data[DOMAIN].get("automation")
-        coordinator = hass.data[DOMAIN].get("coordinator")
+        # Find the first entry's data
+        storage = None
+        automation = None
+        coordinator = None
+        if DOMAIN in hass.data:
+            for entry_id, data in hass.data[DOMAIN].items():
+                if isinstance(data, dict):
+                    storage = data.get("storage")
+                    automation = data.get("automation")
+                    coordinator = data.get("coordinator")
+                    if storage:
+                        break
 
         if not storage:
             connection.send_error(msg["id"], "no_storage", "Storage not available")
@@ -93,7 +105,14 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
             connection.send_error(msg["id"], "not_loaded", "Integration not loaded")
             return
 
-        coordinator = hass.data[DOMAIN].get("coordinator")
+        # Find the first entry's coordinator
+        coordinator = None
+        if DOMAIN in hass.data:
+            for entry_id, data in hass.data[DOMAIN].items():
+                if isinstance(data, dict) and "coordinator" in data:
+                    coordinator = data["coordinator"]
+                    break
+        
         if not coordinator:
             connection.send_error(msg["id"], "no_coordinator", "Coordinator not available")
             return
@@ -118,7 +137,14 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
             connection.send_error(msg["id"], "not_loaded", "Integration not loaded")
             return
 
-        automation = hass.data[DOMAIN].get("automation")
+        # Find the first entry's automation
+        automation = None
+        if DOMAIN in hass.data:
+            for entry_id, data in hass.data[DOMAIN].items():
+                if isinstance(data, dict) and "automation" in data:
+                    automation = data["automation"]
+                    break
+        
         if not automation:
             connection.send_error(msg["id"], "no_automation", "Automation not available")
             return

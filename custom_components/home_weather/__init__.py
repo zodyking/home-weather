@@ -24,7 +24,11 @@ PLATFORMS: list[Platform] = []
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up the Home Weather integration."""
     hass.data.setdefault(DOMAIN, {})
-    
+    return True
+
+
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Set up Home Weather from a config entry."""
     # Initialize storage
     storage = HomeWeatherStorage(hass)
     await storage.async_load()
@@ -38,7 +42,8 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     await automation.async_start()
     
     # Store in hass.data
-    hass.data[DOMAIN] = {
+    hass.data.setdefault(DOMAIN, {})
+    hass.data[DOMAIN][entry.entry_id] = {
         "storage": storage,
         "coordinator": coordinator,
         "automation": automation,
@@ -53,14 +58,13 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     return True
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up Home Weather from a config entry."""
-    # This integration doesn't use config entries, but we keep this for compatibility
-    return True
-
-
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
+    if entry.entry_id in hass.data.get(DOMAIN, {}):
+        data = hass.data[DOMAIN][entry.entry_id]
+        if "automation" in data:
+            await data["automation"].async_stop()
+        del hass.data[DOMAIN][entry.entry_id]
     return True
 
 
