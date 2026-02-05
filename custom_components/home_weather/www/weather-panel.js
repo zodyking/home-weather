@@ -10,7 +10,7 @@ class HomeWeatherPanel extends HTMLElement {
     this._loading = false;
     this._error = null;
     this._currentView = "forecast";
-    this._forecastView = "24h";
+    this._forecastView = "7day";
     this._graphMode = "temperature";
     this._useFahrenheit = true;
     this._weatherData = null;
@@ -31,9 +31,9 @@ class HomeWeatherPanel extends HTMLElement {
     this._hass = hass;
     if (hass && !this._config) {
       this._loadConfig();
-    } else if (hass) {
-      this._render();
     }
+    // Do NOT call _render() here - hass updates on every HA state change, causing constant re-renders.
+    // Rendering happens on: loadConfig, loadWeatherData, user actions, media query.
   }
 
   set panel(panel) {
@@ -249,19 +249,26 @@ class HomeWeatherPanel extends HTMLElement {
         .graph-tab { padding: 10px 20px; background: transparent; border: none; border-bottom: 3px solid transparent; margin-bottom: -2px; color: var(--secondary-text-color); cursor: pointer; font-size: 14px; font-weight: 500; }
         .graph-tab:hover { color: var(--primary-text-color); }
         .graph-tab.active { color: var(--accent-color); border-bottom-color: var(--accent-color); }
-        .graph-container { position: relative; height: 120px; background: var(--card-background-color); border-radius: 12px; padding: 12px 12px 28px 40px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); border: 1px solid var(--divider-color); }
-        .graph-svg { width: 100%; height: 80px; display: block; }
-        .graph-axis-y { position: absolute; left: 8px; top: 12px; bottom: 28px; display: flex; flex-direction: column; justify-content: space-between; font-size: 10px; font-weight: 500; color: var(--secondary-text-color); }
-        .graph-times { position: absolute; bottom: 6px; left: 40px; right: 8px; height: 20px; font-size: 10px; font-weight: 500; color: var(--secondary-text-color); }
+        .graph-container { position: relative; height: 130px; background: var(--card-background-color); border-radius: 12px; padding: 16px 16px 32px 44px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); border: 1px solid var(--divider-color); }
+        .graph-svg { width: 100%; height: 82px; display: block; }
+        .graph-axis-y { position: absolute; left: 8px; top: 16px; bottom: 32px; display: flex; flex-direction: column; justify-content: space-between; font-size: 10px; font-weight: 500; color: var(--secondary-text-color); }
+        .graph-times { position: absolute; bottom: 8px; left: 44px; right: 12px; height: 20px; font-size: 10px; font-weight: 500; color: var(--secondary-text-color); }
         .graph-time { position: absolute; transform: translate(-50%, 0); }
-        .daily-section { margin-bottom: 24px; overflow: visible; }
+        .forecast-section { margin-bottom: 24px; overflow: visible; }
+        .forecast-section-title { font-size: 18px; font-weight: 600; color: var(--primary-text-color); margin-bottom: 12px; letter-spacing: -0.3px; }
+        .forecast-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+        .forecast-tab { padding: 10px 20px; background: var(--card-background-color); border: 1px solid var(--divider-color); border-radius: 8px; color: var(--secondary-text-color); cursor: pointer; font-size: 14px; font-weight: 500; }
+        .forecast-tab:hover { color: var(--primary-text-color); border-color: var(--primary-text-color); }
+        .forecast-tab.active { background: var(--accent-color); color: white; border-color: var(--accent-color); }
         .daily-scroll { display: flex; gap: 20px; overflow-x: auto; padding: 24px 8px; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; }
-        .day-card { display: flex; flex-direction: column; align-items: center; flex: 0 0 110px; min-width: 110px; scroll-snap-align: start; padding: 20px 16px; background: var(--card-background-color); border-radius: 20px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.06); border: none; transition: all 0.25s ease; overflow: visible; }
-        .day-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
-        .day-card.current-day { background: linear-gradient(180deg, rgba(66,133,244,0.12) 0%, rgba(66,133,244,0.04) 100%); box-shadow: 0 2px 12px rgba(66,133,244,0.2); }
+        .forecast-card { display: flex; flex-direction: column; align-items: center; flex: 0 0 120px; min-width: 120px; scroll-snap-align: start; padding: 20px 16px; background: var(--card-background-color); border-radius: 20px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.06); border: none; transition: all 0.25s ease; overflow: visible; }
+        .forecast-card.day-card { flex: 0 0 120px; min-width: 120px; }
+        .forecast-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        .forecast-card.current-day { background: linear-gradient(180deg, rgba(66,133,244,0.12) 0%, rgba(66,133,244,0.04) 100%); box-shadow: 0 2px 12px rgba(66,133,244,0.2); }
         .day-icon { width: 56px; height: 48px; margin: 0 auto 10px; display: flex; align-items: center; justify-content: center; overflow: visible; }
-        .day-abbr { font-size: 14px; font-weight: 600; color: var(--primary-text-color); margin-bottom: 6px; letter-spacing: -0.3px; display: block; width: 100%; }
+        .forecast-card-label { font-size: 14px; font-weight: 600; color: var(--primary-text-color); margin-bottom: 8px; letter-spacing: -0.3px; display: block; width: 100%; }
         .day-icon .weather-icon { width: 56px; height: 48px; object-fit: contain; }
+        .forecast-card-condition { font-size: 11px; color: var(--secondary-text-color); text-transform: capitalize; margin-bottom: 6px; display: block; width: 100%; }
         .day-temps { font-size: 15px; color: var(--secondary-text-color); font-weight: 500; display: block; width: 100%; line-height: 1.4; }
       </style>
       <div class="${this._isNarrow ? "narrow" : ""}">
@@ -293,6 +300,12 @@ class HomeWeatherPanel extends HTMLElement {
       s.querySelectorAll(".graph-tab").forEach((btn) => {
         btn.addEventListener("click", () => {
           this._graphMode = btn.dataset.graph;
+          this._render();
+        });
+      });
+      s.querySelectorAll(".forecast-tab").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          this._forecastView = btn.dataset.view || "7day";
           this._render();
         });
       });
@@ -404,17 +417,19 @@ class HomeWeatherPanel extends HTMLElement {
             <button class="graph-tab ${this._graphMode === "wind" ? "active" : ""}" data-graph="wind">Wind</button>
           </div>
           <div class="graph-container">
-            <svg class="graph-svg" viewBox="0 0 600 80" preserveAspectRatio="none">
+            <svg class="graph-svg" viewBox="0 0 600 90" preserveAspectRatio="none">
               <defs>
                 <linearGradient id="graphGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stop-color="#4285f4" stop-opacity="0.25"/>
+                  <stop offset="0%" stop-color="#4285f4" stop-opacity="0.3"/>
                   <stop offset="100%" stop-color="#4285f4" stop-opacity="0"/>
                 </linearGradient>
               </defs>
-              <line x1="24" y1="8" x2="24" y2="72" stroke="var(--divider-color)" stroke-width="1" opacity="0.5"/>
-              <line x1="24" y1="72" x2="576" y2="72" stroke="var(--divider-color)" stroke-width="1" opacity="0.5"/>
+              <line x1="28" y1="10" x2="28" y2="80" stroke="var(--divider-color)" stroke-width="1" opacity="0.6"/>
+              <line x1="28" y1="80" x2="572" y2="80" stroke="var(--divider-color)" stroke-width="1" opacity="0.6"/>
+              <line x1="28" y1="45" x2="572" y2="45" stroke="var(--divider-color)" stroke-width="0.5" opacity="0.3"/>
+              <line x1="28" y1="10" x2="572" y2="10" stroke="var(--divider-color)" stroke-width="0.5" opacity="0.3"/>
               <path class="graph-area" d="${graphPath.area}" fill="url(#graphGradient)"/>
-              <path class="graph-line" d="${graphPath.line}" fill="none" stroke="#4285f4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <path class="graph-line" d="${graphPath.line}" fill="none" stroke="#4285f4" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
             <div class="graph-axis-y">
               <span class="axis-max">${graphAxis.max}${graphAxis.suffix}</span>
@@ -423,15 +438,31 @@ class HomeWeatherPanel extends HTMLElement {
             <div class="graph-times">${graphTimeLabels.map((t) => `<span class="graph-time" style="left:${t.pct}%">${t.label}</span>`).join("")}</div>
           </div>
         </div>
-        <div class="daily-section">
+        <div class="forecast-section">
+          <div class="forecast-section-title">${this._forecastView === "24h" ? "24 Hour Forecast" : "7-Day Forecast"}</div>
+          <div class="forecast-tabs">
+            <button class="forecast-tab ${this._forecastView === "24h" ? "active" : ""}" data-view="24h">24 Hour</button>
+            <button class="forecast-tab ${this._forecastView === "7day" ? "active" : ""}" data-view="7day">7 Day</button>
+          </div>
           <div class="daily-scroll">
-            ${daily.map((d, i) => `
-              <div class="day-card ${i === 0 ? "current-day" : ""}">
-                <div class="day-icon">${this._getConditionIcon(d.condition)}</div>
-                <div class="day-abbr">${this._formatDayShort(d.datetime)}</div>
-                <div class="day-temps">${d.temperature ?? "—"}° / ${d.templow ?? "—"}°</div>
-              </div>
-            `).join("")}
+            ${this._forecastView === "24h"
+              ? hourly.slice(0, 24).map((h, i) => `
+                <div class="forecast-card ${i === 0 ? "current-day" : ""}">
+                  <div class="forecast-card-label">${this._formatTime(h.datetime)}</div>
+                  <div class="day-icon">${this._getConditionIcon(h.condition)}</div>
+                  <div class="forecast-card-condition">${h.condition || "—"}</div>
+                  <div class="day-temps">${h.temperature != null ? Math.round(h.temperature) : "—"}°</div>
+                </div>
+              `).join("")
+              : daily.map((d, i) => `
+                <div class="forecast-card day-card ${i === 0 ? "current-day" : ""}">
+                  <div class="forecast-card-label">${this._formatDayShort(d.datetime)}</div>
+                  <div class="day-icon">${this._getConditionIcon(d.condition)}</div>
+                  <div class="forecast-card-condition">${d.condition || "—"}</div>
+                  <div class="day-temps">${d.temperature ?? "—"}° / ${d.templow ?? "—"}°</div>
+                </div>
+              `).join("")
+            }
           </div>
         </div>
       </div>
@@ -441,9 +472,9 @@ class HomeWeatherPanel extends HTMLElement {
   _buildGraphPath(data, mode, axis) {
     if (!data.length) return { line: "", area: "" };
     const w = 600;
-    const h = 80;
-    const padX = 24;
-    const padY = 8;
+    const h = 90;
+    const padX = 28;
+    const padY = 10;
     const values = data.map((d) => {
       if (mode === "temperature") return d.temp ?? 0;
       if (mode === "precipitation") return d.precip ?? 0;
