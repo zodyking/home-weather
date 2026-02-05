@@ -61,6 +61,15 @@ class WeatherCoordinator(DataUpdateCoordinator):
                 "temperature": state.attributes.get("temperature"),
                 "condition": state.attributes.get("condition"),
                 "state": state.state,
+                "humidity": state.attributes.get("humidity"),
+                "wind_speed": state.attributes.get("wind_speed")
+                or state.attributes.get("native_wind_speed"),
+                "wind_speed_unit": state.attributes.get("wind_speed_unit")
+                or state.attributes.get("native_wind_speed_unit", "mph"),
+                "precipitation": state.attributes.get("precipitation")
+                or state.attributes.get("native_precipitation"),
+                "precipitation_unit": state.attributes.get("precipitation_unit")
+                or state.attributes.get("native_precipitation_unit", "in"),
             }
 
             # Get forecasts using weather.get_forecasts service
@@ -89,6 +98,7 @@ class WeatherCoordinator(DataUpdateCoordinator):
                             "condition": item.get("condition"),
                             "precipitation": item.get("precipitation", 0),
                             "precipitation_probability": item.get("precipitation_probability", 0),
+                            "wind_speed": item.get("wind_speed"),
                         })
 
                 # Get daily forecast
@@ -106,7 +116,7 @@ class WeatherCoordinator(DataUpdateCoordinator):
                 daily_forecast = []
                 if result_daily and weather_entity in result_daily:
                     forecast_data = result_daily[weather_entity].get("forecast", [])
-                    for item in forecast_data[:7]:
+                    for item in forecast_data[:8]:
                         forecast_time = item.get("datetime") or item.get("forecast_time")
                         if isinstance(forecast_time, str):
                             forecast_time = dt_util.parse_datetime(forecast_time)
