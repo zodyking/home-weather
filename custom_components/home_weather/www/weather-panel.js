@@ -7,7 +7,7 @@ class HomeWeatherPanel extends HTMLElement {
     this.attachShadow({ mode: "open" });
     this._hass = null;
     this._config = null;
-    this._loading = true;
+    this._loading = false;
     this._error = null;
     this._currentView = "forecast";
     this._forecastView = "24h";
@@ -17,8 +17,10 @@ class HomeWeatherPanel extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
-    if (hass && !this._config && !this._loading) {
+    if (hass && !this._config) {
       this._loadConfig();
+    } else if (hass) {
+      this._render();
     }
   }
 
@@ -28,7 +30,7 @@ class HomeWeatherPanel extends HTMLElement {
 
   connectedCallback() {
     this._render();
-    if (this._hass) {
+    if (this._hass && !this._config) {
       this._loadConfig();
     }
   }
@@ -187,8 +189,9 @@ class HomeWeatherPanel extends HTMLElement {
   }
 
   _renderContent() {
+    if (!this._hass) return `<div class="loading">Connecting...</div>`;
     if (this._loading && !this._config) return `<div class="loading">Loading...</div>`;
-    if (this._error && !this._config) return `<div class="error">${this._error}</div>`;
+    if (this._error && !this._config) return `<div class="error">${String(this._error)}</div>`;
     return this._currentView === "forecast" ? this._renderForecast() : this._renderSettings();
   }
 
