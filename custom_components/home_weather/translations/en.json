@@ -1,0 +1,13 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Home Weather",
+        "description": "Add the Home Weather panel to your sidebar. Configure weather entity and TTS settings in the panel after installation."
+      }
+    },
+    "abort": {
+      "already_configured": "Home Weather is already configured."
+    }
+  }
+}
