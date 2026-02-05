@@ -5,18 +5,6 @@ import logging
 from datetime import datetime, timedelta
 from typing import Any
 
-from homeassistant.components.weather import (
-    ATTR_FORECAST,
-    ATTR_FORECAST_CONDITION,
-    ATTR_FORECAST_PRECIPITATION,
-    ATTR_FORECAST_PRECIPITATION_PROBABILITY,
-    ATTR_FORECAST_TEMP,
-    ATTR_FORECAST_TEMP_LOW,
-    ATTR_FORECAST_TIME,
-    ATTR_WEATHER_TEMPERATURE,
-    ATTR_WEATHER_CONDITION,
-    DOMAIN as WEATHER_DOMAIN,
-)
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
@@ -68,10 +56,10 @@ class WeatherCoordinator(DataUpdateCoordinator):
             if not state:
                 raise UpdateFailed(f"Weather entity {weather_entity} not found")
 
-            # Get current conditions
+            # Get current conditions (use string keys - weather attr names vary by HA version)
             current = {
-                "temperature": state.attributes.get(ATTR_WEATHER_TEMPERATURE),
-                "condition": state.attributes.get(ATTR_WEATHER_CONDITION),
+                "temperature": state.attributes.get("temperature"),
+                "condition": state.attributes.get("condition"),
                 "state": state.state,
             }
 
@@ -91,20 +79,17 @@ class WeatherCoordinator(DataUpdateCoordinator):
                 hourly_forecast = []
                 if result and weather_entity in result:
                     forecast_data = result[weather_entity].get("forecast", [])
-                    # Filter to next 24 hours
-                    now = dt_util.now()
                     for item in forecast_data[:24]:
-                        forecast_time = item.get(ATTR_FORECAST_TIME)
+                        forecast_time = item.get("datetime") or item.get("forecast_time")
                         if isinstance(forecast_time, str):
                             forecast_time = dt_util.parse_datetime(forecast_time)
-                        if forecast_time and forecast_time >= now:
-                            hourly_forecast.append({
-                                "datetime": forecast_time.isoformat() if isinstance(forecast_time, datetime) else forecast_time,
-                                "temperature": item.get(ATTR_FORECAST_TEMP),
-                                "condition": item.get(ATTR_FORECAST_CONDITION),
-                                "precipitation": item.get(ATTR_FORECAST_PRECIPITATION, 0),
-                                "precipitation_probability": item.get(ATTR_FORECAST_PRECIPITATION_PROBABILITY, 0),
-                            })
+                        hourly_forecast.append({
+                            "datetime": forecast_time.isoformat() if isinstance(forecast_time, datetime) else str(forecast_time) if forecast_time else "",
+                            "temperature": item.get("temperature"),
+                            "condition": item.get("condition"),
+                            "precipitation": item.get("precipitation", 0),
+                            "precipitation_probability": item.get("precipitation_probability", 0),
+                        })
 
                 # Get daily forecast
                 result_daily = await self.hass.services.async_call(
@@ -121,44 +106,23 @@ class WeatherCoordinator(DataUpdateCoordinator):
                 daily_forecast = []
                 if result_daily and weather_entity in result_daily:
                     forecast_data = result_daily[weather_entity].get("forecast", [])
-                    # Get next 7 days
                     for item in forecast_data[:7]:
-                        forecast_time = item.get(ATTR_FORECAST_TIME)
+                        forecast_time = item.get("datetime") or item.get("forecast_time")
                         if isinstance(forecast_time, str):
                             forecast_time = dt_util.parse_datetime(forecast_time)
                         daily_forecast.append({
-                            "datetime": forecast_time.isoformat() if isinstance(forecast_time, datetime) else forecast_time,
-                            "temperature": item.get(ATTR_FORECAST_TEMP),
-                            "templow": item.get(ATTR_FORECAST_TEMP_LOW),
-                            "condition": item.get(ATTR_FORECAST_CONDITION),
-                            "precipitation": item.get(ATTR_FORECAST_PRECIPITATION, 0),
-                            "precipitation_probability": item.get(ATTR_FORECAST_PRECIPITATION_PROBABILITY, 0),
+                            "datetime": forecast_time.isoformat() if isinstance(forecast_time, datetime) else str(forecast_time) if forecast_time else "",
+                            "temperature": item.get("temperature"),
+                            "templow": item.get("templow"),
+                            "condition": item.get("condition"),
+                            "precipitation": item.get("precipitation", 0),
+                            "precipitation_probability": item.get("precipitation_probability", 0),
                         })
 
             except Exception as e:
                 _LOGGER.warning("Error fetching forecasts: %s", e)
-                # Fallback to attributes if service call fails
                 hourly_forecast = []
                 daily_forecast = []
-                if ATTR_FORECAST in state.attributes:
-                    forecasts = state.attributes[ATTR_FORECAST]
-                    for item in forecasts[:24]:
-                        hourly_forecast.append({
-                            "datetime": item.get(ATTR_FORECAST_TIME),
-                            "temperature": item.get(ATTR_FORECAST_TEMP),
-                            "condition": item.get(ATTR_FORECAST_CONDITION),
-                            "precipitation": item.get(ATTR_FORECAST_PRECIPITATION, 0),
-                            "precipitation_probability": item.get(ATTR_FORECAST_PRECIPITATION_PROBABILITY, 0),
-                        })
-                    for item in forecasts[:7]:
-                        daily_forecast.append({
-                            "datetime": item.get(ATTR_FORECAST_TIME),
-                            "temperature": item.get(ATTR_FORECAST_TEMP),
-                            "templow": item.get(ATTR_FORECAST_TEMP_LOW),
-                            "condition": item.get(ATTR_FORECAST_CONDITION),
-                            "precipitation": item.get(ATTR_FORECAST_PRECIPITATION, 0),
-                            "precipitation_probability": item.get(ATTR_FORECAST_PRECIPITATION_PROBABILITY, 0),
-                        })
 
             return {
                 "current": current,
