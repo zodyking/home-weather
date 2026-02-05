@@ -143,9 +143,17 @@ class HomeWeatherPanel extends HTMLElement {
     return `${weekday}, ${month} ${day}${suffix} ${year}`;
   }
 
-  _getConditionIcon(condition, size) {
+  _isNightTime(datetime) {
+    if (!datetime) return false;
+    const d = datetime instanceof Date ? datetime : new Date(datetime);
+    const hour = d.getHours();
+    return hour >= 18 || hour < 6;
+  }
+
+  _getConditionIcon(condition, size, datetime) {
     const c = (condition || "").toLowerCase().replace(/\s+/g, "");
-    const map = {
+    const isNight = this._isNightTime(datetime);
+    const dayMap = {
       sunny: "clear-day", clear: "clear-day", fair: "clear-day",
       partlycloudy: "cloudy-1-day", partly_cloudy: "cloudy-1-day",
       cloudy: "cloudy", overcast: "cloudy-2-day",
@@ -155,14 +163,25 @@ class HomeWeatherPanel extends HTMLElement {
       lightning: "thunderstorms", thunderstorm: "thunderstorms", thunderstorms: "thunderstorms",
       hail: "hail", sleet: "rain-and-sleet-mix",
     };
+    const nightMap = {
+      sunny: "clear-night", clear: "clear-night", fair: "clear-night",
+      partlycloudy: "cloudy-1-night", partly_cloudy: "cloudy-1-night",
+      cloudy: "cloudy", overcast: "cloudy-2-night",
+      fog: "fog-night", foggy: "fog-night", mist: "fog-night", hazy: "fog-night",
+      rain: "rainy-1", rainy: "rainy-1", drizzle: "rainy-1",
+      snow: "snowy-1", snowy: "snowy-1", flurries: "snowy-1",
+      lightning: "thunderstorms", thunderstorm: "thunderstorms", thunderstorms: "thunderstorms",
+      hail: "hail", sleet: "rain-and-sleet-mix",
+    };
+    const map = isNight ? nightMap : dayMap;
     let icon = map[c];
     if (!icon) {
-      if (c.includes("rain")) icon = "rainy-1";
+      if (c.includes("rain")) icon = isNight ? "rainy-1" : "rainy-1";
       else if (c.includes("snow")) icon = "snowy-1";
-      else if (c.includes("cloud") || c.includes("overcast")) icon = "cloudy";
+      else if (c.includes("cloud") || c.includes("overcast")) icon = isNight ? "cloudy-2-night" : "cloudy";
       else if (c.includes("thunder") || c.includes("lightning")) icon = "thunderstorms";
-      else if (c.includes("fog") || c.includes("mist") || c.includes("haze")) icon = "fog";
-      else icon = "cloudy-1-day";
+      else if (c.includes("fog") || c.includes("mist") || c.includes("haze")) icon = isNight ? "fog-night" : "fog";
+      else icon = isNight ? "clear-night" : "cloudy-1-day";
     }
     const w = size === "large" ? 88 : 48;
     const h = size === "large" ? 72 : 40;
@@ -178,6 +197,16 @@ class HomeWeatherPanel extends HTMLElement {
   _formatPrecip(val) {
     if (val == null) return "0%";
     return `${Math.round(val)}%`;
+  }
+
+  _getPrecipType(condition, precipitationKind) {
+    if (precipitationKind) return String(precipitationKind).toLowerCase();
+    const c = (condition || "").toLowerCase();
+    if (c.includes("snow") || c.includes("flurr")) return "snow";
+    if (c.includes("hail")) return "hail";
+    if (c.includes("sleet")) return "sleet";
+    if (c.includes("rain") || c.includes("drizzle") || c.includes("thunder")) return "rain";
+    return null;
   }
 
   _render() {
@@ -254,22 +283,22 @@ class HomeWeatherPanel extends HTMLElement {
         .graph-axis-y { position: absolute; left: 8px; top: 16px; bottom: 32px; display: flex; flex-direction: column; justify-content: space-between; font-size: 10px; font-weight: 500; color: var(--secondary-text-color); }
         .graph-times { position: absolute; bottom: 8px; left: 44px; right: 12px; height: 20px; font-size: 10px; font-weight: 500; color: var(--secondary-text-color); }
         .graph-time { position: absolute; transform: translate(-50%, 0); }
-        .forecast-section { margin-bottom: 24px; overflow: visible; }
-        .forecast-section-title { font-size: 18px; font-weight: 600; color: var(--primary-text-color); margin-bottom: 12px; letter-spacing: -0.3px; }
-        .forecast-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+        .forecast-section { margin-bottom: 20px; overflow: visible; }
+        .forecast-tabs { display: flex; gap: 8px; margin-bottom: 12px; }
         .forecast-tab { padding: 10px 20px; background: var(--card-background-color); border: 1px solid var(--divider-color); border-radius: 8px; color: var(--secondary-text-color); cursor: pointer; font-size: 14px; font-weight: 500; }
         .forecast-tab:hover { color: var(--primary-text-color); border-color: var(--primary-text-color); }
         .forecast-tab.active { background: var(--accent-color); color: white; border-color: var(--accent-color); }
         .daily-scroll { display: flex; gap: 20px; overflow-x: auto; padding: 24px 8px; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; }
-        .forecast-card { display: flex; flex-direction: column; align-items: center; flex: 0 0 120px; min-width: 120px; scroll-snap-align: start; padding: 20px 16px; background: var(--card-background-color); border-radius: 20px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.06); border: none; transition: all 0.25s ease; overflow: visible; }
-        .forecast-card.day-card { flex: 0 0 120px; min-width: 120px; }
+        .forecast-card { display: flex; flex-direction: column; align-items: center; flex: 0 0 130px; min-width: 130px; scroll-snap-align: start; padding: 16px 14px; background: var(--card-background-color); border-radius: 20px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.06); border: none; transition: all 0.25s ease; overflow: visible; }
+        .forecast-card.day-card { flex: 0 0 130px; min-width: 130px; }
         .forecast-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
         .forecast-card.current-day { background: linear-gradient(180deg, rgba(66,133,244,0.12) 0%, rgba(66,133,244,0.04) 100%); box-shadow: 0 2px 12px rgba(66,133,244,0.2); }
         .day-icon { width: 56px; height: 48px; margin: 0 auto 10px; display: flex; align-items: center; justify-content: center; overflow: visible; }
         .forecast-card-label { font-size: 14px; font-weight: 600; color: var(--primary-text-color); margin-bottom: 8px; letter-spacing: -0.3px; display: block; width: 100%; }
         .day-icon .weather-icon { width: 56px; height: 48px; object-fit: contain; }
-        .forecast-card-condition { font-size: 11px; color: var(--secondary-text-color); text-transform: capitalize; margin-bottom: 6px; display: block; width: 100%; }
-        .day-temps { font-size: 15px; color: var(--secondary-text-color); font-weight: 500; display: block; width: 100%; line-height: 1.4; }
+        .forecast-card-condition { font-size: 11px; color: var(--secondary-text-color); text-transform: capitalize; margin-bottom: 4px; display: block; width: 100%; }
+        .forecast-card-details { font-size: 10px; color: var(--secondary-text-color); line-height: 1.5; display: block; width: 100%; }
+        .day-temps { font-size: 15px; color: var(--secondary-text-color); font-weight: 500; display: block; width: 100%; line-height: 1.4; margin-top: 2px; }
       </style>
       <div class="${this._isNarrow ? "narrow" : ""}">
         <div class="header">
@@ -353,6 +382,7 @@ class HomeWeatherPanel extends HTMLElement {
     const precipPct = hourly[0]?.precipitation_probability ?? 0;
     const humidity = current.humidity != null ? Math.round(current.humidity) : "—";
     const wind = this._formatWindSpeed(current.wind_speed, current.wind_speed_unit);
+    const windUnit = (current.wind_speed_unit || "mph").toLowerCase();
 
     const graphData = hourly.slice(0, 24).map((h) => ({
       time: this._formatTime(h.datetime),
@@ -390,7 +420,7 @@ class HomeWeatherPanel extends HTMLElement {
         <div class="current-section">
           <div class="current-left">
             <div class="current-icon-block">
-              <div class="current-icon">${this._getConditionIcon(condition, "large")}</div>
+              <div class="current-icon">${this._getConditionIcon(condition, "large", now)}</div>
               <div class="current-condition">${condition}</div>
             </div>
             <div class="current-temp-block">
@@ -408,6 +438,52 @@ class HomeWeatherPanel extends HTMLElement {
           </div>
           <div class="current-right">
             <div class="weather-date">${dateLong}</div>
+          </div>
+        </div>
+        <div class="forecast-section">
+          <div class="forecast-tabs">
+            <button class="forecast-tab ${this._forecastView === "24h" ? "active" : ""}" data-view="24h">24 Hour</button>
+            <button class="forecast-tab ${this._forecastView === "7day" ? "active" : ""}" data-view="7day">7 Day</button>
+          </div>
+          <div class="daily-scroll">
+            ${this._forecastView === "24h"
+              ? hourly.slice(0, 24).map((h, i) => {
+                  const windStr = h.wind_speed != null ? `${Math.round(h.wind_speed)} ${windUnit}` : null;
+                  const hPrecipPct = h.precipitation_probability ?? 0;
+                  const hPrecipType = this._getPrecipType(h.condition, h.precipitation_kind);
+                  const precipStr = hPrecipPct > 0
+                    ? (hPrecipType ? `${Math.round(hPrecipPct)}% ${hPrecipType}` : `${Math.round(hPrecipPct)}%`)
+                    : null;
+                  const details = [windStr, precipStr].filter(Boolean).join(" · ");
+                  return `
+                <div class="forecast-card ${i === 0 ? "current-day" : ""}">
+                  <div class="forecast-card-label">${this._formatTime(h.datetime)}</div>
+                  <div class="day-icon">${this._getConditionIcon(h.condition, null, h.datetime)}</div>
+                  <div class="forecast-card-condition">${h.condition || "—"}</div>
+                  ${details ? `<div class="forecast-card-details">${details}</div>` : ""}
+                  <div class="day-temps">${h.temperature != null ? Math.round(h.temperature) : "—"}°</div>
+                </div>
+              `;
+                }).join("")
+              : daily.map((d, i) => {
+                  const windStr = d.wind_speed != null ? `${Math.round(d.wind_speed)} ${windUnit}` : null;
+                  const precipPct = d.precipitation_probability ?? 0;
+                  const precipType = this._getPrecipType(d.condition, d.precipitation_kind);
+                  const precipStr = precipPct > 0
+                    ? (precipType ? `${Math.round(precipPct)}% ${precipType}` : `${Math.round(precipPct)}%`)
+                    : null;
+                  const details = [windStr, precipStr].filter(Boolean).join(" · ");
+                  return `
+                <div class="forecast-card day-card ${i === 0 ? "current-day" : ""}">
+                  <div class="forecast-card-label">${this._formatDayShort(d.datetime)}</div>
+                  <div class="day-icon">${this._getConditionIcon(d.condition, null, null)}</div>
+                  <div class="forecast-card-condition">${d.condition || "—"}</div>
+                  ${details ? `<div class="forecast-card-details">${details}</div>` : ""}
+                  <div class="day-temps">${d.temperature ?? "—"}° / ${d.templow ?? "—"}°</div>
+                </div>
+              `;
+                }).join("")
+            }
           </div>
         </div>
         <div class="graph-section">
@@ -436,33 +512,6 @@ class HomeWeatherPanel extends HTMLElement {
               <span class="axis-min">${graphAxis.min}${graphAxis.suffix}</span>
             </div>
             <div class="graph-times">${graphTimeLabels.map((t) => `<span class="graph-time" style="left:${t.pct}%">${t.label}</span>`).join("")}</div>
-          </div>
-        </div>
-        <div class="forecast-section">
-          <div class="forecast-section-title">${this._forecastView === "24h" ? "24 Hour Forecast" : "7-Day Forecast"}</div>
-          <div class="forecast-tabs">
-            <button class="forecast-tab ${this._forecastView === "24h" ? "active" : ""}" data-view="24h">24 Hour</button>
-            <button class="forecast-tab ${this._forecastView === "7day" ? "active" : ""}" data-view="7day">7 Day</button>
-          </div>
-          <div class="daily-scroll">
-            ${this._forecastView === "24h"
-              ? hourly.slice(0, 24).map((h, i) => `
-                <div class="forecast-card ${i === 0 ? "current-day" : ""}">
-                  <div class="forecast-card-label">${this._formatTime(h.datetime)}</div>
-                  <div class="day-icon">${this._getConditionIcon(h.condition)}</div>
-                  <div class="forecast-card-condition">${h.condition || "—"}</div>
-                  <div class="day-temps">${h.temperature != null ? Math.round(h.temperature) : "—"}°</div>
-                </div>
-              `).join("")
-              : daily.map((d, i) => `
-                <div class="forecast-card day-card ${i === 0 ? "current-day" : ""}">
-                  <div class="forecast-card-label">${this._formatDayShort(d.datetime)}</div>
-                  <div class="day-icon">${this._getConditionIcon(d.condition)}</div>
-                  <div class="forecast-card-condition">${d.condition || "—"}</div>
-                  <div class="day-temps">${d.temperature ?? "—"}° / ${d.templow ?? "—"}°</div>
-                </div>
-              `).join("")
-            }
           </div>
         </div>
       </div>

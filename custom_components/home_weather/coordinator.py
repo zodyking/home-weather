@@ -98,6 +98,7 @@ class WeatherCoordinator(DataUpdateCoordinator):
                             "condition": item.get("condition"),
                             "precipitation": item.get("precipitation", 0),
                             "precipitation_probability": item.get("precipitation_probability", 0),
+                            "precipitation_kind": item.get("precipitation_kind"),
                             "wind_speed": item.get("wind_speed"),
                         })
 
@@ -127,6 +128,8 @@ class WeatherCoordinator(DataUpdateCoordinator):
                             "condition": item.get("condition"),
                             "precipitation": item.get("precipitation", 0),
                             "precipitation_probability": item.get("precipitation_probability", 0),
+                            "precipitation_kind": item.get("precipitation_kind"),
+                            "wind_speed": item.get("wind_speed"),
                         })
 
             except Exception as e:
