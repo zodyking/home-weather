@@ -82,17 +82,18 @@ async def _register_panel(hass: HomeAssistant) -> None:
         # Register panel using panel_custom (same API as Home Energy)
         from homeassistant.components import panel_custom
 
-        await panel_custom.async_register_panel(
-            hass,
-            webcomponent_name="home-weather-panel",
-            frontend_url_path=PANEL_URL_PATH,
-            sidebar_title=PANEL_TITLE,
-            sidebar_icon=PANEL_ICON,
-            module_url=f"{panel_url}/weather-panel.js",
-            embed_iframe=False,
-            require_admin=False,
-        )
-        _LOGGER.info("Registered Home Weather panel at /%s", PANEL_URL_PATH)
+        if PANEL_URL_PATH not in hass.data.get("frontend_panels", {}):
+            await panel_custom.async_register_panel(
+                hass,
+                webcomponent_name="home-weather-panel",
+                frontend_url_path=PANEL_URL_PATH,
+                sidebar_title=PANEL_TITLE,
+                sidebar_icon=PANEL_ICON,
+                module_url=f"{panel_url}/weather-panel.js",
+                embed_iframe=False,
+                require_admin=False,
+            )
+            _LOGGER.info("Registered Home Weather panel at /%s", PANEL_URL_PATH)
 
     except Exception as e:
         _LOGGER.error("Failed to register panel: %s", e)
