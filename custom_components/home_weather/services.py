@@ -56,15 +56,12 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
             connection.send_error(msg["id"], "not_loaded", "Integration not loaded")
             return
 
-        # Find the first entry's data
         storage = None
-        automation = None
         coordinator = None
         if DOMAIN in hass.data:
             for entry_id, data in hass.data[DOMAIN].items():
                 if isinstance(data, dict):
                     storage = data.get("storage")
-                    automation = data.get("automation")
                     coordinator = data.get("coordinator")
                     if storage:
                         break
@@ -76,16 +73,8 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
         try:
             config = msg.get("config", {})
             await storage.async_save(config)
-
-            # Restart automation with new config
-            if automation:
-                await automation.async_stop()
-                await automation.async_start()
-
-            # Refresh coordinator
             if coordinator:
                 await coordinator.async_request_refresh()
-
             connection.send_result(msg["id"], {"success": True})
         except Exception as e:
             _LOGGER.error("Error saving config: %s", e)
@@ -123,35 +112,3 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
 
         connection.send_result(msg["id"], {"data": data})
 
-    @websocket_api.websocket_command(
-        {
-            "type": "home_weather/trigger_announcement",
-        }
-    )
-    @websocket_api.async_response
-    async def handle_trigger_announcement(
-        hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
-    ) -> None:
-        """Handle trigger_announcement WebSocket command."""
-        if DOMAIN not in hass.data:
-            connection.send_error(msg["id"], "not_loaded", "Integration not loaded")
-            return
-
-        # Find the first entry's automation
-        automation = None
-        if DOMAIN in hass.data:
-            for entry_id, data in hass.data[DOMAIN].items():
-                if isinstance(data, dict) and "automation" in data:
-                    automation = data["automation"]
-                    break
-        
-        if not automation:
-            connection.send_error(msg["id"], "no_automation", "Automation not available")
-            return
-
-        try:
-            await automation.trigger_announcement()
-            connection.send_result(msg["id"], {"success": True})
-        except Exception as e:
-            _LOGGER.error("Error triggering announcement: %s", e)
-            connection.send_error(msg["id"], "trigger_failed", str(e))

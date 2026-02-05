@@ -3,7 +3,7 @@
   "name": "Home Weather",
   "codeowners": ["@zodyking"],
   "config_flow": true,
-  "dependencies": ["http", "frontend", "panel_custom", "weather", "tts"],
+  "dependencies": ["http", "frontend", "panel_custom", "weather"],
   "documentation": "https://github.com/zodyking/home-weather",
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/zodyking/home-weather/issues",

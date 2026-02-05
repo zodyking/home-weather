@@ -42,17 +42,11 @@ class HomeWeatherStorage:
     async def async_save(self, data: dict[str, Any]) -> None:
         """Save configuration to storage."""
         try:
-            # Validate required fields
             if not data.get("weather_entity"):
                 raise ValueError("weather_entity is required")
-            if not data.get("tts_engine"):
-                raise ValueError("tts_engine is required")
-            if not data.get("media_players") or len(data.get("media_players", [])) == 0:
-                raise ValueError("At least one media_player is required")
-
-            self._data = data
+            self._data = {**DEFAULT_CONFIG, **data}
             await self._store.async_save(self._data)
-            _LOGGER.info("Configuration saved successfully")
+            _LOGGER.info("Configuration saved")
         except Exception as e:
             _LOGGER.error("Error saving configuration: %s", e)
             raise
@@ -75,8 +69,4 @@ class HomeWeatherStorage:
 
     def is_configured(self) -> bool:
         """Check if integration is configured."""
-        return (
-            self._data.get("weather_entity") is not None
-            and self._data.get("tts_engine") is not None
-            and len(self._data.get("media_players", [])) > 0
-        )
+        return bool(self._data.get("weather_entity"))

@@ -22,44 +22,29 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Home Weather from a config entry."""
     from .storage import HomeWeatherStorage
     from .coordinator import WeatherCoordinator
-    from .automation import HomeWeatherAutomation
     from .services import async_setup_websocket_api
 
-    # Initialize storage
     storage = HomeWeatherStorage(hass)
     await storage.async_load()
-    
-    # Initialize coordinator
+
     coordinator = WeatherCoordinator(hass, storage)
     await coordinator.async_request_refresh()
-    
-    # Initialize automation
-    automation = HomeWeatherAutomation(hass, storage, coordinator)
-    await automation.async_start()
-    
-    # Store in hass.data
+
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = {
         "storage": storage,
         "coordinator": coordinator,
-        "automation": automation,
     }
-    
-    # Set up WebSocket API
+
     async_setup_websocket_api(hass)
-    
-    # Register the panel
     await _register_panel(hass)
-    
+
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     if entry.entry_id in hass.data.get(DOMAIN, {}):
-        data = hass.data[DOMAIN][entry.entry_id]
-        if "automation" in data:
-            await data["automation"].async_stop()
         del hass.data[DOMAIN][entry.entry_id]
     return True
 

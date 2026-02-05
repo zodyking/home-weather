@@ -42,7 +42,7 @@ class HomeWeatherPanel extends HTMLElement {
       const response = await this._hass.callWS({ type: "home_weather/get_config" });
       this._config = response.config || {};
       this._settings = { ...this._config };
-      if (!this._config.weather_entity || !this._config.tts_engine || !(this._config.media_players && this._config.media_players.length)) {
+      if (!this._config.weather_entity) {
         this._currentView = "settings";
       }
       await this._loadWeatherData();
@@ -79,7 +79,6 @@ class HomeWeatherPanel extends HTMLElement {
       this._config = { ...this._settings };
       this._currentView = "forecast";
       await this._loadWeatherData();
-      window.location.reload();
     } catch (e) {
       console.error("Error saving:", e);
       this._error = "Failed to save settings";
@@ -177,21 +176,9 @@ class HomeWeatherPanel extends HTMLElement {
     const s = this.shadowRoot;
     if (!s) return;
     const we = s.getElementById("weather-entity");
-    const tts = s.getElementById("tts-engine");
-    const mp = s.getElementById("media-players");
-    const vol = s.getElementById("volume");
     const saveBtn = s.getElementById("save-btn");
     const cancelBtn = s.getElementById("cancel-btn");
     if (we) we.addEventListener("change", (e) => { this._settings.weather_entity = e.target.value; this._render(); });
-    if (tts) tts.addEventListener("change", (e) => { this._settings.tts_engine = e.target.value; this._render(); });
-    if (mp) mp.addEventListener("change", (e) => {
-      this._settings.media_players = Array.from(e.target.selectedOptions, (o) => o.value);
-      this._render();
-    });
-    if (vol) vol.addEventListener("input", (e) => {
-      this._settings.volume_level = parseFloat(e.target.value);
-      this._render();
-    });
     if (saveBtn) saveBtn.addEventListener("click", () => this._saveSettings());
     if (cancelBtn) cancelBtn.addEventListener("click", () => {
       this._settings = { ...this._config };
@@ -245,10 +232,7 @@ class HomeWeatherPanel extends HTMLElement {
   _renderSettings() {
     const entities = Object.keys((this._hass && this._hass.states) || {});
     const weatherEntities = entities.filter((e) => e.startsWith("weather."));
-    const ttsEngines = entities.filter((e) => e.startsWith("tts."));
-    const mediaPlayers = entities.filter((e) => e.startsWith("media_player."));
-    const mp = Array.isArray(this._settings.media_players) ? this._settings.media_players : [];
-    const canSave = this._settings.weather_entity && this._settings.tts_engine && mp.length > 0;
+    const canSave = !!this._settings.weather_entity;
     return `
       <div class="settings-form">
         <div class="form-group">
@@ -257,25 +241,6 @@ class HomeWeatherPanel extends HTMLElement {
             <option value="">Select weather entity</option>
             ${weatherEntities.map((e) => `<option value="${e}" ${this._settings.weather_entity === e ? "selected" : ""}>${e}</option>`).join("")}
           </select>
-        </div>
-        <div class="form-group">
-          <label>TTS Engine *</label>
-          <select id="tts-engine">
-            <option value="">Select TTS engine</option>
-            ${ttsEngines.map((e) => `<option value="${e}" ${this._settings.tts_engine === e ? "selected" : ""}>${e}</option>`).join("")}
-          </select>
-        </div>
-        <div class="form-group">
-          <label>Media Players *</label>
-          <select id="media-players" multiple>
-            ${mediaPlayers.map((e) => `<option value="${e}" ${mp.includes(e) ? "selected" : ""}>${e}</option>`).join("")}
-          </select>
-          <small>Hold Ctrl/Cmd to select multiple</small>
-        </div>
-        <div class="form-group">
-          <label>Volume Level</label>
-          <input type="range" id="volume" min="0" max="1" step="0.1" value="${this._settings.volume_level != null ? this._settings.volume_level : 0.7}">
-          <small>${((this._settings.volume_level != null ? this._settings.volume_level : 0.7) * 100).toFixed(0)}%</small>
         </div>
         <div class="form-actions">
           <button class="btn btn-secondary" id="cancel-btn">Cancel</button>
