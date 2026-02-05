@@ -1,0 +1,7 @@
+{
+  "name": "Home Weather",
+  "render_readme": true,
+  "domains": ["home_weather"],
+  "homeassistant": "2024.1.0",
+  "iot_class": "Cloud Polling"
+}
