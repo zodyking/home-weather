@@ -15,6 +15,7 @@ class HomeWeatherPanel extends HTMLElement {
     this._useFahrenheit = true;
     this._weatherData = null;
     this._settings = {};
+    this._settingsTab = "weather";
     this._narrow = null;
   }
 
@@ -64,7 +65,9 @@ class HomeWeatherPanel extends HTMLElement {
       this._render();
       const response = await this._hass.callWS({ type: "home_weather/get_config" });
       this._config = response.config || {};
-      this._settings = { ...this._config };
+      this._settings = JSON.parse(JSON.stringify(this._config || {}));
+      if (!this._settings.tts) this._settings.tts = { enabled: false, language: "en", platform: null };
+      if (!Array.isArray(this._settings.media_players)) this._settings.media_players = [];
       if (!this._config.weather_entity) {
         this._currentView = "settings";
       }
@@ -95,6 +98,15 @@ class HomeWeatherPanel extends HTMLElement {
 
   async _saveSettings() {
     if (!this._hass) return;
+    const s = this.shadowRoot;
+    if (s) {
+      const ttsPlatform = s.getElementById("tts-platform");
+      if (ttsPlatform) this._settings.tts = { ...(this._settings.tts || {}), platform: ttsPlatform.value || null };
+      const mediaSelects = s.querySelectorAll(".media-player-select");
+      if (mediaSelects.length) {
+        this._settings.media_players = Array.from(mediaSelects).map((sel) => sel.value).filter(Boolean);
+      }
+    }
     try {
       this._loading = true;
       this._render();
@@ -148,6 +160,14 @@ class HomeWeatherPanel extends HTMLElement {
     const d = datetime instanceof Date ? datetime : new Date(datetime);
     const hour = d.getHours();
     return hour >= 18 || hour < 6;
+  }
+
+  _getConditionLabel(condition, datetime) {
+    const c = (condition || "").toLowerCase().trim();
+    if (this._isNightTime(datetime) && (c === "sunny" || c === "clear" || c === "fair")) {
+      return "Clear skies";
+    }
+    return condition || "—";
   }
 
   _getConditionIcon(condition, size, datetime) {
@@ -217,12 +237,13 @@ class HomeWeatherPanel extends HTMLElement {
         :host { display: block; padding: 16px; max-width: 1200px; margin: 0 auto; }
         .loading, .error { text-align: center; padding: 48px 16px; color: var(--secondary-text-color); }
         .error { color: var(--error-color); }
-        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--divider-color); }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px solid var(--divider-color); flex-wrap: wrap; gap: 12px; }
+        .header-left { display: flex; align-items: center; gap: 12px; }
         .header h1 { margin: 0; font-size: 24px; font-weight: 400; color: var(--primary-text-color); }
+        .header-nav { display: flex; gap: 0; }
         .hamburger { display: none; padding: 8px; background: transparent; border: none; cursor: pointer; color: var(--primary-text-color); border-radius: 8px; }
         .hamburger:hover { background: var(--secondary-background-color); }
         .hamburger svg { width: 24px; height: 24px; display: block; }
-        .main-nav { display: flex; gap: 8px; margin-bottom: 24px; }
         @media (max-width: 768px) { .hamburger { display: block; } }
         .narrow .hamburger { display: block; }
         .nav-tabs { display: flex; gap: 8px; }
@@ -249,9 +270,21 @@ class HomeWeatherPanel extends HTMLElement {
         .day-low { font-size: 16px; color: var(--secondary-text-color); }
         .day-precip { font-size: 14px; color: var(--info-color); margin-left: auto; }
         .settings-form { display: grid; gap: 24px; }
+        .settings-tabs { display: flex; gap: 0; margin-bottom: 24px; border-bottom: 2px solid var(--divider-color); }
+        .settings-tab { padding: 12px 24px; background: transparent; border: none; border-bottom: 3px solid transparent; margin-bottom: -2px; color: var(--secondary-text-color); cursor: pointer; font-size: 15px; font-weight: 500; }
+        .settings-tab:hover { color: var(--primary-text-color); }
+        .settings-tab.active { color: var(--accent-color); border-bottom-color: var(--accent-color); }
+        .settings-section { display: none; }
+        .settings-section.active { display: block; }
         .form-group { display: flex; flex-direction: column; gap: 8px; }
         .form-group label { font-size: 14px; font-weight: 500; color: var(--primary-text-color); }
         .form-group input, .form-group select { padding: 12px 16px; border: 1px solid var(--divider-color); border-radius: 8px; background: var(--card-background-color); color: var(--primary-text-color); font-size: 14px; }
+        .form-group input[type="checkbox"] { width: auto; padding: 0; }
+        .form-row { display: flex; align-items: center; gap: 12px; }
+        .form-row .btn-icon { padding: 8px 12px; min-width: auto; }
+        .media-player-list { display: flex; flex-direction: column; gap: 12px; }
+        .media-player-item { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: var(--card-background-color); border: 1px solid var(--divider-color); border-radius: 8px; }
+        .media-player-item select { flex: 1; }
         .form-actions { display: flex; gap: 12px; justify-content: flex-end; margin-top: 24px; }
         .btn { padding: 12px 32px; border: none; border-radius: 8px; font-size: 14px; font-weight: 500; cursor: pointer; }
         .btn-primary { background: var(--primary-color); color: var(--primary-color-text); }
@@ -302,14 +335,16 @@ class HomeWeatherPanel extends HTMLElement {
       </style>
       <div class="${this._isNarrow ? "narrow" : ""}">
         <div class="header">
-          <button class="hamburger" id="hamburger-btn" aria-label="Open Home Assistant sidebar">
-            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></svg>
-          </button>
-          <h1>Home Weather</h1>
-        </div>
-        <div class="main-nav nav-tabs">
-          <button class="nav-tab ${this._currentView === "forecast" ? "active" : ""}" data-view="forecast">Forecast</button>
-          <button class="nav-tab ${this._currentView === "settings" ? "active" : ""}" data-view="settings">Settings</button>
+          <div class="header-left">
+            <button class="hamburger" id="hamburger-btn" aria-label="Open Home Assistant sidebar">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></svg>
+            </button>
+            <h1>Home Weather</h1>
+            <div class="header-nav nav-tabs">
+              <button class="nav-tab ${this._currentView === "forecast" ? "active" : ""}" data-view="forecast">Forecast</button>
+              <button class="nav-tab ${this._currentView === "settings" ? "active" : ""}" data-view="settings">Settings</button>
+            </div>
+          </div>
         </div>
       </div>
       ${this._renderContent()}
@@ -350,13 +385,64 @@ class HomeWeatherPanel extends HTMLElement {
   _attachSettingsHandlers() {
     const s = this.shadowRoot;
     if (!s) return;
+    s.querySelectorAll(".settings-tab").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        this._settingsTab = btn.dataset.settingsTab || "weather";
+        this._render();
+      });
+    });
     const we = s.getElementById("weather-entity");
+    if (we) we.addEventListener("change", (e) => { this._settings.weather_entity = e.target.value || null; this._render(); });
+    const ttsEnabled = s.getElementById("tts-enabled");
+    if (ttsEnabled) ttsEnabled.addEventListener("change", (e) => {
+      this._settings.tts = { ...(this._settings.tts || {}), enabled: e.target.checked };
+      this._render();
+    });
+    const ttsLang = s.getElementById("tts-language");
+    if (ttsLang) ttsLang.addEventListener("change", (e) => {
+      this._settings.tts = { ...(this._settings.tts || {}), language: e.target.value };
+      this._render();
+    });
+    const ttsPlatform = s.getElementById("tts-platform");
+    if (ttsPlatform) ttsPlatform.addEventListener("input", (e) => {
+      this._settings.tts = { ...(this._settings.tts || {}), platform: e.target.value || null };
+    });
+    s.querySelectorAll("[data-remove-media]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const idx = parseInt(btn.dataset.removeMedia, 10);
+        const list = [...(this._settings.media_players || [])];
+        list.splice(idx, 1);
+        this._settings.media_players = list;
+        this._render();
+      });
+    });
+    s.querySelectorAll(".media-player-select").forEach((sel, i) => {
+      sel.addEventListener("change", (e) => {
+        const list = [...(this._settings.media_players || [])];
+        list[i] = e.target.value;
+        this._settings.media_players = list;
+        this._render();
+      });
+    });
+    const addMediaBtn = s.getElementById("add-media-btn");
+    const addMediaSelect = s.getElementById("media-player-add");
+    if (addMediaBtn && addMediaSelect) {
+      addMediaBtn.addEventListener("click", () => {
+        const val = addMediaSelect.value;
+        if (!val) return;
+        const list = [...(this._settings.media_players || [])];
+        list.push(val);
+        this._settings.media_players = list;
+        this._render();
+      });
+    }
     const saveBtn = s.getElementById("save-btn");
     const cancelBtn = s.getElementById("cancel-btn");
-    if (we) we.addEventListener("change", (e) => { this._settings.weather_entity = e.target.value; this._render(); });
     if (saveBtn) saveBtn.addEventListener("click", () => this._saveSettings());
     if (cancelBtn) cancelBtn.addEventListener("click", () => {
-      this._settings = { ...this._config };
+      this._settings = JSON.parse(JSON.stringify(this._config || {}));
+      if (!this._settings.tts) this._settings.tts = { enabled: false, language: "en", platform: null };
+      if (!Array.isArray(this._settings.media_players)) this._settings.media_players = [];
       this._render();
     });
   }
@@ -421,7 +507,7 @@ class HomeWeatherPanel extends HTMLElement {
           <div class="current-left">
             <div class="current-icon-block">
               <div class="current-icon">${this._getConditionIcon(condition, "large", now)}</div>
-              <div class="current-condition">${condition}</div>
+              <div class="current-condition">${this._getConditionLabel(condition, now)}</div>
             </div>
             <div class="current-temp-block">
               <span class="current-temp">${temp}</span>
@@ -459,7 +545,7 @@ class HomeWeatherPanel extends HTMLElement {
                 <div class="forecast-card ${i === 0 ? "current-day" : ""}">
                   <div class="forecast-card-label">${this._formatTime(h.datetime)}</div>
                   <div class="day-icon">${this._getConditionIcon(h.condition, null, h.datetime)}</div>
-                  <div class="forecast-card-condition">${h.condition || "—"}</div>
+                  <div class="forecast-card-condition">${this._getConditionLabel(h.condition, h.datetime)}</div>
                   ${details ? `<div class="forecast-card-details">${details}</div>` : ""}
                   <div class="day-temps">${h.temperature != null ? Math.round(h.temperature) : "—"}°</div>
                 </div>
@@ -560,19 +646,73 @@ class HomeWeatherPanel extends HTMLElement {
   _renderSettings() {
     const entities = Object.keys((this._hass && this._hass.states) || {});
     const weatherEntities = entities.filter((e) => e.startsWith("weather."));
-    const canSave = !!this._settings.weather_entity;
+    const mediaPlayerEntities = entities.filter((e) => e.startsWith("media_player."));
+    const tts = this._settings.tts || { enabled: false, language: "en", platform: null };
+    const mediaPlayers = Array.isArray(this._settings.media_players) ? this._settings.media_players : [];
+    const usedMediaPlayers = new Set(mediaPlayers);
+    const availableMediaPlayers = mediaPlayerEntities.filter((e) => !usedMediaPlayers.has(e));
     return `
       <div class="settings-form">
-        <div class="form-group">
-          <label>Weather Entity *</label>
-          <select id="weather-entity">
-            <option value="">Select weather entity</option>
-            ${weatherEntities.map((e) => `<option value="${e}" ${this._settings.weather_entity === e ? "selected" : ""}>${e}</option>`).join("")}
-          </select>
+        <div class="settings-tabs">
+          <button class="settings-tab ${this._settingsTab === "weather" ? "active" : ""}" data-settings-tab="weather">Weather</button>
+          <button class="settings-tab ${this._settingsTab === "tts" ? "active" : ""}" data-settings-tab="tts">TTS</button>
+          <button class="settings-tab ${this._settingsTab === "media" ? "active" : ""}" data-settings-tab="media">Media Players</button>
+        </div>
+        <div class="settings-section ${this._settingsTab === "weather" ? "active" : ""}" data-section="weather">
+          <div class="form-group">
+            <label>Weather Entity *</label>
+            <select id="weather-entity">
+              <option value="">Select weather entity</option>
+              ${weatherEntities.map((e) => `<option value="${e}" ${this._settings.weather_entity === e ? "selected" : ""}>${e}</option>`).join("")}
+            </select>
+          </div>
+        </div>
+        <div class="settings-section ${this._settingsTab === "tts" ? "active" : ""}" data-section="tts">
+          <div class="form-group">
+            <label><input type="checkbox" id="tts-enabled" ${tts.enabled ? "checked" : ""}/> Enable TTS for weather announcements</label>
+          </div>
+          <div class="form-group">
+            <label>Language</label>
+            <select id="tts-language">
+              <option value="en" ${tts.language === "en" ? "selected" : ""}>English</option>
+              <option value="es" ${tts.language === "es" ? "selected" : ""}>Spanish</option>
+              <option value="fr" ${tts.language === "fr" ? "selected" : ""}>French</option>
+              <option value="de" ${tts.language === "de" ? "selected" : ""}>German</option>
+              <option value="it" ${tts.language === "it" ? "selected" : ""}>Italian</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>TTS Platform (optional)</label>
+            <input type="text" id="tts-platform" placeholder="e.g. google_translate" value="${tts.platform || ""}"/>
+          </div>
+        </div>
+        <div class="settings-section ${this._settingsTab === "media" ? "active" : ""}" data-section="media">
+          <div class="form-group">
+            <label>Media Players for weather announcements</label>
+            <div class="media-player-list" id="media-player-list">
+              ${mediaPlayers.map((entityId, i) => `
+                <div class="media-player-item" data-index="${i}">
+                  <select class="media-player-select">
+                    <option value="${entityId}">${entityId}</option>
+                    ${mediaPlayerEntities.map((e) => `<option value="${e}" ${e === entityId ? "selected" : ""}>${e}</option>`).join("")}
+                  </select>
+                  <button type="button" class="btn btn-secondary btn-icon" data-remove-media="${i}" aria-label="Remove">−</button>
+                </div>
+              `).join("")}
+            </div>
+            <div class="form-row" style="margin-top: 12px;">
+              <select id="media-player-add">
+                <option value="">Add media player...</option>
+                ${availableMediaPlayers.map((e) => `<option value="${e}">${e}</option>`).join("")}
+                ${availableMediaPlayers.length === 0 ? "<option value=\"\" disabled>No more available</option>" : ""}
+              </select>
+              <button type="button" class="btn btn-secondary" id="add-media-btn">Add</button>
+            </div>
+          </div>
         </div>
         <div class="form-actions">
           <button class="btn btn-secondary" id="cancel-btn">Cancel</button>
-          <button class="btn btn-primary" id="save-btn" ${!canSave ? "disabled" : ""}>Save</button>
+          <button class="btn btn-primary" id="save-btn">Save</button>
         </div>
       </div>
     `;

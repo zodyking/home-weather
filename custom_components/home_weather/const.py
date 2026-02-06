@@ -7,13 +7,19 @@ STORAGE_VERSION: Final = 1
 
 DEFAULT_CONFIG: Final = {
     "weather_entity": None,
+    "tts": {
+        "enabled": False,
+        "language": "en",
+        "platform": None,
+    },
+    "media_players": [],
 }
 
 # Update interval for weather coordinator (5 minutes)
 UPDATE_INTERVAL: Final = 300
 
 # Version for cache busting
-VERSION: Final = "1.1.2"
+VERSION: Final = "1.2.0"
 
 # Panel configuration
 PANEL_URL_PATH: Final = "home-weather"

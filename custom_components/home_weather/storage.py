@@ -26,8 +26,14 @@ class HomeWeatherStorage:
         try:
             data = await self._store.async_load()
             if data:
-                # Merge with defaults to ensure all keys exist
-                self._data = {**DEFAULT_CONFIG, **data}
+                # Deep merge with defaults to ensure all keys exist
+                merged = {**DEFAULT_CONFIG}
+                for key, val in data.items():
+                    if key in DEFAULT_CONFIG and isinstance(DEFAULT_CONFIG[key], dict) and isinstance(val, dict):
+                        merged[key] = {**DEFAULT_CONFIG[key], **val}
+                    else:
+                        merged[key] = val
+                self._data = merged
                 return self._data.copy()
             else:
                 # No stored data, return defaults
@@ -41,9 +47,14 @@ class HomeWeatherStorage:
     async def async_save(self, data: dict[str, Any]) -> None:
         """Save configuration to storage."""
         try:
-            if not data.get("weather_entity"):
-                raise ValueError("weather_entity is required")
-            self._data = {**DEFAULT_CONFIG, **data}
+            # Deep merge for nested config (tts, etc.)
+            merged = {**DEFAULT_CONFIG}
+            for key, val in data.items():
+                if key in DEFAULT_CONFIG and isinstance(DEFAULT_CONFIG[key], dict) and isinstance(val, dict):
+                    merged[key] = {**DEFAULT_CONFIG[key], **val}
+                else:
+                    merged[key] = val
+            self._data = merged
             await self._store.async_save(self._data)
             _LOGGER.info("Configuration saved")
         except Exception as e:
