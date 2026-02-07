@@ -159,7 +159,7 @@ class HomeWeatherPanel extends HTMLElement {
     if (!datetime) return false;
     const d = datetime instanceof Date ? datetime : new Date(datetime);
     const hour = d.getHours();
-    return hour >= 18 || hour < 6;
+    return hour >= 18 || hour < 7;
   }
 
   _getConditionLabel(condition, datetime) {
@@ -170,9 +170,9 @@ class HomeWeatherPanel extends HTMLElement {
     return condition || "—";
   }
 
-  _getConditionIcon(condition, size, datetime) {
+  _getConditionIcon(condition, size, datetime, forceDay = false) {
     const c = (condition || "").toLowerCase().replace(/\s+/g, "");
-    const isNight = this._isNightTime(datetime);
+    const isNight = forceDay ? false : this._isNightTime(datetime);
     // Meteocons (basmilius/weather-icons) - day/night variants
     const dayMap = {
       sunny: "clear-day", clear: "clear-day", fair: "clear-day", clearskies: "clear-day",
@@ -554,7 +554,7 @@ class HomeWeatherPanel extends HTMLElement {
                   return `
                 <div class="forecast-card day-card ${i === 0 ? "current-day" : ""}">
                   <div class="forecast-card-label">${this._formatDayShort(d.datetime)}</div>
-                  <div class="day-icon">${this._getConditionIcon(d.condition, null, d.datetime)}</div>
+                  <div class="day-icon">${this._getConditionIcon(d.condition, null, null, true)}</div>
                   <div class="forecast-card-condition">${d.condition || "—"}</div>
                   <div class="forecast-card-grid">
                     <span class="col left">Hi: ${hiTemp}°</span>

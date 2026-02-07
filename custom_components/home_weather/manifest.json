@@ -12,7 +12,7 @@
   "version": "1.2.1",
   "frontend": {
     "js": [
-      "/local/home_weather/weather-panel.js?v=1.2.1"
+      "/local/home_weather/weather-panel.js?v=1.2.3"
     ]
   }
 }
