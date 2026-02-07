@@ -11,12 +11,12 @@ class HomeWeatherPanel extends HTMLElement {
     this._error = null;
     this._currentView = "forecast";
     this._forecastView = "7day";
-    this._graphMode = "temperature";
     this._useFahrenheit = true;
     this._weatherData = null;
     this._settings = {};
     this._settingsTab = "weather";
     this._narrow = null;
+    this._graphHoverIndex = null;
   }
 
   get _isNarrow() {
@@ -173,39 +173,41 @@ class HomeWeatherPanel extends HTMLElement {
   _getConditionIcon(condition, size, datetime) {
     const c = (condition || "").toLowerCase().replace(/\s+/g, "");
     const isNight = this._isNightTime(datetime);
+    // Meteocons (basmilius/weather-icons) - day/night variants
     const dayMap = {
-      sunny: "clear-day", clear: "clear-day", fair: "clear-day",
-      partlycloudy: "cloudy-1-day", partly_cloudy: "cloudy-1-day",
-      cloudy: "cloudy", overcast: "cloudy-2-day",
-      fog: "fog", foggy: "fog", mist: "fog", hazy: "fog",
-      rain: "rainy-1", rainy: "rainy-1", drizzle: "rainy-1", "rainy-1": "rainy-1", "rainy-2": "rainy-2",
-      snow: "snowy-1", snowy: "snowy-1", flurries: "snowy-1", "snowy-1": "snowy-1", "snowy-2": "snowy-2",
-      lightning: "thunderstorms", thunderstorm: "thunderstorms", thunderstorms: "thunderstorms",
-      hail: "hail", sleet: "rain-and-sleet-mix",
+      sunny: "clear-day", clear: "clear-day", fair: "clear-day", clearskies: "clear-day",
+      partlycloudy: "partly-cloudy-day", partly_cloudy: "partly-cloudy-day",
+      cloudy: "cloudy", overcast: "overcast-day",
+      fog: "fog-day", foggy: "fog-day", mist: "mist", hazy: "haze-day",
+      rain: "rain", rainy: "rain", drizzle: "drizzle",
+      snow: "snow", snowy: "snow", flurries: "snow",
+      lightning: "thunderstorms-day", thunderstorm: "thunderstorms-day", thunderstorms: "thunderstorms-day",
+      hail: "hail", sleet: "sleet", windy: "wind",
     };
     const nightMap = {
-      sunny: "clear-night", clear: "clear-night", fair: "clear-night",
-      partlycloudy: "cloudy-1-night", partly_cloudy: "cloudy-1-night",
-      cloudy: "cloudy", overcast: "cloudy-2-night",
-      fog: "fog-night", foggy: "fog-night", mist: "fog-night", hazy: "fog-night",
-      rain: "rainy-1", rainy: "rainy-1", drizzle: "rainy-1",
-      snow: "snowy-1", snowy: "snowy-1", flurries: "snowy-1",
-      lightning: "thunderstorms", thunderstorm: "thunderstorms", thunderstorms: "thunderstorms",
-      hail: "hail", sleet: "rain-and-sleet-mix",
+      sunny: "clear-night", clear: "clear-night", fair: "clear-night", clearskies: "clear-night",
+      partlycloudy: "partly-cloudy-night", partly_cloudy: "partly-cloudy-night",
+      cloudy: "cloudy", overcast: "overcast-night",
+      fog: "fog-night", foggy: "fog-night", mist: "mist", hazy: "haze-night",
+      rain: "rain", rainy: "rain", drizzle: "drizzle",
+      snow: "snow", snowy: "snow", flurries: "snow",
+      lightning: "thunderstorms-night", thunderstorm: "thunderstorms-night", thunderstorms: "thunderstorms-night",
+      hail: "hail", sleet: "sleet", windy: "wind",
     };
     const map = isNight ? nightMap : dayMap;
     let icon = map[c];
     if (!icon) {
-      if (c.includes("rain")) icon = isNight ? "rainy-1" : "rainy-1";
-      else if (c.includes("snow")) icon = "snowy-1";
-      else if (c.includes("cloud") || c.includes("overcast")) icon = isNight ? "cloudy-2-night" : "cloudy";
-      else if (c.includes("thunder") || c.includes("lightning")) icon = "thunderstorms";
-      else if (c.includes("fog") || c.includes("mist") || c.includes("haze")) icon = isNight ? "fog-night" : "fog";
-      else icon = isNight ? "clear-night" : "cloudy-1-day";
+      if (c.includes("rain")) icon = "rain";
+      else if (c.includes("snow")) icon = "snow";
+      else if (c.includes("cloud") || c.includes("overcast")) icon = isNight ? "overcast-night" : "cloudy";
+      else if (c.includes("thunder") || c.includes("lightning")) icon = isNight ? "thunderstorms-night" : "thunderstorms-day";
+      else if (c.includes("fog") || c.includes("mist") || c.includes("haze")) icon = isNight ? "fog-night" : "fog-day";
+      else if (c.includes("wind")) icon = "wind";
+      else icon = isNight ? "clear-night" : "partly-cloudy-day";
     }
     const w = size === "large" ? 88 : 48;
     const h = size === "large" ? 72 : 40;
-    return `<img src="/local/home_weather/icons/animated/${icon}.svg" alt="${condition || 'weather'}" width="${w}" height="${h}" class="weather-icon" loading="lazy"/>`;
+    return `<img src="/local/home_weather/icons/meteocons/${icon}.svg" alt="${condition || 'weather'}" width="${w}" height="${h}" class="weather-icon" loading="lazy"/>`;
   }
 
   _formatWindSpeed(val, unit) {
@@ -307,21 +309,29 @@ class HomeWeatherPanel extends HTMLElement {
         .current-right { display: flex; align-items: center; justify-content: flex-end; flex: 1; min-width: 0; }
         .weather-date { font-size: 28px; font-weight: 500; color: var(--primary-text-color); letter-spacing: -0.5px; line-height: 1.2; text-align: right; }
         .graph-section { margin-bottom: 20px; }
-        .graph-tabs { display: flex; gap: 0; margin-bottom: 12px; border-bottom: 2px solid var(--divider-color); }
-        .graph-tab { padding: 10px 20px; background: transparent; border: none; border-bottom: 3px solid transparent; margin-bottom: -2px; color: var(--secondary-text-color); cursor: pointer; font-size: 14px; font-weight: 500; }
-        .graph-tab:hover { color: var(--primary-text-color); }
-        .graph-tab.active { color: var(--accent-color); border-bottom-color: var(--accent-color); }
-        .graph-container { position: relative; height: 130px; background: var(--card-background-color); border-radius: 12px; padding: 16px 16px 32px 44px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); border: 1px solid var(--divider-color); }
-        .graph-svg { width: 100%; height: 82px; display: block; }
-        .graph-axis-y { position: absolute; left: 8px; top: 16px; bottom: 32px; display: flex; flex-direction: column; justify-content: space-between; font-size: 10px; font-weight: 500; color: var(--secondary-text-color); }
+        .graph-legend { display: flex; gap: 20px; margin-bottom: 10px; font-size: 12px; color: var(--secondary-text-color); }
+        .graph-legend-item { display: flex; align-items: center; gap: 6px; }
+        .graph-legend-item .dot { width: 10px; height: 10px; border-radius: 50%; }
+        .graph-legend-item .dot.temp { background: #e53935; }
+        .graph-legend-item .dot.precip { background: #1e88e5; }
+        .graph-legend-item .dot.wind { background: #757575; }
+        .graph-container { position: relative; height: 160px; background: var(--card-background-color); border-radius: 12px; padding: 16px 16px 32px 44px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); border: 1px solid var(--divider-color); }
+        .graph-container.combined-graph { height: 140px; cursor: crosshair; }
+        .graph-svg { width: 100%; height: 90px; display: block; }
+        .combined-graph .graph-svg { height: 100px; }
         .graph-times { position: absolute; bottom: 8px; left: 44px; right: 12px; height: 20px; font-size: 10px; font-weight: 500; color: var(--secondary-text-color); }
         .graph-time { position: absolute; transform: translate(-50%, 0); }
+        .graph-tooltip { position: absolute; background: var(--card-background-color); border: 1px solid var(--divider-color); border-radius: 8px; padding: 10px 14px; font-size: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 10; pointer-events: none; }
+        .graph-tooltip .tooltip-time { font-weight: 600; margin-bottom: 4px; }
+        .graph-tooltip .tooltip-row { display: flex; justify-content: space-between; gap: 16px; }
+        .graph-tooltip .tooltip-row span:first-child { color: var(--secondary-text-color); }
         .forecast-section { margin-bottom: 20px; overflow: visible; }
         .forecast-tabs { display: flex; gap: 8px; margin-bottom: 12px; }
         .forecast-tab { padding: 10px 20px; background: var(--card-background-color); border: 1px solid var(--divider-color); border-radius: 8px; color: var(--secondary-text-color); cursor: pointer; font-size: 14px; font-weight: 500; }
         .forecast-tab:hover { color: var(--primary-text-color); border-color: var(--primary-text-color); }
         .forecast-tab.active { background: var(--accent-color); color: white; border-color: var(--accent-color); }
-        .daily-scroll { display: flex; gap: 20px; overflow-x: auto; padding: 24px 8px; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; }
+        .daily-scroll { display: flex; gap: 20px; overflow-x: auto; padding: 24px 8px; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; scrollbar-width: none; -ms-overflow-style: none; }
+        .daily-scroll::-webkit-scrollbar { display: none; }
         .forecast-card { display: flex; flex-direction: column; align-items: center; flex: 0 0 130px; min-width: 130px; scroll-snap-align: start; padding: 16px 14px; background: var(--card-background-color); border-radius: 20px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.06); border: none; transition: all 0.25s ease; overflow: visible; }
         .forecast-card.day-card { flex: 0 0 130px; min-width: 130px; }
         .forecast-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
@@ -329,9 +339,12 @@ class HomeWeatherPanel extends HTMLElement {
         .day-icon { width: 56px; height: 48px; margin: 0 auto 10px; display: flex; align-items: center; justify-content: center; overflow: visible; }
         .forecast-card-label { font-size: 14px; font-weight: 600; color: var(--primary-text-color); margin-bottom: 8px; letter-spacing: -0.3px; display: block; width: 100%; }
         .day-icon .weather-icon { width: 56px; height: 48px; object-fit: contain; }
-        .forecast-card-condition { font-size: 11px; color: var(--secondary-text-color); text-transform: capitalize; margin-bottom: 4px; display: block; width: 100%; }
-        .forecast-card-details { font-size: 10px; color: var(--secondary-text-color); line-height: 1.5; display: block; width: 100%; }
-        .day-temps { font-size: 15px; color: var(--secondary-text-color); font-weight: 500; display: block; width: 100%; line-height: 1.4; margin-top: 2px; }
+        .forecast-card-condition { font-size: 11px; color: var(--secondary-text-color); text-transform: capitalize; margin-bottom: 8px; display: block; width: 100%; }
+        .forecast-card-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 16px; width: 100%; font-size: 11px; color: var(--secondary-text-color); text-align: left; }
+        .forecast-card-grid .left { text-align: left; }
+        .forecast-card-grid .right { text-align: right; }
+        .forecast-card-grid .row { display: contents; }
+        .forecast-card-grid .col { min-width: 0; }
       </style>
       <div class="${this._isNarrow ? "narrow" : ""}">
         <div class="header">
@@ -361,12 +374,7 @@ class HomeWeatherPanel extends HTMLElement {
     if (this._currentView === "settings") {
       this._attachSettingsHandlers();
     } else if (this._currentView === "forecast") {
-      s.querySelectorAll(".graph-tab").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          this._graphMode = btn.dataset.graph;
-          this._render();
-        });
-      });
+      this._attachGraphHandlers();
       s.querySelectorAll(".forecast-tab").forEach((btn) => {
         btn.addEventListener("click", () => {
           this._forecastView = btn.dataset.view || "7day";
@@ -477,21 +485,7 @@ class HomeWeatherPanel extends HTMLElement {
       wind: h.wind_speed ?? 0,
     }));
 
-    const values = graphData.map((d) => {
-      if (this._graphMode === "temperature") return d.temp ?? 0;
-      if (this._graphMode === "precipitation") return d.precip ?? 0;
-      return d.wind ?? 0;
-    });
-    const graphAxis = {
-      min: values.length ? Math.floor(Math.min(...values)) : 0,
-      max: values.length ? Math.ceil(Math.max(...values)) : 0,
-      suffix: this._graphMode === "precipitation" ? "%" : this._graphMode === "wind" ? " mph" : "°",
-    };
-    if (this._graphMode === "precipitation") {
-      graphAxis.max = Math.max(20, Math.min(100, graphAxis.max));
-      graphAxis.min = 0;
-    }
-    const graphPath = this._buildGraphPath(graphData, this._graphMode, graphAxis);
+    const combinedChart = this._buildCombinedChart(graphData, windUnit);
     const timeStep = graphData.length > 12 ? 3 : graphData.length > 6 ? 2 : 1;
     const graphTimeLabels = [];
     for (let i = 0; i < graphData.length; i += timeStep) {
@@ -528,44 +522,46 @@ class HomeWeatherPanel extends HTMLElement {
         </div>
         <div class="forecast-section">
           <div class="forecast-tabs">
-            <button class="forecast-tab ${this._forecastView === "24h" ? "active" : ""}" data-view="24h">24 Hour</button>
             <button class="forecast-tab ${this._forecastView === "7day" ? "active" : ""}" data-view="7day">7 Day</button>
+            <button class="forecast-tab ${this._forecastView === "24h" ? "active" : ""}" data-view="24h">24 Hour</button>
           </div>
           <div class="daily-scroll">
             ${this._forecastView === "24h"
               ? hourly.slice(0, 24).map((h, i) => {
-                  const windStr = h.wind_speed != null ? `${Math.round(h.wind_speed)} ${windUnit}` : null;
-                  const hPrecipPct = h.precipitation_probability ?? 0;
-                  const hPrecipType = this._getPrecipType(h.condition, h.precipitation_kind);
-                  const precipStr = hPrecipPct > 0
-                    ? (hPrecipType ? `${Math.round(hPrecipPct)}% ${hPrecipType}` : `${Math.round(hPrecipPct)}%`)
-                    : null;
-                  const details = [windStr, precipStr].filter(Boolean).join(" · ");
+                  const hiTemp = h.temperature != null ? Math.round(h.temperature) : "—";
+                  const lowTemp = h.templow != null ? Math.round(h.templow) : "—";
+                  const windVal = h.wind_speed != null ? `${Math.round(h.wind_speed)} ${windUnit}` : "—";
+                  const precipVal = this._formatPrecip(h.precipitation_probability);
                   return `
                 <div class="forecast-card ${i === 0 ? "current-day" : ""}">
                   <div class="forecast-card-label">${this._formatTime(h.datetime)}</div>
                   <div class="day-icon">${this._getConditionIcon(h.condition, null, h.datetime)}</div>
                   <div class="forecast-card-condition">${this._getConditionLabel(h.condition, h.datetime)}</div>
-                  ${details ? `<div class="forecast-card-details">${details}</div>` : ""}
-                  <div class="day-temps">${h.temperature != null ? Math.round(h.temperature) : "—"}°</div>
+                  <div class="forecast-card-grid">
+                    <span class="col left">Hi: ${hiTemp}°</span>
+                    <span class="col right">Low: ${lowTemp}°</span>
+                    <span class="col left">Wind: ${windVal}</span>
+                    <span class="col right">Precip: ${precipVal}</span>
+                  </div>
                 </div>
               `;
                 }).join("")
               : daily.map((d, i) => {
-                  const windStr = d.wind_speed != null ? `${Math.round(d.wind_speed)} ${windUnit}` : null;
-                  const precipPct = d.precipitation_probability ?? 0;
-                  const precipType = this._getPrecipType(d.condition, d.precipitation_kind);
-                  const precipStr = precipPct > 0
-                    ? (precipType ? `${Math.round(precipPct)}% ${precipType}` : `${Math.round(precipPct)}%`)
-                    : null;
-                  const details = [windStr, precipStr].filter(Boolean).join(" · ");
+                  const hiTemp = d.temperature != null ? Math.round(d.temperature) : "—";
+                  const lowTemp = d.templow != null ? Math.round(d.templow) : "—";
+                  const windVal = d.wind_speed != null ? `${Math.round(d.wind_speed)} ${windUnit}` : "—";
+                  const precipVal = this._formatPrecip(d.precipitation_probability);
                   return `
                 <div class="forecast-card day-card ${i === 0 ? "current-day" : ""}">
                   <div class="forecast-card-label">${this._formatDayShort(d.datetime)}</div>
-                  <div class="day-icon">${this._getConditionIcon(d.condition, null, null)}</div>
+                  <div class="day-icon">${this._getConditionIcon(d.condition, null, d.datetime)}</div>
                   <div class="forecast-card-condition">${d.condition || "—"}</div>
-                  ${details ? `<div class="forecast-card-details">${details}</div>` : ""}
-                  <div class="day-temps">${d.temperature ?? "—"}° / ${d.templow ?? "—"}°</div>
+                  <div class="forecast-card-grid">
+                    <span class="col left">Hi: ${hiTemp}°</span>
+                    <span class="col right">Low: ${lowTemp}°</span>
+                    <span class="col left">Wind: ${windVal}</span>
+                    <span class="col right">Precip: ${precipVal}</span>
+                  </div>
                 </div>
               `;
                 }).join("")
@@ -573,61 +569,165 @@ class HomeWeatherPanel extends HTMLElement {
           </div>
         </div>
         <div class="graph-section">
-          <div class="graph-tabs">
-            <button class="graph-tab ${this._graphMode === "temperature" ? "active" : ""}" data-graph="temperature">Temperature</button>
-            <button class="graph-tab ${this._graphMode === "precipitation" ? "active" : ""}" data-graph="precipitation">Precipitation</button>
-            <button class="graph-tab ${this._graphMode === "wind" ? "active" : ""}" data-graph="wind">Wind</button>
+          <div class="graph-legend">
+            <span class="graph-legend-item"><span class="dot temp"></span> Temperature</span>
+            <span class="graph-legend-item"><span class="dot precip"></span> Precipitation</span>
+            <span class="graph-legend-item"><span class="dot wind"></span> Wind</span>
           </div>
-          <div class="graph-container">
-            <svg class="graph-svg" viewBox="0 0 600 90" preserveAspectRatio="none">
+          <div class="graph-container combined-graph">
+            <svg class="graph-svg" viewBox="0 0 600 120" preserveAspectRatio="none">
               <defs>
-                <linearGradient id="graphGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stop-color="#4285f4" stop-opacity="0.3"/>
-                  <stop offset="100%" stop-color="#4285f4" stop-opacity="0"/>
+                <linearGradient id="graphGradTemp" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#e53935" stop-opacity="0.25"/>
+                  <stop offset="100%" stop-color="#e53935" stop-opacity="0"/>
+                </linearGradient>
+                <linearGradient id="graphGradPrecip" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#1e88e5" stop-opacity="0.25"/>
+                  <stop offset="100%" stop-color="#1e88e5" stop-opacity="0"/>
+                </linearGradient>
+                <linearGradient id="graphGradWind" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#757575" stop-opacity="0.2"/>
+                  <stop offset="100%" stop-color="#757575" stop-opacity="0"/>
                 </linearGradient>
               </defs>
-              <line x1="28" y1="10" x2="28" y2="80" stroke="var(--divider-color)" stroke-width="1" opacity="0.6"/>
-              <line x1="28" y1="80" x2="572" y2="80" stroke="var(--divider-color)" stroke-width="1" opacity="0.6"/>
-              <line x1="28" y1="45" x2="572" y2="45" stroke="var(--divider-color)" stroke-width="0.5" opacity="0.3"/>
-              <line x1="28" y1="10" x2="572" y2="10" stroke="var(--divider-color)" stroke-width="0.5" opacity="0.3"/>
-              <path class="graph-area" d="${graphPath.area}" fill="url(#graphGradient)"/>
-              <path class="graph-line" d="${graphPath.line}" fill="none" stroke="#4285f4" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+              ${combinedChart.svg}
             </svg>
-            <div class="graph-axis-y">
-              <span class="axis-max">${graphAxis.max}${graphAxis.suffix}</span>
-              <span class="axis-min">${graphAxis.min}${graphAxis.suffix}</span>
-            </div>
             <div class="graph-times">${graphTimeLabels.map((t) => `<span class="graph-time" style="left:${t.pct}%">${t.label}</span>`).join("")}</div>
+            <div class="graph-tooltip" id="graph-tooltip" style="display:none"></div>
           </div>
         </div>
       </div>
     `;
   }
 
-  _buildGraphPath(data, mode, axis) {
-    if (!data.length) return { line: "", area: "" };
+  _buildCombinedChart(data, windUnit) {
+    if (!data.length) return { svg: "", points: [] };
     const w = 600;
-    const h = 90;
+    const h = 120;
     const padX = 28;
-    const padY = 10;
-    const values = data.map((d) => {
-      if (mode === "temperature") return d.temp ?? 0;
-      if (mode === "precipitation") return d.precip ?? 0;
-      return d.wind ?? 0;
+    const padY = 6;
+    const bandH = (h - 2 * padY) / 3;
+    const bandTop = (i) => padY + i * bandH;
+    const bandBottom = (i) => padY + (i + 1) * bandH;
+
+    const temps = data.map((d) => d.temp ?? 0).filter((v) => v !== null && !isNaN(v));
+    const tempMin = temps.length ? Math.floor(Math.min(...temps)) - 2 : 0;
+    const tempMax = temps.length ? Math.ceil(Math.max(...temps)) + 2 : 100;
+    const tempRange = Math.max(tempMax - tempMin, 1);
+
+    const precipMax = Math.max(20, ...data.map((d) => d.precip ?? 0));
+    const precipRange = Math.max(precipMax, 1);
+
+    const winds = data.map((d) => d.wind ?? 0);
+    const windMax = winds.length ? Math.ceil(Math.max(...winds)) + 2 : 20;
+    const windRange = Math.max(windMax, 1);
+
+    const toTempPoints = () =>
+      data.map((d, i) => {
+        const x = padX + (i / (data.length - 1 || 1)) * (w - 2 * padX);
+        const v = d.temp ?? tempMin;
+        const norm = (v - tempMin) / tempRange;
+        const y = bandBottom(0) - norm * bandH;
+        return [x, y];
+      });
+    const toPrecipPoints = () =>
+      data.map((d, i) => {
+        const x = padX + (i / (data.length - 1 || 1)) * (w - 2 * padX);
+        const v = (d.precip ?? 0) / precipRange;
+        const y = bandBottom(1) - v * bandH;
+        return [x, y];
+      });
+    const toWindPoints = () =>
+      data.map((d, i) => {
+        const x = padX + (i / (data.length - 1 || 1)) * (w - 2 * padX);
+        const v = (d.wind ?? 0) / windRange;
+        const y = bandBottom(2) - v * bandH;
+        return [x, y];
+      });
+
+    const tempPoints = toTempPoints();
+    const precipPoints = toPrecipPoints();
+    const windPoints = toWindPoints();
+
+    const toPath = (pts) => this._smoothPath(pts);
+    const toAreaPath = (pts, baseY) => {
+      const line = toPath(pts);
+      const last = pts[pts.length - 1];
+      const first = pts[0];
+      return `${line} L ${last[0]} ${baseY} L ${first[0]} ${baseY} Z`;
+    };
+
+    const svg = `
+      <line x1="${padX}" y1="${padY}" x2="${padX}" y2="${h - padY}" stroke="var(--divider-color)" stroke-width="1" opacity="0.5"/>
+      <line x1="${padX}" y1="${h - padY}" x2="${w - padX}" y2="${h - padY}" stroke="var(--divider-color)" stroke-width="1" opacity="0.5"/>
+      <line x1="${padX}" y1="${bandBottom(0)}" x2="${w - padX}" y2="${bandBottom(0)}" stroke="var(--divider-color)" stroke-width="0.5" opacity="0.3"/>
+      <line x1="${padX}" y1="${bandBottom(1)}" x2="${w - padX}" y2="${bandBottom(1)}" stroke="var(--divider-color)" stroke-width="0.5" opacity="0.3"/>
+      <path d="${toAreaPath(tempPoints, bandBottom(0))}" fill="url(#graphGradTemp)"/>
+      <path d="${toPath(tempPoints)}" fill="none" stroke="#e53935" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="${toAreaPath(precipPoints, bandBottom(1))}" fill="url(#graphGradPrecip)"/>
+      <path d="${toPath(precipPoints)}" fill="none" stroke="#1e88e5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="${toAreaPath(windPoints, bandBottom(2))}" fill="url(#graphGradWind)"/>
+      <path d="${toPath(windPoints)}" fill="none" stroke="#757575" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      ${data.map((_, i) => {
+        const x = padX + (i / (data.length - 1 || 1)) * (w - 2 * padX);
+        const r = 3;
+        return `<circle cx="${x}" cy="${tempPoints[i][1]}" r="${r}" fill="#e53935"/><circle cx="${x}" cy="${precipPoints[i][1]}" r="${r}" fill="#1e88e5"/><circle cx="${x}" cy="${windPoints[i][1]}" r="${r}" fill="#757575"/>`;
+      }).join("")}
+    `;
+    return { svg, points: data, windUnit };
+  }
+
+  _attachGraphHandlers() {
+    const s = this.shadowRoot;
+    if (!s) return;
+    const container = s.querySelector(".combined-graph");
+    const tooltip = s.getElementById("graph-tooltip");
+    if (!container || !tooltip) return;
+
+    const hourly = (this._weatherData && this._weatherData.hourly_forecast) || [];
+    const graphData = hourly.slice(0, 24).map((h) => ({
+      time: this._formatTime(h.datetime),
+      temp: h.temperature != null ? Math.round(h.temperature) : null,
+      precip: h.precipitation_probability ?? 0,
+      wind: h.wind_speed ?? 0,
+    }));
+    const windUnit = (this._weatherData?.current?.wind_speed_unit || "mph").toLowerCase();
+
+    const showTooltip = (idx, x, y) => {
+      if (idx < 0 || idx >= graphData.length) return;
+      const d = graphData[idx];
+      tooltip.innerHTML = `
+        <div class="tooltip-time">${d.time}</div>
+        <div class="tooltip-row"><span>Temp:</span><span style="color:#e53935">${d.temp != null ? d.temp + "°" : "—"}</span></div>
+        <div class="tooltip-row"><span>Precip:</span><span style="color:#1e88e5">${Math.round(d.precip)}%</span></div>
+        <div class="tooltip-row"><span>Wind:</span><span style="color:#757575">${Math.round(d.wind)} ${windUnit}</span></div>
+      `;
+      tooltip.style.display = "block";
+      tooltip.style.left = `${Math.min(Math.max(x - 60, 10), container.offsetWidth - 130)}px`;
+      tooltip.style.top = `${Math.max(y - 80, 10)}px`;
+    };
+
+    const hideTooltip = () => {
+      tooltip.style.display = "none";
+    };
+
+    const getIndexFromEvent = (e) => {
+      const rect = container.getBoundingClientRect();
+      const graphLeft = 44;
+      const graphWidth = rect.width - 60;
+      const xPct = (e.clientX - rect.left - graphLeft) / graphWidth;
+      const idx = Math.round(xPct * (graphData.length - 1));
+      return Math.max(0, Math.min(idx, graphData.length - 1));
+    };
+
+    container.addEventListener("mousemove", (e) => {
+      const rect = container.getBoundingClientRect();
+      const idx = getIndexFromEvent(e);
+      if (idx >= 0 && e.clientX >= rect.left && e.clientX <= rect.right) {
+        showTooltip(idx, e.clientX - rect.left, e.clientY - rect.top);
+      }
     });
-    const min = axis ? axis.min : Math.min(...values);
-    const max = axis ? axis.max : Math.max(...values);
-    const range = Math.max(max - min, 1);
-    const points = data.map((d, i) => {
-      const x = padX + (i / (data.length - 1 || 1)) * (w - 2 * padX);
-      const v = mode === "temperature" ? (d.temp ?? 0) : mode === "precipitation" ? (d.precip ?? 0) : (d.wind ?? 0);
-      const y = h - padY - ((v - min) / range) * (h - 2 * padY);
-      return [x, y];
-    });
-    const smoothPath = this._smoothPath(points);
-    const baseY = h - padY;
-    const areaD = smoothPath + ` L ${points[points.length - 1][0]} ${baseY} L ${points[0][0]} ${baseY} Z`;
-    return { line: smoothPath, area: areaD };
+    container.addEventListener("mouseleave", hideTooltip);
   }
 
   _smoothPath(points) {
