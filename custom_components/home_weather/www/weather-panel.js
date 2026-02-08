@@ -172,6 +172,29 @@ class HomeWeatherPanel extends HTMLElement {
     return `${weekday}, ${month} ${day}${suffix} ${year}`;
   }
 
+  _getMoonPhase(date) {
+    const d = date instanceof Date ? date : new Date(date);
+    const LUNAR_CYCLE = 29.53059;
+    const KNOWN_NEW = new Date("2000-01-06T18:14Z").getTime();
+    const ageDays = ((d.getTime() - KNOWN_NEW) / 86400000) % LUNAR_CYCLE;
+    const phaseRatio = ageDays / LUNAR_CYCLE;
+    const illumination = Math.round(
+      (1 - Math.cos(2 * Math.PI * phaseRatio)) * 50
+    );
+    const phases = [
+      { name: "New Moon", icon: "moon-new" },
+      { name: "Waxing Crescent", icon: "moon-waxing-crescent" },
+      { name: "First Quarter", icon: "moon-first-quarter" },
+      { name: "Waxing Gibbous", icon: "moon-waxing-gibbous" },
+      { name: "Full Moon", icon: "moon-full" },
+      { name: "Waning Gibbous", icon: "moon-waning-gibbous" },
+      { name: "Last Quarter", icon: "moon-last-quarter" },
+      { name: "Waning Crescent", icon: "moon-waning-crescent" },
+    ];
+    const idx = Math.min(7, Math.floor(phaseRatio * 8));
+    return { ...phases[idx], illumination, daysSinceNew: ageDays.toFixed(1) };
+  }
+
   _formatDateTimeWithTime(d) {
     if (!d) return "";
     const date = d instanceof Date ? d : new Date(d);
@@ -372,7 +395,15 @@ class HomeWeatherPanel extends HTMLElement {
         .graph-tooltip .tooltip-time { font-weight: 600; margin-bottom: 4px; }
         .graph-tooltip .tooltip-row { display: flex; justify-content: space-between; gap: 16px; }
         .graph-tooltip .tooltip-row span:first-child { color: var(--secondary-text-color); }
-        .forecast-section { margin-bottom: 20px; overflow-x: visible; overflow-y: visible; min-width: 0; }
+        .forecast-moon-row { display: grid; grid-template-columns: 1fr auto; gap: 24px; margin-bottom: 20px; align-items: start; }
+        @media (max-width: 900px) { .forecast-moon-row { grid-template-columns: 1fr; } }
+        .forecast-section { overflow-x: visible; overflow-y: visible; min-width: 0; }
+        .moon-phase-section { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px 32px; background: var(--card-background-color); border-radius: 20px; border: 1px solid var(--divider-color); box-shadow: 0 2px 12px rgba(0,0,0,0.06); min-width: 180px; }
+        .moon-phase-section-title { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--secondary-text-color); margin-bottom: 16px; }
+        .moon-phase-icon { width: 200px; height: 200px; display: flex; align-items: center; justify-content: center; }
+        .moon-phase-icon img { width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 4px 16px rgba(0,0,0,0.15)); }
+        .moon-phase-name { font-size: 16px; font-weight: 600; color: var(--primary-text-color); margin-top: 12px; text-align: center; }
+        .moon-phase-details { font-size: 13px; color: var(--secondary-text-color); margin-top: 6px; }
         .forecast-tabs { display: flex; gap: 8px; margin-bottom: 12px; }
         .forecast-tab { padding: 10px 20px; background: var(--card-background-color); border: 1px solid var(--divider-color); border-radius: 8px; color: var(--secondary-text-color); cursor: pointer; font-size: 14px; font-weight: 500; }
         .forecast-tab:hover { color: var(--primary-text-color); border-color: var(--primary-text-color); }
@@ -593,7 +624,7 @@ class HomeWeatherPanel extends HTMLElement {
               </div>
             </div>
             <div class="current-right">
-              <div class="weather-date">${dateLong}</div>
+              <div class="weather-date">${dateTimeStr}</div>
             </div>
           </div>
           <div class="current-metrics">
@@ -608,6 +639,7 @@ class HomeWeatherPanel extends HTMLElement {
             `).join("")}
           </div>
         </div>
+        <div class="forecast-moon-row">
         <div class="forecast-section">
           <div class="forecast-tabs">
             <button class="forecast-tab ${this._forecastView === "7day" ? "active" : ""}" data-view="7day">7 Day</button>
@@ -654,6 +686,15 @@ class HomeWeatherPanel extends HTMLElement {
                 }).join("")
             }
           </div>
+        </div>
+        <div class="moon-phase-section">
+          <div class="moon-phase-section-title">Moon Phase</div>
+          <div class="moon-phase-icon">
+            <img src="/local/home_weather/icons/Moon%20Phase/${this._getMoonPhase(now).icon}.svg" alt="${this._getMoonPhase(now).name}" loading="lazy"/>
+          </div>
+          <div class="moon-phase-name">${this._getMoonPhase(now).name}</div>
+          <div class="moon-phase-details">${this._getMoonPhase(now).illumination}% illuminated · Day ${this._getMoonPhase(now).daysSinceNew}</div>
+        </div>
         </div>
         <div class="graph-section">
           <div class="graph-container combined-graph">
