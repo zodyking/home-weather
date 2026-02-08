@@ -59,6 +59,7 @@ class WeatherCoordinator(DataUpdateCoordinator):
             # Get current conditions (use string keys - weather attr names vary by HA version)
             current = {
                 "temperature": state.attributes.get("temperature"),
+                "apparent_temperature": state.attributes.get("apparent_temperature"),
                 "condition": state.attributes.get("condition"),
                 "state": state.state,
                 "humidity": state.attributes.get("humidity"),
@@ -66,10 +67,19 @@ class WeatherCoordinator(DataUpdateCoordinator):
                 or state.attributes.get("native_wind_speed"),
                 "wind_speed_unit": state.attributes.get("wind_speed_unit")
                 or state.attributes.get("native_wind_speed_unit", "mph"),
+                "wind_gust_speed": state.attributes.get("wind_gust_speed")
+                or state.attributes.get("native_wind_gust_speed"),
                 "precipitation": state.attributes.get("precipitation")
                 or state.attributes.get("native_precipitation"),
                 "precipitation_unit": state.attributes.get("precipitation_unit")
                 or state.attributes.get("native_precipitation_unit", "in"),
+                "pressure": state.attributes.get("pressure")
+                or state.attributes.get("native_pressure"),
+                "pressure_unit": state.attributes.get("pressure_unit")
+                or state.attributes.get("native_pressure_unit", "inHg"),
+                "dew_point": state.attributes.get("dew_point"),
+                "cloud_coverage": state.attributes.get("cloud_coverage"),
+                "uv_index": state.attributes.get("uv_index"),
             }
 
             # Get forecasts using weather.get_forecasts service
@@ -92,7 +102,7 @@ class WeatherCoordinator(DataUpdateCoordinator):
                         forecast_time = item.get("datetime") or item.get("forecast_time")
                         if isinstance(forecast_time, str):
                             forecast_time = dt_util.parse_datetime(forecast_time)
-                        hourly_forecast.append({
+                        entry = {
                             "datetime": forecast_time.isoformat() if isinstance(forecast_time, datetime) else str(forecast_time) if forecast_time else "",
                             "temperature": item.get("temperature"),
                             "condition": item.get("condition"),
@@ -100,7 +110,15 @@ class WeatherCoordinator(DataUpdateCoordinator):
                             "precipitation_probability": item.get("precipitation_probability", 0),
                             "precipitation_kind": item.get("precipitation_kind"),
                             "wind_speed": item.get("wind_speed"),
-                        })
+                            "apparent_temperature": item.get("apparent_temperature"),
+                            "dew_point": item.get("dew_point"),
+                            "pressure": item.get("pressure"),
+                            "wind_gust_speed": item.get("wind_gust_speed"),
+                            "cloud_coverage": item.get("cloud_coverage"),
+                            "uv_index": item.get("uv_index"),
+                            "humidity": item.get("humidity"),
+                        }
+                        hourly_forecast.append(entry)
 
                 # Get daily forecast
                 result_daily = await self.hass.services.async_call(
