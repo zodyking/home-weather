@@ -159,7 +159,8 @@ class HomeWeatherPanel extends HTMLElement {
     if (!datetime) return false;
     const d = datetime instanceof Date ? datetime : new Date(datetime);
     const hour = d.getHours();
-    return hour >= 18 || hour < 7;
+    // Day: 7am–6:59pm (7–18). Night: 7pm–6:59am (19–6).
+    return hour >= 19 || hour < 7;
   }
 
   _getConditionLabel(condition, datetime) {
@@ -173,7 +174,17 @@ class HomeWeatherPanel extends HTMLElement {
   _getConditionIcon(condition, size, datetime, forceDay = false) {
     const c = (condition || "").toLowerCase().replace(/\s+/g, "");
     const isNight = forceDay ? false : this._isNightTime(datetime);
-    // Meteocons (basmilius/weather-icons) - day/night variants
+    // 7-day forecast: ONLY icons with "day" in filename. Others use day/night variants.
+    const dayOnlyMap = {
+      sunny: "clear-day", clear: "clear-day", fair: "clear-day", clearskies: "clear-day",
+      partlycloudy: "partly-cloudy-day", partly_cloudy: "partly-cloudy-day",
+      cloudy: "overcast-day", overcast: "overcast-day",
+      fog: "fog-day", foggy: "fog-day", mist: "fog-day", hazy: "haze-day",
+      rain: "partly-cloudy-day-rain", rainy: "partly-cloudy-day-rain", drizzle: "partly-cloudy-day-drizzle",
+      snow: "partly-cloudy-day-snow", snowy: "partly-cloudy-day-snow", flurries: "partly-cloudy-day-snow",
+      lightning: "thunderstorms-day", thunderstorm: "thunderstorms-day", thunderstorms: "thunderstorms-day",
+      hail: "partly-cloudy-day-hail", sleet: "partly-cloudy-day-sleet", windy: "partly-cloudy-day",
+    };
     const dayMap = {
       sunny: "clear-day", clear: "clear-day", fair: "clear-day", clearskies: "clear-day",
       partlycloudy: "partly-cloudy-day", partly_cloudy: "partly-cloudy-day",
@@ -194,20 +205,21 @@ class HomeWeatherPanel extends HTMLElement {
       lightning: "thunderstorms-night", thunderstorm: "thunderstorms-night", thunderstorms: "thunderstorms-night",
       hail: "hail", sleet: "sleet", windy: "wind",
     };
-    const map = isNight ? nightMap : dayMap;
+    const map = forceDay ? dayOnlyMap : (isNight ? nightMap : dayMap);
     let icon = map[c];
     if (!icon) {
-      if (c.includes("rain")) icon = "rain";
-      else if (c.includes("snow")) icon = "snow";
-      else if (c.includes("cloud") || c.includes("overcast")) icon = isNight ? "overcast-night" : "cloudy";
+      if (c.includes("rain")) icon = forceDay ? "partly-cloudy-day-rain" : "rain";
+      else if (c.includes("snow")) icon = forceDay ? "partly-cloudy-day-snow" : "snow";
+      else if (c.includes("cloud") || c.includes("overcast")) icon = forceDay ? "overcast-day" : (isNight ? "overcast-night" : "cloudy");
       else if (c.includes("thunder") || c.includes("lightning")) icon = isNight ? "thunderstorms-night" : "thunderstorms-day";
-      else if (c.includes("fog") || c.includes("mist") || c.includes("haze")) icon = isNight ? "fog-night" : "fog-day";
-      else if (c.includes("wind")) icon = "wind";
-      else icon = isNight ? "clear-night" : "partly-cloudy-day";
+      else if (c.includes("fog") || c.includes("mist") || c.includes("haze")) icon = forceDay ? "fog-day" : (isNight ? "fog-night" : "fog-day");
+      else if (c.includes("wind")) icon = forceDay ? "partly-cloudy-day" : "wind";
+      else icon = forceDay ? "partly-cloudy-day" : (isNight ? "clear-night" : "partly-cloudy-day");
     }
     const w = size === "large" ? 88 : 48;
     const h = size === "large" ? 72 : 40;
-    return `<img src="/local/home_weather/icons/meteocons/${icon}.svg" alt="${condition || 'weather'}" width="${w}" height="${h}" class="weather-icon" loading="lazy"/>`;
+    const subfolder = icon.includes("day") ? "day/" : icon.includes("night") ? "night/" : "";
+    return `<img src="/local/home_weather/icons/${subfolder}${icon}.svg" alt="${condition || 'weather'}" width="${w}" height="${h}" class="weather-icon" loading="lazy"/>`;
   }
 
   _formatWindSpeed(val, unit) {
@@ -241,8 +253,12 @@ class HomeWeatherPanel extends HTMLElement {
         .error { color: var(--error-color); }
         .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px solid var(--divider-color); flex-wrap: wrap; gap: 12px; }
         .header-left { display: flex; align-items: center; gap: 12px; }
+        .header-right { display: flex; align-items: center; margin-left: auto; }
         .header h1 { margin: 0; font-size: 24px; font-weight: 400; color: var(--primary-text-color); }
         .header-nav { display: flex; gap: 0; }
+        .header-btn { padding: 8px; background: transparent; border: none; border-radius: 8px; color: var(--primary-text-color); cursor: pointer; display: flex; align-items: center; justify-content: center; }
+        .header-btn:hover { background: var(--secondary-background-color); }
+        .header-btn svg { width: 24px; height: 24px; }
         .hamburger { display: none; padding: 8px; background: transparent; border: none; cursor: pointer; color: var(--primary-text-color); border-radius: 8px; }
         .hamburger:hover { background: var(--secondary-background-color); }
         .hamburger svg { width: 24px; height: 24px; display: block; }
@@ -353,10 +369,17 @@ class HomeWeatherPanel extends HTMLElement {
               <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></svg>
             </button>
             <h1>Home Weather</h1>
-            <div class="header-nav nav-tabs">
-              <button class="nav-tab ${this._currentView === "forecast" ? "active" : ""}" data-view="forecast">Forecast</button>
-              <button class="nav-tab ${this._currentView === "settings" ? "active" : ""}" data-view="settings">Settings</button>
-            </div>
+          </div>
+          <div class="header-right">
+            ${this._currentView === "forecast"
+              ? `<button class="header-btn" id="settings-btn" aria-label="Settings" data-view="settings">
+                  <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19.14 12.94c.04-.31.06-.63.06-.94 0-.31-.02-.63-.06-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
+                </button>`
+              : `<button class="header-btn" id="back-btn" aria-label="Back to dashboard" data-view="forecast">
+                  <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+                  <span style="margin-left:6px;font-size:14px">Back to dashboard</span>
+                </button>`
+            }
           </div>
         </div>
       </div>
@@ -365,12 +388,10 @@ class HomeWeatherPanel extends HTMLElement {
     s.getElementById("hamburger-btn")?.addEventListener("click", () => {
       this.dispatchEvent(new CustomEvent("hass-toggle-menu", { bubbles: true, composed: true }));
     });
-    s.querySelectorAll(".nav-tab").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        if (btn.dataset.view) this._currentView = btn.dataset.view;
-        this._render();
-      });
-    });
+    const settingsBtn = s.getElementById("settings-btn");
+    const backBtn = s.getElementById("back-btn");
+    if (settingsBtn) settingsBtn.addEventListener("click", () => { this._currentView = "settings"; this._render(); });
+    if (backBtn) backBtn.addEventListener("click", () => { this._currentView = "forecast"; this._render(); });
     if (this._currentView === "settings") {
       this._attachSettingsHandlers();
     } else if (this._currentView === "forecast") {
@@ -529,7 +550,6 @@ class HomeWeatherPanel extends HTMLElement {
             ${this._forecastView === "24h"
               ? hourly.slice(0, 24).map((h, i) => {
                   const hiTemp = h.temperature != null ? Math.round(h.temperature) : "—";
-                  const lowTemp = h.templow != null ? Math.round(h.templow) : "—";
                   const windVal = h.wind_speed != null ? `${Math.round(h.wind_speed)} ${windUnit}` : "—";
                   const precipVal = this._formatPrecip(h.precipitation_probability);
                   return `
@@ -539,9 +559,8 @@ class HomeWeatherPanel extends HTMLElement {
                   <div class="forecast-card-condition">${this._getConditionLabel(h.condition, h.datetime)}</div>
                   <div class="forecast-card-grid">
                     <span class="col left">Hi: ${hiTemp}°</span>
-                    <span class="col right">Low: ${lowTemp}°</span>
-                    <span class="col left">Wind: ${windVal}</span>
-                    <span class="col right">Precip: ${precipVal}</span>
+                    <span class="col right">Wind: ${windVal}</span>
+                    <span class="col left">Precip: ${precipVal}</span>
                   </div>
                 </div>
               `;
@@ -549,7 +568,6 @@ class HomeWeatherPanel extends HTMLElement {
               : daily.map((d, i) => {
                   const hiTemp = d.temperature != null ? Math.round(d.temperature) : "—";
                   const lowTemp = d.templow != null ? Math.round(d.templow) : "—";
-                  const windVal = d.wind_speed != null ? `${Math.round(d.wind_speed)} ${windUnit}` : "—";
                   const precipVal = this._formatPrecip(d.precipitation_probability);
                   return `
                 <div class="forecast-card day-card ${i === 0 ? "current-day" : ""}">
@@ -559,8 +577,7 @@ class HomeWeatherPanel extends HTMLElement {
                   <div class="forecast-card-grid">
                     <span class="col left">Hi: ${hiTemp}°</span>
                     <span class="col right">Low: ${lowTemp}°</span>
-                    <span class="col left">Wind: ${windVal}</span>
-                    <span class="col right">Precip: ${precipVal}</span>
+                    <span class="col left">Precip: ${precipVal}</span>
                   </div>
                 </div>
               `;
