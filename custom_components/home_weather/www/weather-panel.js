@@ -172,6 +172,14 @@ class HomeWeatherPanel extends HTMLElement {
     return `${weekday}, ${month} ${day}${suffix} ${year}`;
   }
 
+  _formatDateTimeWithTime(d) {
+    if (!d) return "";
+    const date = d instanceof Date ? d : new Date(d);
+    const time = date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+    const dateStr = this._formatDateLong(d);
+    return `${time} – ${dateStr}`;
+  }
+
   _isNightTime(datetime) {
     if (!datetime) return false;
     const d = datetime instanceof Date ? datetime : new Date(datetime);
@@ -337,14 +345,11 @@ class HomeWeatherPanel extends HTMLElement {
         .current-condition { font-size: 18px; color: var(--primary-text-color); text-transform: capitalize; font-weight: 500; text-align: center; letter-spacing: 0.3px; }
         .current-temp-block { display: flex; flex-direction: column; gap: 10px; }
         .current-temp { font-size: 80px; font-weight: 200; color: var(--primary-text-color); line-height: 1; letter-spacing: -3px; }
-        .unit-toggle { display: flex; gap: 0; }
-        .unit-btn { padding: 8px 14px; background: color-mix(in srgb, var(--secondary-background-color) 80%, transparent); border: 1px solid var(--divider-color); border-radius: 10px; margin-right: 4px; color: var(--secondary-text-color); cursor: pointer; font-size: 15px; font-weight: 500; transition: all 0.2s ease; }
-        .unit-btn:hover { color: var(--primary-text-color); background: var(--secondary-background-color); }
-        .unit-btn.active { color: var(--accent-color); background: color-mix(in srgb, var(--accent-color) 15%, transparent); border-color: var(--accent-color); }
-        .current-right { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
-        .weather-date { font-size: 24px; font-weight: 600; color: var(--primary-text-color); letter-spacing: -0.3px; line-height: 1.2; text-align: right; }
-        .current-metrics { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; }
-        .metric-pill { display: flex; align-items: center; gap: 12px; padding: 14px 18px; background: var(--secondary-background-color); border-radius: 14px; border: 1px solid var(--divider-color); transition: all 0.2s ease; }
+        .current-date-row { width: 100%; padding: 12px 0 0; border-top: 1px solid var(--divider-color); margin-top: 8px; }
+        .weather-date { font-size: 20px; font-weight: 500; color: var(--secondary-text-color); letter-spacing: -0.2px; line-height: 1.3; }
+        .current-metrics { display: flex; flex-wrap: nowrap; gap: 12px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; -ms-overflow-style: none; }
+        .current-metrics::-webkit-scrollbar { display: none; }
+        .metric-pill { flex-shrink: 0; display: flex; align-items: center; gap: 12px; padding: 14px 18px; background: var(--secondary-background-color); border-radius: 14px; border: 1px solid var(--divider-color); transition: all 0.2s ease; }
         .metric-pill:hover { filter: brightness(1.05); transform: translateY(-1px); box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
         .metric-pill-icon { width: 32px; height: 32px; flex-shrink: 0; opacity: 0.85; }
         .metric-pill-content { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
@@ -367,23 +372,30 @@ class HomeWeatherPanel extends HTMLElement {
         .graph-tooltip .tooltip-time { font-weight: 600; margin-bottom: 4px; }
         .graph-tooltip .tooltip-row { display: flex; justify-content: space-between; gap: 16px; }
         .graph-tooltip .tooltip-row span:first-child { color: var(--secondary-text-color); }
-        .forecast-section { margin-bottom: 20px; overflow-x: hidden; overflow-y: visible; min-width: 0; }
+        .forecast-section { margin-bottom: 20px; overflow-x: visible; overflow-y: visible; min-width: 0; }
         .forecast-tabs { display: flex; gap: 8px; margin-bottom: 12px; }
         .forecast-tab { padding: 10px 20px; background: var(--card-background-color); border: 1px solid var(--divider-color); border-radius: 8px; color: var(--secondary-text-color); cursor: pointer; font-size: 14px; font-weight: 500; }
         .forecast-tab:hover { color: var(--primary-text-color); border-color: var(--primary-text-color); }
         .forecast-tab.active { background: var(--accent-color); color: white; border-color: var(--accent-color); }
-        .daily-scroll { display: flex; gap: 20px; overflow-x: auto; overflow-y: hidden; padding: 24px 8px; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; scrollbar-width: none; -ms-overflow-style: none; min-width: 0; }
-        .daily-scroll::-webkit-scrollbar { width: 0; height: 0; display: none; }
-        .daily-scroll::-webkit-scrollbar-track, .daily-scroll::-webkit-scrollbar-thumb { display: none; width: 0; height: 0; background: transparent; }
-        .forecast-card { display: flex; flex-direction: column; align-items: center; flex: 0 0 130px; min-width: 130px; scroll-snap-align: start; padding: 16px 14px; background: var(--card-background-color); border-radius: 20px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.06); border: none; transition: all 0.25s ease; overflow: visible; }
-        .forecast-card.day-card { flex: 0 0 130px; min-width: 130px; }
+        .daily-scroll { display: flex; gap: 12px; overflow-y: hidden; padding: 16px 4px; min-width: 0; }
+        .daily-scroll.view-7day { overflow-x: visible; flex-wrap: nowrap; }
+        .daily-scroll.view-24h { overflow-x: auto; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; scrollbar-width: none; -ms-overflow-style: none; }
+        .daily-scroll.view-24h::-webkit-scrollbar { width: 0; height: 0; display: none; }
+        .daily-scroll.view-24h::-webkit-scrollbar-track, .daily-scroll.view-24h::-webkit-scrollbar-thumb { display: none; width: 0; height: 0; background: transparent; }
+        .forecast-card { display: flex; flex-direction: column; align-items: center; scroll-snap-align: start; padding: 12px 8px; background: var(--card-background-color); border-radius: 16px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.06); border: none; transition: all 0.25s ease; overflow: visible; }
+        .forecast-card.day-card { flex: 1 1 0; min-width: 90px; }
+        .daily-scroll.view-24h .forecast-card { flex: 0 0 110px; min-width: 110px; }
         .forecast-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
         .forecast-card.current-day { background: linear-gradient(180deg, rgba(66,133,244,0.12) 0%, rgba(66,133,244,0.04) 100%); box-shadow: 0 2px 12px rgba(66,133,244,0.2); }
-        .day-icon { width: 56px; height: 48px; margin: 0 auto 10px; display: flex; align-items: center; justify-content: center; overflow: visible; }
+        .day-icon { width: 56px; height: 48px; margin: 0 auto 8px; display: flex; align-items: center; justify-content: center; overflow: visible; }
+        .forecast-card.day-card .day-icon { width: 48px; height: 40px; margin-bottom: 6px; }
+        .forecast-card.day-card .day-icon .weather-icon { width: 48px; height: 40px; }
         .forecast-card-label { font-size: 14px; font-weight: 600; color: var(--primary-text-color); margin-bottom: 8px; letter-spacing: -0.3px; display: block; width: 100%; }
+        .forecast-card.day-card .forecast-card-label { font-size: 13px; margin-bottom: 6px; }
         .day-icon .weather-icon { width: 56px; height: 48px; object-fit: contain; }
         .forecast-card-condition { font-size: 11px; color: var(--secondary-text-color); text-transform: capitalize; margin-bottom: 8px; display: block; width: 100%; }
-        .forecast-card-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 16px; width: 100%; font-size: 11px; color: var(--secondary-text-color); text-align: left; }
+        .forecast-card.day-card .forecast-card-condition { font-size: 10px; margin-bottom: 6px; }
+        .forecast-card-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 8px; width: 100%; font-size: 11px; color: var(--secondary-text-color); text-align: left; }
         .forecast-card-grid .left { text-align: left; }
         .forecast-card-grid .right { text-align: right; }
         .forecast-card-grid .col-span-full { grid-column: 1 / -1; text-align: center; }
@@ -427,12 +439,6 @@ class HomeWeatherPanel extends HTMLElement {
       s.querySelectorAll(".forecast-tab").forEach((btn) => {
         btn.addEventListener("click", () => {
           this._forecastView = btn.dataset.view || "7day";
-          this._render();
-        });
-      });
-      s.querySelectorAll(".unit-btn").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          this._useFahrenheit = btn.dataset.unit === "F";
           this._render();
         });
       });
@@ -520,7 +526,7 @@ class HomeWeatherPanel extends HTMLElement {
     const daily = (this._weatherData.daily_forecast || []).slice(0, 7);
     const h0 = hourly[0] || {};
     const now = new Date();
-    const dateLong = this._formatDateLong(now);
+    const dateTimeStr = this._formatDateTimeWithTime(now);
     const condition = current.condition || current.state || "—";
     const temp = (current.temperature ?? h0.temperature) != null ? Math.round(current.temperature ?? h0.temperature) : "—";
     const windUnit = (current.wind_speed_unit || "mph").toLowerCase();
@@ -607,7 +613,7 @@ class HomeWeatherPanel extends HTMLElement {
             <button class="forecast-tab ${this._forecastView === "7day" ? "active" : ""}" data-view="7day">7 Day</button>
             <button class="forecast-tab ${this._forecastView === "24h" ? "active" : ""}" data-view="24h">24 Hour</button>
           </div>
-          <div class="daily-scroll">
+          <div class="daily-scroll ${this._forecastView === "7day" ? "view-7day" : "view-24h"}">
             ${this._forecastView === "24h"
               ? hourly.slice(0, 24).map((h, i) => {
                   const hiTemp = h.temperature != null ? Math.round(h.temperature) : "—";
@@ -651,10 +657,7 @@ class HomeWeatherPanel extends HTMLElement {
         </div>
         <div class="graph-section">
           <div class="graph-container combined-graph">
-            <div id="apex-chart-temp" class="graph-chart"></div>
-            <div id="apex-chart-precip" class="graph-chart"></div>
-            <div id="apex-chart-wind" class="graph-chart"></div>
-            <div id="apex-chart-conditions" class="graph-chart"></div>
+            <div id="apex-chart-combined" class="graph-chart"></div>
           </div>
         </div>
       </div>
@@ -676,10 +679,10 @@ class HomeWeatherPanel extends HTMLElement {
 
   _baseChartOptions(data) {
     return {
-      chart: { type: "area", height: 180, toolbar: { show: false }, zoom: { enabled: false }, fontFamily: "inherit" },
+      chart: { type: "area", height: 320, toolbar: { show: false }, zoom: { enabled: false }, fontFamily: "inherit" },
       dataLabels: { enabled: false },
       stroke: { curve: "smooth", width: 2 },
-      fill: { type: "gradient", gradient: { opacityFrom: 0.25, opacityTo: 0 } },
+      fill: { type: "gradient", gradient: { opacityFrom: 0.2, opacityTo: 0 } },
       xaxis: {
         categories: data.map((d) => d.time),
         labels: { style: { colors: "#94a3b8" }, trim: true, maxHeight: 36 },
@@ -691,6 +694,11 @@ class HomeWeatherPanel extends HTMLElement {
     };
   }
 
+  _normalizeForChart(v, min, max) {
+    if (v == null || min == null || max == null || max === min) return null;
+    return Math.max(0, Math.min(100, ((v - min) / (max - min)) * 100));
+  }
+
   async _initApexChart() {
     const s = this.shadowRoot;
     if (!s || !this._graphData?.length) return;
@@ -699,95 +707,61 @@ class HomeWeatherPanel extends HTMLElement {
     const tempUnit = this._useFahrenheit ? "°F" : "°C";
     try {
       await this._loadApexCharts();
-      const tooltip = (fields) => ({ dataPointIndex }) => {
-        const d = data[dataPointIndex];
-        const rows = fields.map((f) => {
-          const v = d[f.key];
-          const fmt = f.format || ((x) => (x != null ? String(x) : "—"));
-          return `<div style="display:flex;justify-content:space-between;gap:16px"><span style="color:var(--secondary-text-color)">${f.label}:</span><span style="color:${f.color}">${fmt(v)}</span></div>`;
-        }).join("");
-        return `<div style="background:var(--card-background-color);border:1px solid var(--divider-color);border-radius:8px;padding:10px 14px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.15);"><div style="font-weight:600;margin-bottom:4px">${d.time}</div>${rows}</div>`;
-      };
-
       const tempVals = data.flatMap((d) => [d.temp, d.feelsLike, d.dewPoint]).filter((n) => n != null);
       const tempMin = tempVals.length ? Math.floor(Math.min(...tempVals)) - 2 : 0;
       const tempMax = tempVals.length ? Math.ceil(Math.max(...tempVals)) + 2 : 100;
       const pressureVals = data.map((d) => d.pressure).filter((n) => n != null);
       const pressureMin = pressureVals.length ? Math.min(...pressureVals) - 0.1 : 29;
       const pressureMax = pressureVals.length ? Math.max(...pressureVals) + 0.1 : 31;
+      const precipAmountVals = data.map((d) => d.precipAmount).filter((n) => n != null && n > 0);
+      const precipAmountMax = precipAmountVals.length ? Math.max(...precipAmountVals) * 1.2 || 0.5 : 0.5;
+      const windVals = data.flatMap((d) => [d.windSpeed, d.windGusts]).filter((n) => n != null);
+      const windMax = windVals.length ? Math.ceil(Math.max(...windVals)) + 5 : 50;
 
-      const charts = [
-        {
-          id: "apex-chart-temp",
-          title: "Temperature",
-          series: [
-            { name: "Temperature", data: data.map((d) => d.temp), type: "area" },
-            { name: "Feels Like", data: data.map((d) => d.feelsLike), type: "area" },
-            { name: "Dew Point", data: data.map((d) => d.dewPoint), type: "area" },
-          ],
-          colors: ["#e53935", "#ff7043", "#ab47bc"],
-          yaxis: [{ min: tempMin, max: tempMax, title: { text: tempUnit }, axisBorder: { show: false }, axisTicks: { show: false }, labels: { style: { colors: "#e53935" } } }],
-          tooltipFields: [{ key: "temp", label: "Temperature", color: "#e53935", format: (x) => (x != null ? `${x}°` : "—") }, { key: "feelsLike", label: "Feels Like", color: "#ff7043", format: (x) => (x != null ? `${x}°` : "—") }, { key: "dewPoint", label: "Dew Point", color: "#ab47bc", format: (x) => (x != null ? `${x}°` : "—") }],
-        },
-        {
-          id: "apex-chart-precip",
-          title: "Precipitation & Humidity",
-          series: [
-            { name: "Precip Chance", data: data.map((d) => d.precipChance), type: "area" },
-            { name: "Humidity", data: data.map((d) => d.humidity), type: "area" },
-            { name: "Rain Amount", data: data.map((d) => d.precipAmount), type: "area" },
-          ],
-          colors: ["#1e88e5", "#26a69a", "#42a5f5"],
-          yaxis: [
-            { min: 0, max: 100, title: { text: "%" }, axisBorder: { show: false }, axisTicks: { show: false }, labels: { style: { colors: "#1e88e5" } } },
-            { opposite: true, min: 0, title: { text: "in" }, axisBorder: { show: false }, axisTicks: { show: false }, labels: { style: { colors: "#42a5f5" } } },
-          ],
-          tooltipFields: [{ key: "precipChance", label: "Precip Chance", color: "#1e88e5", format: (x) => (x != null ? `${Math.round(x)}%` : "—") }, { key: "humidity", label: "Humidity", color: "#26a69a", format: (x) => (x != null ? `${x}%` : "—") }, { key: "precipAmount", label: "Rain Amount", color: "#42a5f5", format: (x) => (x != null ? `${x} in` : "—") }],
-        },
-        {
-          id: "apex-chart-wind",
-          title: "Wind",
-          series: [
-            { name: "Wind Speed", data: data.map((d) => d.windSpeed), type: "area" },
-            { name: "Wind Gusts", data: data.map((d) => d.windGusts), type: "area" },
-          ],
-          colors: ["#757575", "#78909c"],
-          yaxis: [{ min: 0, title: { text: windUnit }, axisBorder: { show: false }, axisTicks: { show: false }, labels: { style: { colors: "#757575" } } }],
-          tooltipFields: [{ key: "windSpeed", label: "Wind Speed", color: "#757575", format: (x) => (x != null ? `${Math.round(x)} ${windUnit}` : "—") }, { key: "windGusts", label: "Wind Gusts", color: "#78909c", format: (x) => (x != null ? `${Math.round(x)} ${windUnit}` : "—") }],
-        },
-        {
-          id: "apex-chart-conditions",
-          title: "Pressure, Clouds & UV",
-          series: [
-            { name: "Pressure", data: data.map((d) => d.pressure), type: "area" },
-            { name: "Cloud Cover", data: data.map((d) => d.cloudCover), type: "area" },
-            { name: "UV Index", data: data.map((d) => d.uvIndex), type: "area" },
-          ],
-          colors: ["#8d6e63", "#90a4ae", "#ffa726"],
-          yaxis: [
-            { min: pressureMin, max: pressureMax, title: { text: "inHg" }, axisBorder: { show: false }, axisTicks: { show: false }, labels: { style: { colors: "#8d6e63" } } },
-            { opposite: true, min: 0, max: 100, title: { text: "%" }, axisBorder: { show: false }, axisTicks: { show: false }, labels: { style: { colors: "#90a4ae" } } },
-            { opposite: true, min: 0, max: 12, title: { text: "UV" }, axisBorder: { show: false }, axisTicks: { show: false }, labels: { style: { colors: "#ffa726" } } },
-          ],
-          tooltipFields: [{ key: "pressure", label: "Pressure", color: "#8d6e63", format: (x) => (x != null ? `${x} inHg` : "—") }, { key: "cloudCover", label: "Cloud Cover", color: "#90a4ae", format: (x) => (x != null ? `${x}%` : "—") }, { key: "uvIndex", label: "UV Index", color: "#ffa726", format: (x) => (x != null ? String(x) : "—") }],
-        },
+      const allFields = [
+        { key: "temp", label: "Temperature", color: "#e53935", format: (x) => (x != null ? `${x}°` : "—"), min: tempMin, max: tempMax },
+        { key: "feelsLike", label: "Feels Like", color: "#ff7043", format: (x) => (x != null ? `${x}°` : "—"), min: tempMin, max: tempMax },
+        { key: "dewPoint", label: "Dew Point", color: "#ab47bc", format: (x) => (x != null ? `${x}°` : "—"), min: tempMin, max: tempMax },
+        { key: "precipChance", label: "Precip Chance", color: "#1e88e5", format: (x) => (x != null ? `${Math.round(x)}%` : "—"), min: 0, max: 100 },
+        { key: "humidity", label: "Humidity", color: "#26a69a", format: (x) => (x != null ? `${x}%` : "—"), min: 0, max: 100 },
+        { key: "precipAmount", label: "Precipitation Amount", color: "#42a5f5", format: (x) => (x != null ? `${x} in` : "—"), min: 0, max: precipAmountMax },
+        { key: "windSpeed", label: "Wind Speed", color: "#757575", format: (x) => (x != null ? `${Math.round(x)} ${windUnit}` : "—"), min: 0, max: windMax },
+        { key: "windGusts", label: "Wind Gusts", color: "#78909c", format: (x) => (x != null ? `${Math.round(x)} ${windUnit}` : "—"), min: 0, max: windMax },
+        { key: "pressure", label: "Pressure", color: "#8d6e63", format: (x) => (x != null ? `${x} inHg` : "—"), min: pressureMin, max: pressureMax },
+        { key: "cloudCover", label: "Cloud Cover", color: "#90a4ae", format: (x) => (x != null ? `${x}%` : "—"), min: 0, max: 100 },
+        { key: "uvIndex", label: "UV Index", color: "#ffa726", format: (x) => (x != null ? String(x) : "—"), min: 0, max: 12 },
       ];
 
-      for (const cfg of charts) {
-        const container = s.getElementById(cfg.id);
-        if (!container) continue;
-        const opts = {
-          ...this._baseChartOptions(data),
-          colors: cfg.colors,
-          series: cfg.series,
-          yaxis: cfg.yaxis,
-          title: { text: cfg.title, align: "left", style: { fontSize: "14px", fontWeight: 600 } },
-          tooltip: { shared: true, intersect: false, custom: tooltip(cfg.tooltipFields) },
-        };
-        const ch = new ApexCharts(container, opts);
-        await ch.render();
-        this._apexCharts.push(ch);
-      }
+      const series = allFields.map((f) => ({
+        name: f.label,
+        data: data.map((d) => this._normalizeForChart(d[f.key], f.min, f.max)),
+        type: "line",
+      }));
+
+      const tooltip = ({ dataPointIndex }) => {
+        const d = data[dataPointIndex];
+        const rows = allFields.map((f) => {
+          const v = d[f.key];
+          return `<div style="display:flex;justify-content:space-between;gap:16px"><span style="color:var(--secondary-text-color)">${f.label}:</span><span style="color:${f.color}">${f.format(v)}</span></div>`;
+        }).join("");
+        return `<div style="background:var(--card-background-color);border:1px solid var(--divider-color);border-radius:8px;padding:10px 14px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.15);"><div style="font-weight:600;margin-bottom:4px">${d.time}</div>${rows}</div>`;
+      };
+
+      const container = s.getElementById("apex-chart-combined");
+      if (!container) return;
+      const baseOpts = this._baseChartOptions(data);
+      const opts = {
+        ...baseOpts,
+        chart: { ...baseOpts.chart, type: "line" },
+        colors: ["#e53935", "#ff7043", "#ab47bc", "#1e88e5", "#26a69a", "#42a5f5", "#757575", "#78909c", "#8d6e63", "#90a4ae", "#ffa726"],
+        series,
+        yaxis: [{ min: 0, max: 100, labels: { formatter: (v) => v }, axisBorder: { show: false }, axisTicks: { show: false }, labels: { style: { colors: "#94a3b8" } } }],
+        title: { text: "All metrics (normalized)", align: "left", style: { fontSize: "14px", fontWeight: 600 } },
+        tooltip: { shared: true, intersect: false, custom: tooltip },
+      };
+      const ch = new ApexCharts(container, opts);
+      await ch.render();
+      this._apexCharts.push(ch);
     } catch (e) {
       console.error("ApexCharts init failed:", e);
     }
