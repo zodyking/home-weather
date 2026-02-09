@@ -69,6 +69,7 @@ class HomeWeatherPanel extends HTMLElement {
       this._settings = JSON.parse(JSON.stringify(this._config || {}));
       if (!this._settings.tts) this._settings.tts = { enabled: false, language: "en", platform: null };
       if (!Array.isArray(this._settings.media_players)) this._settings.media_players = [];
+      this._settings.media_players = this._normalizeMediaPlayers(this._settings.media_players);
       if (!this._config.weather_entity) {
         this._currentView = "settings";
       }
@@ -103,9 +104,20 @@ class HomeWeatherPanel extends HTMLElement {
     if (s) {
       const ttsPlatform = s.getElementById("tts-platform");
       if (ttsPlatform) this._settings.tts = { ...(this._settings.tts || {}), platform: ttsPlatform.value || null };
-      const mediaSelects = s.querySelectorAll(".media-player-select");
-      if (mediaSelects.length) {
-        this._settings.media_players = Array.from(mediaSelects).map((sel) => sel.value).filter(Boolean);
+      const cards = s.querySelectorAll(".media-player-card");
+      if (cards.length) {
+        this._settings.media_players = Array.from(cards).map((card) => {
+          const entitySel = card.querySelector(".media-player-select[data-field=\"entity_id\"]");
+          const ttsSel = card.querySelector(".media-player-tts-entity");
+          const cacheChk = card.querySelector(".media-player-cache");
+          const langInput = card.querySelector(".media-player-language");
+          return {
+            entity_id: entitySel?.value || "",
+            tts_entity_id: ttsSel?.value || "",
+            cache: !!cacheChk?.checked,
+            language: (langInput?.value || "").trim(),
+          };
+        }).filter((m) => m.entity_id);
       }
     }
     try {
@@ -201,6 +213,42 @@ class HomeWeatherPanel extends HTMLElement {
     const time = date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
     const dateStr = this._formatDateLong(d);
     return `${time} – ${dateStr}`;
+  }
+
+  _normalizeMediaPlayers(arr) {
+    if (!Array.isArray(arr)) return [];
+    return arr.map((item) => {
+      if (typeof item === "string") {
+        return { entity_id: item, tts_entity_id: "", cache: false, language: "" };
+      }
+      return {
+        entity_id: item.entity_id || "",
+        tts_entity_id: item.tts_entity_id || "",
+        cache: !!item.cache,
+        language: item.language || "",
+      };
+    }).filter((m) => m.entity_id);
+  }
+
+  _syncMediaPlayerFromCard(index) {
+    const s = this.shadowRoot;
+    if (!s) return;
+    const cards = s.querySelectorAll(".media-player-card");
+    const card = cards[index];
+    if (!card) return;
+    const list = [...(this._settings.media_players || [])];
+    if (!list[index]) return;
+    const entitySel = card.querySelector(".media-player-select[data-field=\"entity_id\"]");
+    const ttsSel = card.querySelector(".media-player-tts-entity");
+    const cacheChk = card.querySelector(".media-player-cache");
+    const langInput = card.querySelector(".media-player-language");
+    list[index] = {
+      entity_id: entitySel?.value || "",
+      tts_entity_id: ttsSel?.value || "",
+      cache: cacheChk?.checked || false,
+      language: langInput?.value || "",
+    };
+    this._settings.media_players = list;
   }
 
   _isNightTime(datetime) {
@@ -350,9 +398,23 @@ class HomeWeatherPanel extends HTMLElement {
         .form-group input[type="checkbox"] { width: auto; padding: 0; }
         .form-row { display: flex; align-items: center; gap: 12px; }
         .form-row .btn-icon { padding: 8px 12px; min-width: auto; }
-        .media-player-list { display: flex; flex-direction: column; gap: 12px; }
+        .media-player-list { display: flex; flex-direction: column; gap: 16px; }
         .media-player-item { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: var(--card-background-color); border: 1px solid var(--divider-color); border-radius: 8px; }
         .media-player-item select { flex: 1; }
+        .media-player-card { padding: 20px; background: var(--card-background-color); border: 1px solid var(--divider-color); border-radius: 12px; display: flex; flex-direction: column; gap: 14px; }
+        .media-player-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+        .media-player-label { font-size: 13px; font-weight: 500; color: var(--secondary-text-color); min-width: 140px; }
+        .media-player-controls { display: flex; gap: 8px; flex: 1; min-width: 0; }
+        .media-player-controls select { flex: 1; min-width: 0; }
+        .media-player-tts-entity, .media-player-language { flex: 1; min-width: 200px; padding: 10px 14px; border: 1px solid var(--divider-color); border-radius: 8px; background: var(--card-background-color); color: var(--primary-text-color); font-size: 14px; }
+        .toggle-switch { position: relative; display: inline-block; width: 44px; height: 24px; }
+        .toggle-switch input { opacity: 0; width: 0; height: 0; }
+        .toggle-slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background: var(--secondary-background-color); border-radius: 24px; transition: 0.3s; border: 1px solid var(--divider-color); }
+        .toggle-slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 2px; bottom: 2px; background: var(--primary-text-color); border-radius: 50%; transition: 0.3s; }
+        .toggle-switch input:checked + .toggle-slider { background: var(--accent-color); border-color: var(--accent-color); }
+        .toggle-switch input:checked + .toggle-slider:before { transform: translateX(20px); background: white; }
+        .toggle-label { font-size: 13px; color: var(--secondary-text-color); margin-left: 8px; }
+        .form-hint { font-size: 12px; color: var(--secondary-text-color); margin-bottom: 16px; }
         .form-actions { display: flex; gap: 12px; justify-content: flex-end; margin-top: 24px; }
         .btn { padding: 12px 32px; border: none; border-radius: 8px; font-size: 14px; font-weight: 500; cursor: pointer; }
         .btn-primary { background: var(--primary-color); color: var(--primary-color-text); }
@@ -510,12 +572,17 @@ class HomeWeatherPanel extends HTMLElement {
         this._render();
       });
     });
-    s.querySelectorAll(".media-player-select").forEach((sel, i) => {
-      sel.addEventListener("change", (e) => {
-        const list = [...(this._settings.media_players || [])];
-        list[i] = e.target.value;
-        this._settings.media_players = list;
-        this._render();
+    s.querySelectorAll(".media-player-card").forEach((card, i) => {
+      card.querySelectorAll(".media-player-select, .media-player-tts-entity, .media-player-language").forEach((el) => {
+        el.addEventListener("change", () => this._syncMediaPlayerFromCard(i));
+        el.addEventListener("input", () => this._syncMediaPlayerFromCard(i));
+      });
+      card.querySelectorAll(".media-player-cache").forEach((el) => {
+        el.addEventListener("change", () => {
+          this._syncMediaPlayerFromCard(i);
+          const label = card.querySelector(".toggle-label");
+          if (label) label.textContent = el.checked ? "On" : "Off";
+        });
       });
     });
     const addMediaBtn = s.getElementById("add-media-btn");
@@ -525,7 +592,7 @@ class HomeWeatherPanel extends HTMLElement {
         const val = addMediaSelect.value;
         if (!val) return;
         const list = [...(this._settings.media_players || [])];
-        list.push(val);
+        list.push({ entity_id: val, tts_entity_id: "", cache: false, language: "" });
         this._settings.media_players = list;
         this._render();
       });
@@ -537,6 +604,7 @@ class HomeWeatherPanel extends HTMLElement {
       this._settings = JSON.parse(JSON.stringify(this._config || {}));
       if (!this._settings.tts) this._settings.tts = { enabled: false, language: "en", platform: null };
       if (!Array.isArray(this._settings.media_players)) this._settings.media_players = [];
+      this._settings.media_players = this._normalizeMediaPlayers(this._settings.media_players);
       this._render();
     });
   }
@@ -812,10 +880,11 @@ class HomeWeatherPanel extends HTMLElement {
     const entities = Object.keys((this._hass && this._hass.states) || {});
     const weatherEntities = entities.filter((e) => e.startsWith("weather."));
     const mediaPlayerEntities = entities.filter((e) => e.startsWith("media_player."));
+    const ttsEntities = entities.filter((e) => e.startsWith("tts."));
     const tts = this._settings.tts || { enabled: false, language: "en", platform: null };
-    const mediaPlayers = Array.isArray(this._settings.media_players) ? this._settings.media_players : [];
-    const usedMediaPlayers = new Set(mediaPlayers);
-    const availableMediaPlayers = mediaPlayerEntities.filter((e) => !usedMediaPlayers.has(e));
+    const mediaPlayers = this._normalizeMediaPlayers(this._settings.media_players || []);
+    const usedMediaPlayerIds = new Set(mediaPlayers.map((m) => m.entity_id));
+    const availableMediaPlayers = mediaPlayerEntities.filter((e) => !usedMediaPlayerIds.has(e));
     return `
       <div class="settings-form">
         <div class="settings-tabs">
@@ -854,14 +923,39 @@ class HomeWeatherPanel extends HTMLElement {
         <div class="settings-section ${this._settingsTab === "media" ? "active" : ""}" data-section="media">
           <div class="form-group">
             <label>Media Players for weather announcements</label>
+            <p class="form-hint">Configure TTS settings for each media player. Use tts.speak with target entity, media_player_entity_id, cache, and message.</p>
             <div class="media-player-list" id="media-player-list">
-              ${mediaPlayers.map((entityId, i) => `
-                <div class="media-player-item" data-index="${i}">
-                  <select class="media-player-select">
-                    <option value="${entityId}">${entityId}</option>
-                    ${mediaPlayerEntities.map((e) => `<option value="${e}" ${e === entityId ? "selected" : ""}>${e}</option>`).join("")}
-                  </select>
-                  <button type="button" class="btn btn-secondary btn-icon" data-remove-media="${i}" aria-label="Remove">−</button>
+              ${mediaPlayers.map((m, i) => `
+                <div class="media-player-card" data-index="${i}">
+                  <div class="media-player-row">
+                    <label class="media-player-label">Media player</label>
+                    <div class="media-player-controls">
+                      <select class="media-player-select" data-field="entity_id">
+                        <option value="${m.entity_id}">${m.entity_id}</option>
+                        ${mediaPlayerEntities.map((e) => `<option value="${e}" ${e === m.entity_id ? "selected" : ""}>${e}</option>`).join("")}
+                      </select>
+                      <button type="button" class="btn btn-secondary btn-icon" data-remove-media="${i}" aria-label="Remove">−</button>
+                    </div>
+                  </div>
+                  <div class="media-player-row">
+                    <label class="media-player-label">TTS entity (target)</label>
+                    <select class="media-player-tts-entity" data-field="tts_entity_id">
+                      <option value="">Select TTS entity</option>
+                      ${ttsEntities.map((e) => `<option value="${e}" ${e === m.tts_entity_id ? "selected" : ""}>${e}</option>`).join("")}
+                    </select>
+                  </div>
+                  <div class="media-player-row">
+                    <label class="media-player-label">Cache</label>
+                    <label class="toggle-switch">
+                      <input type="checkbox" class="media-player-cache" data-field="cache" ${m.cache ? "checked" : ""}/>
+                      <span class="toggle-slider"></span>
+                    </label>
+                    <span class="toggle-label">${m.cache ? "On" : "Off"}</span>
+                  </div>
+                  <div class="media-player-row">
+                    <label class="media-player-label">Language (optional)</label>
+                    <input type="text" class="media-player-language" data-field="language" placeholder="e.g. en" value="${m.language || ""}"/>
+                  </div>
                 </div>
               `).join("")}
             </div>
