@@ -324,56 +324,67 @@ def build_webhook_message(
 async def send_tts(
     hass: HomeAssistant,
     media_players_config: list[dict[str, Any]],
-    global_tts_config: dict[str, Any],
     message: str,
     volume_override: float | None = None,
 ) -> None:
     """Send TTS to all configured media players.
     
+    Each media player has its own TTS settings (tts_entity_id, volume, cache, language, preroll_ms, options).
+    
     Per uber-eats-order-tracker pattern:
     1. Set volume on each media player
     2. Wait for preroll delay
     3. Send TTS speak command
+    4. Wait for playback to complete before next player
     """
     if not media_players_config:
         _LOGGER.warning("No media players configured for TTS")
         return
     
-    preroll_ms = global_tts_config.get("preroll_ms", 150)
+    if not message or not message.strip():
+        _LOGGER.warning("Empty TTS message, skipping")
+        return
     
-    for mp in media_players_config:
+    for i, mp in enumerate(media_players_config):
         entity_id = mp.get("entity_id")
         if not entity_id:
             continue
         
-        # Per-player TTS entity override
-        tts_entity = mp.get("tts_entity_id") or global_tts_config.get("engine")
+        # TTS entity is required per-player (no global fallback)
+        tts_entity = mp.get("tts_entity_id")
         if not tts_entity:
-            _LOGGER.warning("No TTS entity configured for %s", entity_id)
+            _LOGGER.warning("No TTS entity configured for %s, skipping", entity_id)
             continue
         
+        # Per-player settings
         volume = volume_override if volume_override is not None else mp.get("volume", 0.6)
-        cache = mp.get("cache", global_tts_config.get("cache", True))
-        language = mp.get("language") or global_tts_config.get("language", "")
+        preroll_ms = mp.get("preroll_ms", 150)
+        cache = mp.get("cache", False)
+        language = mp.get("language", "")
         options = mp.get("options", {})
+        
+        _LOGGER.info("Sending TTS to %s via %s (volume: %.2f, preroll: %dms)", entity_id, tts_entity, volume, preroll_ms)
         
         try:
             # Step 1: Set volume
-            await hass.services.async_call(
-                "media_player",
-                "volume_set",
-                {
-                    "entity_id": entity_id,
-                    "volume_level": volume,
-                },
-                blocking=True,
-            )
+            try:
+                await hass.services.async_call(
+                    "media_player",
+                    "volume_set",
+                    {
+                        "entity_id": entity_id,
+                        "volume_level": volume,
+                    },
+                    blocking=True,
+                )
+            except Exception as vol_e:
+                _LOGGER.warning("Failed to set volume on %s: %s", entity_id, vol_e)
             
-            # Step 2: Preroll delay
+            # Step 2: Preroll delay (per-player)
             if preroll_ms > 0:
                 await asyncio.sleep(preroll_ms / 1000)
             
-            # Step 3: TTS speak
+            # Step 3: TTS speak - use blocking to wait for completion
             service_data: dict[str, Any] = {
                 "media_player_entity_id": entity_id,
                 "message": message,
@@ -389,26 +400,38 @@ async def send_tts(
                 "speak",
                 service_data,
                 target={"entity_id": tts_entity},
-                blocking=False,
+                blocking=True,  # Wait for TTS to complete before moving to next player
             )
             
-            _LOGGER.debug("TTS sent to %s via %s", entity_id, tts_entity)
+            _LOGGER.info("TTS sent successfully to %s via %s", entity_id, tts_entity)
+            
+            # Add delay between players to avoid "already streaming" errors
+            if i < len(media_players_config) - 1:
+                await asyncio.sleep(0.5)
             
         except Exception as e:
-            _LOGGER.error("Error sending TTS to %s: %s", entity_id, e)
+            _LOGGER.error("Error sending TTS to %s: %s", entity_id, e, exc_info=True)
 
 
 async def send_tts_with_ai_rewrite(
     hass: HomeAssistant,
     media_players_config: list[dict[str, Any]],
-    global_tts_config: dict[str, Any],
+    tts_config: dict[str, Any],
     message: str,
     volume_override: float | None = None,
 ) -> None:
-    """Send TTS with optional AI rewrite of the message."""
-    use_ai = global_tts_config.get("use_ai_rewrite", False)
-    ai_entity = global_tts_config.get("ai_task_entity", "")
-    ai_prompt = global_tts_config.get("ai_rewrite_prompt", "")
+    """Send TTS with optional AI rewrite of the message.
+    
+    Args:
+        hass: Home Assistant instance
+        media_players_config: List of media player configs (each with tts_entity_id, volume, etc.)
+        tts_config: TTS config dict containing AI rewrite settings (use_ai_rewrite, ai_task_entity, ai_rewrite_prompt)
+        message: The message to speak
+        volume_override: Optional volume override
+    """
+    use_ai = tts_config.get("use_ai_rewrite", False)
+    ai_entity = tts_config.get("ai_task_entity", "")
+    ai_prompt = tts_config.get("ai_rewrite_prompt", "")
     
     final_message = message
     
@@ -438,4 +461,4 @@ async def send_tts_with_ai_rewrite(
         except Exception as e:
             _LOGGER.warning("AI rewrite failed, using original message: %s", e)
     
-    await send_tts(hass, media_players_config, global_tts_config, final_message, volume_override)
+    await send_tts(hass, media_players_config, final_message, volume_override)

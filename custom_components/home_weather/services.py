@@ -220,7 +220,7 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
                 "speak",
                 service_data,
                 target={"entity_id": tts_entity},
-                blocking=False,
+                blocking=True,
             )
             
             connection.send_result(msg["id"], {"success": True})

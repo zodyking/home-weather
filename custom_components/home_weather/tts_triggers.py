@@ -362,11 +362,23 @@ class TTSTriggerManager:
             volume = data.get("volume")
             
             # Update last triggered timestamp
+            timestamp = datetime.utcnow().isoformat() + "Z"
             try:
-                self.hass.data[WEBHOOK_LAST_TRIGGERED_KEY][webhook_id] = datetime.utcnow().isoformat() + "Z"
+                self.hass.data[WEBHOOK_LAST_TRIGGERED_KEY][webhook_id] = timestamp
                 _LOGGER.debug("Updated last_triggered for webhook %s", webhook_id)
             except Exception as e:
                 _LOGGER.error("Failed to update last_triggered: %s", e)
+            
+            # Fire an event so the frontend can update the status dot in real-time
+            self.hass.bus.async_fire(
+                "home_weather_webhook_triggered",
+                {
+                    "webhook_id": webhook_id,
+                    "personal_name": personal_name,
+                    "timestamp": timestamp,
+                },
+            )
+            _LOGGER.debug("Fired home_weather_webhook_triggered event for %s", webhook_id)
             
             # Fire the webhook forecast
             try:

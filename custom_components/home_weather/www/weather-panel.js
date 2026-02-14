@@ -35,6 +35,10 @@ class HomeWeatherPanel extends HTMLElement {
     if (hass && !this._config) {
       this._loadConfig();
     }
+    // Subscribe to webhook events if not already subscribed
+    if (hass && !this._webhookEventUnsub) {
+      this._subscribeToWebhookEvents();
+    }
     // Do NOT call _render() here - hass updates on every HA state change, causing constant re-renders.
     // Rendering happens on: loadConfig, loadWeatherData, user actions, media query.
   }
@@ -51,12 +55,85 @@ class HomeWeatherPanel extends HTMLElement {
     if (this._hass && !this._config) {
       this._loadConfig();
     }
+    // Subscribe to webhook triggered events for real-time status updates
+    this._subscribeToWebhookEvents();
   }
 
   disconnectedCallback() {
     if (this._mediaQuery && this._onMediaChange) {
       this._mediaQuery.removeEventListener("change", this._onMediaChange);
     }
+    // Unsubscribe from webhook events
+    if (this._webhookEventUnsub) {
+      this._webhookEventUnsub();
+      this._webhookEventUnsub = null;
+    }
+  }
+
+  _subscribeToWebhookEvents() {
+    if (!this._hass || this._webhookEventUnsub) return;
+    try {
+      this._hass.connection.subscribeEvents((event) => {
+        this._handleWebhookTriggered(event);
+      }, "home_weather_webhook_triggered").then((unsub) => {
+        this._webhookEventUnsub = unsub;
+      }).catch((e) => {
+        console.warn("Failed to subscribe to webhook events:", e);
+      });
+    } catch (e) {
+      console.warn("Error subscribing to webhook events:", e);
+    }
+  }
+
+  _handleWebhookTriggered(event) {
+    const { webhook_id, timestamp } = event.data || {};
+    if (!webhook_id) return;
+    
+    // Update local webhook info
+    if (!this._webhookInfo[webhook_id]) {
+      this._webhookInfo[webhook_id] = {};
+    }
+    this._webhookInfo[webhook_id].last_triggered = timestamp;
+    
+    // Update the DOM directly for real-time feedback (without full re-render)
+    const s = this.shadowRoot;
+    if (!s) return;
+    
+    s.querySelectorAll(".webhook-card").forEach((card) => {
+      const webhookIdInput = card.querySelector(".webhook-id");
+      if (webhookIdInput && webhookIdInput.value === webhook_id) {
+        // Update status dot
+        const dot = card.querySelector(".webhook-status-dot");
+        if (dot) {
+          dot.classList.remove("idle");
+          dot.classList.add("triggered");
+        }
+        // Update status label
+        const label = card.querySelector(".webhook-status-label");
+        if (label) {
+          label.textContent = "Triggered";
+        }
+        // Update timestamp
+        let tsEl = card.querySelector(".webhook-timestamp");
+        if (!tsEl) {
+          // Create timestamp element if it doesn't exist
+          const statusRow = card.querySelector(".webhook-status-row");
+          if (statusRow) {
+            tsEl = document.createElement("span");
+            tsEl.className = "webhook-timestamp";
+            statusRow.appendChild(tsEl);
+          }
+        }
+        if (tsEl && timestamp) {
+          try {
+            const dt = new Date(timestamp);
+            tsEl.textContent = dt.toLocaleString();
+          } catch (e) {
+            tsEl.textContent = timestamp;
+          }
+        }
+      }
+    });
   }
 
   async _loadConfig() {
@@ -258,7 +335,7 @@ class HomeWeatherPanel extends HTMLElement {
     if (!Array.isArray(arr)) return [];
     return arr.map((item) => {
       if (typeof item === "string") {
-        return { entity_id: item, tts_entity_id: "", volume: 0.6, cache: false, language: "", options: {} };
+        return { entity_id: item, tts_entity_id: "", volume: 0.6, cache: false, language: "", preroll_ms: 150, options: {} };
       }
       return {
         entity_id: item.entity_id || "",
@@ -266,6 +343,7 @@ class HomeWeatherPanel extends HTMLElement {
         volume: item.volume ?? 0.6,
         cache: !!item.cache,
         language: item.language || "",
+        preroll_ms: item.preroll_ms ?? 150,
         options: item.options || {},
       };
     }).filter((m) => m.entity_id);
@@ -364,8 +442,9 @@ class HomeWeatherPanel extends HTMLElement {
     const list = [...(this._settings.media_players || [])];
     if (!list[index]) return;
     const entitySel = card.querySelector(".media-player-select");
-    const ttsSel = card.querySelector(".media-player-tts-entity");
+    const ttsInput = card.querySelector(".media-player-tts-entity");
     const volumeSlider = card.querySelector(".media-player-volume");
+    const prerollInput = card.querySelector(".media-player-preroll");
     const cacheChk = card.querySelector(".media-player-cache");
     const langInput = card.querySelector(".media-player-language");
     const optionsInput = card.querySelector(".media-player-options");
@@ -383,8 +462,9 @@ class HomeWeatherPanel extends HTMLElement {
     
     list[index] = {
       entity_id: entitySel?.value || "",
-      tts_entity_id: ttsSel?.value || "",
+      tts_entity_id: ttsInput?.value || "",
       volume: parseFloat(volumeSlider?.value || 0.6),
+      preroll_ms: parseInt(prerollInput?.value || 150, 10),
       cache: cacheChk?.checked || false,
       language: langInput?.value || "",
       options: options,
@@ -1229,6 +1309,19 @@ class HomeWeatherPanel extends HTMLElement {
   async _initApexChart() {
     const s = this.shadowRoot;
     if (!s || !this._graphData?.length) return;
+    
+    // Destroy any existing charts to prevent duplicates
+    if (this._apexCharts && this._apexCharts.length > 0) {
+      this._apexCharts.forEach((chart) => {
+        try {
+          chart.destroy();
+        } catch (e) {
+          console.warn("Error destroying chart:", e);
+        }
+      });
+      this._apexCharts = [];
+    }
+    
     const data = this._graphData;
     const windUnit = (this._graphWindUnit || "mph").toUpperCase();
     const tempUnit = this._useFahrenheit ? "°F" : "°C";
@@ -1276,17 +1369,63 @@ class HomeWeatherPanel extends HTMLElement {
 
       const container = s.getElementById("apex-chart-combined");
       if (!container) return;
-      const baseOpts = this._baseChartOptions(data);
+      
+      // Clear the container first
+      container.innerHTML = "";
+      
       const opts = {
-        ...baseOpts,
-        chart: { ...baseOpts.chart, type: "line", height: 280 },
-        colors: ["#ef5350", "#ff8a65", "#ba68c8", "#42a5f5", "#4db6ac", "#64b5f6", "#b0bec5", "#90a4ae", "#a1887f", "#78909c", "#ffb74d"],
-        stroke: { curve: "smooth", width: 4 },
+        chart: {
+          type: "line",
+          height: 320,
+          background: "transparent",
+          toolbar: { show: false },
+          zoom: { enabled: false },
+          animations: { enabled: true, speed: 300 },
+          fontFamily: "inherit",
+        },
+        colors: ["#ff5252", "#ff7043", "#e040fb", "#448aff", "#00e5ff", "#40c4ff", "#69f0ae", "#ffab40", "#8d6e63", "#b0bec5", "#ffd740"],
+        stroke: { curve: "smooth", width: 3, lineCap: "round" },
         series,
-        yaxis: [{ min: 0, max: 100, labels: { formatter: (v) => String(Math.round(v)) }, axisBorder: { show: false }, axisTicks: { show: false }, labels: { style: { colors: "#94a3b8", fontSize: "12px" } } }],
+        xaxis: {
+          categories: data.map((d) => d.time),
+          labels: { 
+            rotate: -45, 
+            rotateAlways: true,
+            style: { colors: "#9ca3af", fontSize: "10px" },
+            hideOverlappingLabels: true,
+          },
+          axisBorder: { show: false },
+          axisTicks: { show: false },
+        },
+        yaxis: { 
+          min: 0, 
+          max: 100, 
+          labels: { 
+            formatter: (v) => String(Math.round(v)),
+            style: { colors: "#9ca3af", fontSize: "11px" },
+          }, 
+          axisBorder: { show: false }, 
+          axisTicks: { show: false },
+        },
+        grid: {
+          borderColor: "rgba(255,255,255,0.1)",
+          strokeDashArray: 3,
+          xaxis: { lines: { show: false } },
+          yaxis: { lines: { show: true } },
+        },
         title: { text: "", align: "left", style: { fontSize: "14px", fontWeight: 600 } },
-        tooltip: { shared: true, intersect: false, custom: tooltip },
-        legend: { show: true, position: "top", horizontalAlign: "center", fontSize: "11px" },
+        tooltip: { shared: true, intersect: false, custom: tooltip, theme: "dark" },
+        legend: { 
+          show: true, 
+          position: "top", 
+          horizontalAlign: "center", 
+          fontSize: "11px",
+          labels: { colors: "#9ca3af" },
+          markers: { width: 10, height: 10, radius: 2 },
+          itemMargin: { horizontal: 8, vertical: 4 },
+        },
+        markers: { size: 0, hover: { size: 5 } },
+        fill: { opacity: 1 },
       };
       const ch = new ApexCharts(container, opts);
       await ch.render();
@@ -1395,41 +1534,25 @@ class HomeWeatherPanel extends HTMLElement {
         <!-- TTS Tab -->
         <div class="settings-section ${this._settingsTab === "tts" ? "active" : ""}" data-section="tts">
           
-          <!-- General TTS Settings -->
-          ${renderCollapsible("general-tts", "General TTS Settings", "TTS engine, volume, and global options", `
-            ${renderToggle("tts-enabled", tts.enabled, "Enable TTS Announcements")}
-            
-            <div class="form-group" style="margin-top: 16px;">
-              <label>TTS Engine</label>
-              ${this._renderEntityAutocomplete("tts-engine", tts.engine || "", "tts", "Type to search TTS entities...")}
+          <!-- TTS Master Toggle & Message Prefix -->
+          <div class="collapsible-section open" data-section-id="tts-master">
+            <div class="collapsible-content" style="display: block; padding-top: 20px;">
+              ${renderToggle("tts-enabled", tts.enabled, "Enable TTS Announcements")}
+              <div class="form-group" style="margin-top: 16px;">
+                <label>Message Prefix</label>
+                <input type="text" id="message-prefix" placeholder="e.g. Weather update" value="${messagePrefix}"/>
+              </div>
             </div>
-            
-            <div class="form-group">
-              <label>Preroll Delay (ms)</label>
-              <input type="number" id="tts-preroll" min="0" max="2000" step="50" value="${tts.preroll_ms}"/>
-            </div>
-            
-            ${renderToggle("tts-cache", tts.cache, "Cache TTS Audio")}
-            
-            <div class="form-group" style="margin-top: 16px;">
-              <label>Language</label>
-              <input type="text" id="tts-language" placeholder="e.g. en, en-US" value="${tts.language || ""}"/>
-            </div>
-            
-            <div class="form-group">
-              <label>Message Prefix</label>
-              <input type="text" id="message-prefix" placeholder="e.g. Weather update" value="${messagePrefix}"/>
-            </div>
-          `)}
+          </div>
           
-          <!-- Media Players -->
+          <!-- Media Players - Each player has its own complete TTS config -->
           ${renderCollapsible("media-players", "Media Players", `${mediaPlayers.length} configured`, `
-            <p class="form-hint">Configure TTS settings for each media player.</p>
+            <p class="form-hint">Each media player has its own TTS settings. Add players and configure TTS entity, volume, and options.</p>
             <div class="media-player-list" id="media-player-list">
               ${mediaPlayers.map((m, i) => `
                 <div class="media-player-card" data-index="${i}">
                   <div class="media-player-row">
-                    <label class="media-player-label">Media Player</label>
+                    <label class="media-player-label">Media Player *</label>
                     <div class="media-player-controls">
                       <select class="media-player-select" data-field="entity_id">
                         ${mediaPlayerEntities.map((e) => `<option value="${e}" ${e === m.entity_id ? "selected" : ""}>${e}</option>`).join("")}
@@ -1438,11 +1561,8 @@ class HomeWeatherPanel extends HTMLElement {
                     </div>
                   </div>
                   <div class="media-player-row">
-                    <label class="media-player-label">TTS Entity</label>
-                    <select class="media-player-tts-entity" data-field="tts_entity_id">
-                      <option value="">Use default</option>
-                      ${ttsEntities.map((e) => `<option value="${e}" ${e === m.tts_entity_id ? "selected" : ""}>${e}</option>`).join("")}
-                    </select>
+                    <label class="media-player-label">TTS Entity *</label>
+                    ${this._renderEntityAutocomplete(`media-player-tts-${i}`, m.tts_entity_id || "", "tts", "Type to search TTS entities...", "media-player-tts-entity")}
                   </div>
                   <div class="media-player-row">
                     <label class="media-player-label">Volume</label>
@@ -1452,7 +1572,11 @@ class HomeWeatherPanel extends HTMLElement {
                     </div>
                   </div>
                   <div class="media-player-row">
-                    <label class="media-player-label">Cache</label>
+                    <label class="media-player-label">Preroll (ms)</label>
+                    <input type="number" class="media-player-preroll" data-field="preroll_ms" min="0" max="2000" step="50" value="${m.preroll_ms ?? 150}" style="width: 100px;"/>
+                  </div>
+                  <div class="media-player-row">
+                    <label class="media-player-label">Cache TTS</label>
                     <label class="toggle-switch">
                       <input type="checkbox" class="media-player-cache" data-field="cache" ${m.cache ? "checked" : ""}/>
                       <span class="toggle-slider"></span>
@@ -1460,7 +1584,7 @@ class HomeWeatherPanel extends HTMLElement {
                   </div>
                   <div class="media-player-row">
                     <label class="media-player-label">Language</label>
-                    <input type="text" class="media-player-language" data-field="language" placeholder="Override language" value="${m.language || ""}"/>
+                    <input type="text" class="media-player-language" data-field="language" placeholder="e.g. en, en-US" value="${m.language || ""}"/>
                   </div>
                   <div class="media-player-row">
                     <label class="media-player-label">Options (JSON)</label>
@@ -1733,10 +1857,7 @@ class HomeWeatherPanel extends HTMLElement {
     
     return {
       enabled: s.getElementById("tts-enabled")?.checked || false,
-      engine: s.getElementById("tts-engine")?.value || "",
-      preroll_ms: parseInt(s.getElementById("tts-preroll")?.value || 150, 10),
-      cache: s.getElementById("tts-cache")?.checked || false,
-      language: s.getElementById("tts-language")?.value || "",
+      // Global TTS settings removed - now per-player in media_players array
       enable_time_based: s.getElementById("enable-time-based")?.checked || false,
       hour_pattern: parseInt(s.getElementById("hour-pattern")?.value || 3, 10),
       minute_offset: parseInt(s.getElementById("minute-offset")?.value || 3, 10),

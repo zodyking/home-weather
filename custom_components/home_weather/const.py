@@ -10,12 +10,6 @@ DEFAULT_CONFIG: Final = {
     "weather_entity": None,
     "tts": {
         "enabled": False,
-        "engine": "",  # tts.* entity_id
-        "voice": "",
-        "preroll_ms": 150,
-        "cache": True,
-        "language": "",
-        "options": {},
         # Trigger toggles
         "enable_time_based": True,
         "hour_pattern": 3,  # every N hours
@@ -44,7 +38,8 @@ DEFAULT_CONFIG: Final = {
         "ai_task_entity": "",
         "ai_rewrite_prompt": "You are a friendly meteorologist. Rewrite this weather forecast in a natural, conversational way. Keep it concise but informative. Maintain all factual information.",
     },
-    "media_players": [],  # list of { entity_id, tts_entity_id, volume, cache, language, options }
+    # Each media player has its own complete TTS config
+    "media_players": [],  # list of { entity_id, tts_entity_id, volume, preroll_ms, cache, language, options }
     "message_prefix": "Weather update",
 }
 
@@ -52,7 +47,7 @@ DEFAULT_CONFIG: Final = {
 UPDATE_INTERVAL: Final = 300
 
 # Version for cache busting
-VERSION: Final = "1.2.14"
+VERSION: Final = "1.2.17"
 
 # Panel configuration
 PANEL_URL_PATH: Final = "home-weather"
