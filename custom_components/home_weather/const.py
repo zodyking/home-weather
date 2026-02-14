@@ -52,7 +52,7 @@ DEFAULT_CONFIG: Final = {
 UPDATE_INTERVAL: Final = 300
 
 # Version for cache busting
-VERSION: Final = "1.2.13"
+VERSION: Final = "1.2.14"
 
 # Panel configuration
 PANEL_URL_PATH: Final = "home-weather"

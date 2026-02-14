@@ -271,6 +271,90 @@ class HomeWeatherPanel extends HTMLElement {
     }).filter((m) => m.entity_id);
   }
 
+  // ========== Entity Autocomplete Helpers ==========
+  
+  _getEntitiesForAutocomplete(entityType) {
+    const entities = Object.keys((this._hass && this._hass.states) || {});
+    const prefixMap = {
+      weather: "weather.",
+      tts: "tts.",
+      sensor: "sensor.",
+      binary_sensor: "binary_sensor.",
+      ai_task: "ai_task.",
+      switch: "switch.",
+      light: "light.",
+      all: "", // all entities
+    };
+    const prefix = prefixMap[entityType] || "";
+    const filtered = prefix ? entities.filter((e) => e.startsWith(prefix)) : entities;
+    return filtered.map((e) => {
+      const state = this._hass?.states?.[e];
+      return {
+        entity_id: e,
+        friendly_name: state?.attributes?.friendly_name || e,
+      };
+    });
+  }
+
+  _filterEntityMatches(entities, query) {
+    if (!query || !query.trim()) return entities.slice(0, 20);
+    const q = query.toLowerCase().trim();
+    const scored = entities.map((e) => {
+      const id = (e.entity_id || "").toLowerCase();
+      const name = (e.friendly_name || "").toLowerCase();
+      let score = 0;
+      if (id === q || name === q) score += 30;
+      if (id.startsWith(q)) score += 15;
+      if (name.startsWith(q)) score += 10;
+      if (id.includes(q)) score += 5;
+      if (name.includes(q)) score += 3;
+      return { ...e, _score: score };
+    }).filter((e) => e._score > 0).sort((a, b) => b._score - a._score);
+    return scored.slice(0, 20).map(({ _score, ...e }) => e);
+  }
+
+  _renderEntityAutocomplete(id, value, entityType, placeholder, inputClass = "") {
+    this._entityDatalistId = (this._entityDatalistId || 0) + 1;
+    const dlId = `entity-dl-${this._entityDatalistId}`;
+    const safeVal = (value || "").replace(/"/g, "&quot;");
+    const safePlaceholder = (placeholder || "Type to search...").replace(/"/g, "&quot;");
+    return `
+      <div class="entity-autocomplete-wrapper">
+        <input type="text" id="${id}" class="form-input entity-autocomplete-input ${inputClass}" 
+               value="${safeVal}" placeholder="${safePlaceholder}" 
+               list="${dlId}" data-entity-type="${entityType}" autocomplete="off"/>
+        <datalist id="${dlId}" data-entity-type="${entityType}"></datalist>
+      </div>
+    `;
+  }
+
+  _initEntityAutocompletes(container) {
+    if (!container) return;
+    container.querySelectorAll(".entity-autocomplete-input").forEach((input) => {
+      if (input._entityAutocompleteInit) return;
+      input._entityAutocompleteInit = true;
+
+      const dlId = input.getAttribute("list");
+      const datalist = dlId ? container.querySelector(`#${dlId}`) : null;
+      const entityType = input.dataset.entityType || "all";
+
+      if (!datalist) return;
+
+      const update = () => {
+        const entities = this._getEntitiesForAutocomplete(entityType);
+        const matches = this._filterEntityMatches(entities, input.value);
+        datalist.innerHTML = matches.map((e) => {
+          const id = (e.entity_id || "").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+          const label = (e.friendly_name || e.entity_id || "").replace(/</g, "&lt;");
+          return `<option value="${id}">${label}</option>`;
+        }).join("");
+      };
+
+      input.addEventListener("focus", update);
+      input.addEventListener("input", update);
+    });
+  }
+
   _syncMediaPlayerFromCard(index) {
     const s = this.shadowRoot;
     if (!s) return;
@@ -557,6 +641,11 @@ class HomeWeatherPanel extends HTMLElement {
         .btn-primary { background: var(--primary-color); color: var(--primary-color-text); }
         .btn-secondary { background: var(--secondary-background-color); color: var(--primary-text-color); }
         .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        /* Entity Autocomplete */
+        .entity-autocomplete-wrapper { position: relative; width: 100%; }
+        .entity-autocomplete-input { width: 100%; padding: 12px 16px; border: 1px solid var(--divider-color); border-radius: 8px; background: var(--card-background-color); color: var(--primary-text-color); font-size: 14px; }
+        .entity-autocomplete-input:focus { outline: none; border-color: var(--accent-color); box-shadow: 0 0 0 2px rgba(66,133,244,0.15); }
+        .entity-autocomplete-input::placeholder { color: var(--secondary-text-color); opacity: 0.7; }
         /* Bento Grid Dashboard */
         .weather-dashboard { --accent-color: #4285f4; --card-radius: 20px; --gap: 16px; }
         .bento-grid { display: grid; grid-template-columns: 2fr 1fr; gap: var(--gap); margin-bottom: var(--gap); }
@@ -688,6 +777,9 @@ class HomeWeatherPanel extends HTMLElement {
     const s = this.shadowRoot;
     if (!s) return;
     
+    // Initialize entity autocomplete inputs
+    this._initEntityAutocompletes(s);
+    
     // Settings tabs
     s.querySelectorAll(".settings-tab").forEach((btn) => {
       btn.addEventListener("click", () => {
@@ -763,11 +855,14 @@ class HomeWeatherPanel extends HTMLElement {
     // Sensor trigger card handlers
     s.querySelectorAll(".sensor-trigger-card").forEach((card) => {
       const idx = parseInt(card.dataset.sensorIdx, 10);
-      const entitySelect = card.querySelector(".sensor-trigger-entity");
+      const entityInput = card.querySelector(".sensor-trigger-entity");
       const stateInput = card.querySelector(".sensor-trigger-state");
       
-      if (entitySelect) {
-        entitySelect.addEventListener("change", () => {
+      if (entityInput) {
+        entityInput.addEventListener("input", () => {
+          this._syncSensorTriggerFromCard(idx);
+        });
+        entityInput.addEventListener("change", () => {
           this._syncSensorTriggerFromCard(idx);
         });
       }
@@ -1293,10 +1388,7 @@ class HomeWeatherPanel extends HTMLElement {
         <div class="settings-section ${this._settingsTab === "weather" ? "active" : ""}" data-section="weather">
           <div class="form-group">
             <label>Weather Entity *</label>
-            <select id="weather-entity">
-              <option value="">Select weather entity</option>
-              ${weatherEntities.map((e) => `<option value="${e}" ${this._settings.weather_entity === e ? "selected" : ""}>${e}</option>`).join("")}
-            </select>
+            ${this._renderEntityAutocomplete("weather-entity", this._settings.weather_entity || "", "weather", "Type to search weather entities...")}
           </div>
         </div>
         
@@ -1309,10 +1401,7 @@ class HomeWeatherPanel extends HTMLElement {
             
             <div class="form-group" style="margin-top: 16px;">
               <label>TTS Engine</label>
-              <select id="tts-engine">
-                <option value="">Select TTS entity</option>
-                ${ttsEntities.map((e) => `<option value="${e}" ${tts.engine === e ? "selected" : ""}>${e}</option>`).join("")}
-              </select>
+              ${this._renderEntityAutocomplete("tts-engine", tts.engine || "", "tts", "Type to search TTS entities...")}
             </div>
             
             <div class="form-group">
@@ -1468,10 +1557,7 @@ class HomeWeatherPanel extends HTMLElement {
                   <div class="media-player-card sensor-trigger-card" data-sensor-idx="${i}">
                     <div class="media-player-row">
                       <span class="media-player-label">Entity</span>
-                      <select class="sensor-trigger-entity media-player-controls" data-idx="${i}">
-                        <option value="">-- Select Entity --</option>
-                        ${entities.slice(0, 500).map((e) => `<option value="${e}" ${e === st.entity_id ? "selected" : ""}>${e}</option>`).join("")}
-                      </select>
+                      ${this._renderEntityAutocomplete(`sensor-trigger-entity-${i}`, st.entity_id || "", "all", "Type to search any entity...", "sensor-trigger-entity")}
                     </div>
                     <div class="media-player-row">
                       <span class="media-player-label">Trigger State</span>
@@ -1611,10 +1697,7 @@ class HomeWeatherPanel extends HTMLElement {
             
             <div class="form-group" style="margin-top: 16px;">
               <label>AI Task Entity</label>
-              <select id="ai-task-entity">
-                <option value="">Select AI task entity</option>
-                ${aiTaskEntities.map((e) => `<option value="${e}" ${tts.ai_task_entity === e ? "selected" : ""}>${e}</option>`).join("")}
-              </select>
+              ${this._renderEntityAutocomplete("ai-task-entity", tts.ai_task_entity || "", "ai_task", "Type to search AI task entities...")}
             </div>
             
             <div class="form-group">
