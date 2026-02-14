@@ -1562,7 +1562,10 @@ class HomeWeatherPanel extends HTMLElement {
                   </div>
                   <div class="media-player-row">
                     <label class="media-player-label">TTS Entity *</label>
-                    ${this._renderEntityAutocomplete(`media-player-tts-${i}`, m.tts_entity_id || "", "tts", "Type to search TTS entities...", "media-player-tts-entity")}
+                    <select class="media-player-tts-entity" data-field="tts_entity_id">
+                      <option value="">-- Select TTS Entity --</option>
+                      ${ttsEntities.map((e) => `<option value="${e}" ${e === m.tts_entity_id ? "selected" : ""}>${e}</option>`).join("")}
+                    </select>
                   </div>
                   <div class="media-player-row">
                     <label class="media-player-label">Volume</label>
