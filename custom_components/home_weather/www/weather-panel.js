@@ -484,9 +484,11 @@ class HomeWeatherPanel extends HTMLElement {
     if (!list[index]) list[index] = {};
     const entitySel = card.querySelector(".sensor-trigger-entity");
     const stateInput = card.querySelector(".sensor-trigger-state");
+    const mediaPlayerSelect = card.querySelector(".sensor-trigger-media-player");
     list[index] = {
       entity_id: entitySel?.value || "",
       trigger_state: stateInput?.value || "on",
+      media_player: mediaPlayerSelect?.value || "",
     };
     this._settings.tts.sensor_triggers = list;
   }
@@ -504,10 +506,12 @@ class HomeWeatherPanel extends HTMLElement {
     const webhookIdInput = card.querySelector(".webhook-id");
     const nameInput = card.querySelector(".webhook-name");
     const enabledChk = card.querySelector(".webhook-enabled");
+    const mediaPlayerSelect = card.querySelector(".webhook-media-player");
     list[index] = {
       webhook_id: webhookIdInput?.value || "",
       personal_name: nameInput?.value || "",
       enabled: enabledChk?.checked !== false,
+      media_player: mediaPlayerSelect?.value || "",
     };
     this._settings.tts.webhooks = list;
   }
@@ -937,6 +941,7 @@ class HomeWeatherPanel extends HTMLElement {
       const idx = parseInt(card.dataset.sensorIdx, 10);
       const entityInput = card.querySelector(".sensor-trigger-entity");
       const stateInput = card.querySelector(".sensor-trigger-state");
+      const mediaPlayerSelect = card.querySelector(".sensor-trigger-media-player");
       
       if (entityInput) {
         entityInput.addEventListener("input", () => {
@@ -948,6 +953,11 @@ class HomeWeatherPanel extends HTMLElement {
       }
       if (stateInput) {
         stateInput.addEventListener("input", () => {
+          this._syncSensorTriggerFromCard(idx);
+        });
+      }
+      if (mediaPlayerSelect) {
+        mediaPlayerSelect.addEventListener("change", () => {
           this._syncSensorTriggerFromCard(idx);
         });
       }
@@ -971,7 +981,7 @@ class HomeWeatherPanel extends HTMLElement {
       addSensorBtn.addEventListener("click", () => {
         if (!this._settings.tts) this._settings.tts = {};
         if (!Array.isArray(this._settings.tts.sensor_triggers)) this._settings.tts.sensor_triggers = [];
-        this._settings.tts.sensor_triggers.push({ entity_id: "", trigger_state: "on" });
+        this._settings.tts.sensor_triggers.push({ entity_id: "", trigger_state: "on", media_player: "" });
         this._render();
       });
     }
@@ -982,6 +992,7 @@ class HomeWeatherPanel extends HTMLElement {
       const webhookIdInput = card.querySelector(".webhook-id");
       const nameInput = card.querySelector(".webhook-name");
       const enabledChk = card.querySelector(".webhook-enabled");
+      const mediaPlayerSelect = card.querySelector(".webhook-media-player");
       
       if (webhookIdInput) {
         webhookIdInput.addEventListener("input", () => this._syncWebhookFromCard(idx));
@@ -991,6 +1002,9 @@ class HomeWeatherPanel extends HTMLElement {
       }
       if (enabledChk) {
         enabledChk.addEventListener("change", () => this._syncWebhookFromCard(idx));
+      }
+      if (mediaPlayerSelect) {
+        mediaPlayerSelect.addEventListener("change", () => this._syncWebhookFromCard(idx));
       }
     });
     
@@ -1012,7 +1026,7 @@ class HomeWeatherPanel extends HTMLElement {
       addWebhookBtn.addEventListener("click", () => {
         if (!this._settings.tts) this._settings.tts = {};
         if (!Array.isArray(this._settings.tts.webhooks)) this._settings.tts.webhooks = [];
-        this._settings.tts.webhooks.push({ webhook_id: "", personal_name: "", enabled: true });
+        this._settings.tts.webhooks.push({ webhook_id: "", personal_name: "", enabled: true, media_player: "" });
         this._render();
       });
     }
@@ -1716,6 +1730,13 @@ class HomeWeatherPanel extends HTMLElement {
                       <span class="media-player-label">Trigger State</span>
                       <input type="text" class="sensor-trigger-state media-player-tts-entity" data-idx="${i}" placeholder="e.g. on, home, open" value="${st.trigger_state || ""}"/>
                     </div>
+                    <div class="media-player-row">
+                      <span class="media-player-label">Media Player</span>
+                      <select class="sensor-trigger-media-player" data-idx="${i}">
+                        <option value="">-- All Media Players --</option>
+                        ${mediaPlayers.map(mp => `<option value="${mp.entity_id}" ${st.media_player === mp.entity_id ? "selected" : ""}>${mp.entity_id}</option>`).join("")}
+                      </select>
+                    </div>
                     <div class="media-player-row" style="justify-content: flex-end;">
                       <button class="btn btn-secondary" data-remove-sensor="${i}">Remove</button>
                     </div>
@@ -1782,6 +1803,13 @@ class HomeWeatherPanel extends HTMLElement {
                     <div class="media-player-row">
                       <span class="media-player-label">Personal Name</span>
                       <input type="text" class="webhook-name media-player-tts-entity" data-idx="${i}" placeholder="e.g. John" value="${wh.personal_name || ""}"/>
+                    </div>
+                    <div class="media-player-row">
+                      <span class="media-player-label">Media Player</span>
+                      <select class="webhook-media-player" data-idx="${i}">
+                        <option value="">-- All Media Players --</option>
+                        ${mediaPlayers.map(mp => `<option value="${mp.entity_id}" ${wh.media_player === mp.entity_id ? "selected" : ""}>${mp.entity_id}</option>`).join("")}
+                      </select>
                     </div>
                     <div class="media-player-row">
                       <span class="media-player-label">Enabled</span>

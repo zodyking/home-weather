@@ -246,18 +246,23 @@ class TTSTriggerManager:
         
         Fires a full forecast when any configured sensor enters its trigger state.
         Supports any entity type (not just binary sensors).
+        Each sensor trigger can target a specific media player or all players.
         """
         sensor_triggers = tts_config.get("sensor_triggers", [])
         if not sensor_triggers:
             return
         
-        # Build a mapping from entity_id to trigger_state
+        # Build a mapping from entity_id to {trigger_state, media_player}
         trigger_map = {}
         for trigger in sensor_triggers:
             entity_id = trigger.get("entity_id")
             trigger_state = trigger.get("trigger_state", "on")
+            media_player = trigger.get("media_player", "")  # Empty = all players
             if entity_id:
-                trigger_map[entity_id] = trigger_state
+                trigger_map[entity_id] = {
+                    "trigger_state": trigger_state,
+                    "media_player": media_player,
+                }
         
         if not trigger_map:
             return
@@ -272,14 +277,19 @@ class TTSTriggerManager:
                 return
             
             entity_id = new_state.entity_id
-            target_state = trigger_map.get(entity_id)
+            trigger_info = trigger_map.get(entity_id)
             
-            if target_state is None:
+            if trigger_info is None:
                 return
+            
+            target_state = trigger_info["trigger_state"]
+            target_media_player = trigger_info["media_player"]
             
             # Fire when sensor enters the configured trigger state
             if old_state.state != target_state and new_state.state == target_state:
-                self.hass.async_create_task(self._fire_scheduled_forecast())
+                self.hass.async_create_task(
+                    self._fire_scheduled_forecast(target_media_player=target_media_player)
+                )
         
         unsub = async_track_state_change_event(
             self.hass,
@@ -324,10 +334,11 @@ class TTSTriggerManager:
                 continue
             
             personal_name = webhook_config.get("personal_name", "")
+            target_media_player = webhook_config.get("media_player", "")  # Empty = all players
             
             # Create the handler with proper closure binding
-            # Capture self, webhook_id, and personal_name in the closure
-            handler = self._create_webhook_handler(webhook_id, personal_name)
+            # Capture self, webhook_id, personal_name, and target_media_player in the closure
+            handler = self._create_webhook_handler(webhook_id, personal_name, target_media_player)
             
             try:
                 webhook.async_register(
@@ -344,7 +355,7 @@ class TTSTriggerManager:
             except Exception as e:
                 _LOGGER.error("Failed to register webhook %s: %s", webhook_id, e, exc_info=True)
     
-    def _create_webhook_handler(self, webhook_id: str, personal_name: str):
+    def _create_webhook_handler(self, webhook_id: str, personal_name: str, target_media_player: str = ""):
         """Create a webhook handler with proper closure binding."""
         async def handle_webhook(hass: HomeAssistant, wh_id: str, request) -> None:
             """Handle incoming webhook request."""
@@ -380,9 +391,9 @@ class TTSTriggerManager:
             )
             _LOGGER.debug("Fired home_weather_webhook_triggered event for %s", webhook_id)
             
-            # Fire the webhook forecast
+            # Fire the webhook forecast (target specific media player if configured)
             try:
-                await self._fire_webhook_forecast(req_name, volume)
+                await self._fire_webhook_forecast(req_name, volume, target_media_player=target_media_player)
             except Exception as e:
                 _LOGGER.error("Failed to fire webhook forecast: %s", e, exc_info=True)
         
@@ -413,8 +424,13 @@ class TTSTriggerManager:
         except Exception as e:
             _LOGGER.warning("Voice satellite setup not fully supported: %s", e)
 
-    async def _fire_scheduled_forecast(self) -> None:
-        """Fire a scheduled forecast TTS."""
+    async def _fire_scheduled_forecast(self, target_media_player: str = "") -> None:
+        """Fire a scheduled forecast TTS.
+        
+        Args:
+            target_media_player: If specified, only send to this media player.
+                               If empty, send to all configured media players.
+        """
         config = self._get_config()
         weather_data = self._get_weather_data()
         tts_config = config.get("tts", {})
@@ -424,6 +440,13 @@ class TTSTriggerManager:
             _LOGGER.debug("No media players configured, skipping TTS")
             return
         
+        # Filter to specific media player if specified
+        if target_media_player:
+            media_players = [mp for mp in media_players if mp.get("entity_id") == target_media_player]
+            if not media_players:
+                _LOGGER.warning("Target media player %s not found in config", target_media_player)
+                return
+        
         message = build_scheduled_forecast(weather_data, config)
         await send_tts_with_ai_rewrite(
             self.hass,
@@ -431,7 +454,7 @@ class TTSTriggerManager:
             tts_config,
             message,
         )
-        _LOGGER.info("Scheduled forecast TTS sent")
+        _LOGGER.info("Scheduled forecast TTS sent to %s", target_media_player or "all players")
 
     async def _fire_current_change(self, old_condition: str, new_condition: str) -> None:
         """Fire a current change alert TTS."""
@@ -522,9 +545,16 @@ class TTSTriggerManager:
             if datetime.strptime(k, "%Y-%m-%d-%H") > two_hours_ago
         }
 
-    async def _fire_webhook_forecast(self, name: str, volume: float | None) -> None:
-        """Fire a webhook-triggered forecast."""
-        _LOGGER.info("_fire_webhook_forecast called with name=%s, volume=%s", name, volume)
+    async def _fire_webhook_forecast(self, name: str, volume: float | None, target_media_player: str = "") -> None:
+        """Fire a webhook-triggered forecast.
+        
+        Args:
+            name: Personal name for greeting
+            volume: Optional volume override
+            target_media_player: If specified, only send to this media player.
+                               If empty, send to all configured media players.
+        """
+        _LOGGER.info("_fire_webhook_forecast called with name=%s, volume=%s, target=%s", name, volume, target_media_player)
         
         config = self._get_config()
         weather_data = self._get_weather_data()
@@ -537,6 +567,13 @@ class TTSTriggerManager:
         if not media_players:
             _LOGGER.warning("No media players configured, cannot send TTS")
             return
+        
+        # Filter to specific media player if specified
+        if target_media_player:
+            media_players = [mp for mp in media_players if mp.get("entity_id") == target_media_player]
+            if not media_players:
+                _LOGGER.warning("Target media player %s not found in config", target_media_player)
+                return
         
         if not weather_data or not weather_data.get("configured"):
             _LOGGER.warning("Weather data not available or not configured")
@@ -551,4 +588,4 @@ class TTSTriggerManager:
             message,
             volume_override=volume,
         )
-        _LOGGER.info("Webhook forecast TTS sent for %s", name or "unnamed user")
+        _LOGGER.info("Webhook forecast TTS sent for %s to %s", name or "unnamed user", target_media_player or "all players")
