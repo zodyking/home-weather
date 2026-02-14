@@ -1539,6 +1539,7 @@ class HomeWeatherPanel extends HTMLElement {
                       <input type="text" class="webhook-url-display" readonly value="Save to generate URLs" title="Save settings first"/>
                     </div>
                     ` : ""}
+                    ` : ""}
                     <div class="media-player-row">
                       <span class="media-player-label">Personal Name</span>
                       <input type="text" class="webhook-name media-player-tts-entity" data-idx="${i}" placeholder="e.g. John" value="${wh.personal_name || ""}"/>

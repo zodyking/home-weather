@@ -9,11 +9,9 @@ from homeassistant.components import websocket_api
 from homeassistant.components.webhook import async_generate_url
 from homeassistant.core import HomeAssistant, callback
 
-from .const import DOMAIN
+from .const import DOMAIN, WEBHOOK_LAST_TRIGGERED_KEY
 
 _LOGGER = logging.getLogger(__name__)
-
-_WEBHOOK_LAST_TRIGGERED_KEY = f"{DOMAIN}_webhook_last_triggered"
 
 
 @callback
