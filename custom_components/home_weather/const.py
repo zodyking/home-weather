@@ -3,6 +3,7 @@ from typing import Final
 
 DOMAIN: Final = "home_weather"
 STORAGE_KEY: Final = "home_weather_config"
+WEBHOOK_LAST_TRIGGERED_KEY: Final = "home_weather_webhook_last_triggered"
 STORAGE_VERSION: Final = 2
 
 DEFAULT_CONFIG: Final = {
@@ -51,7 +52,7 @@ DEFAULT_CONFIG: Final = {
 UPDATE_INTERVAL: Final = 300
 
 # Version for cache busting
-VERSION: Final = "1.2.9"
+VERSION: Final = "1.2.11"
 
 # Panel configuration
 PANEL_URL_PATH: Final = "home-weather"

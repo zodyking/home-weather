@@ -6,11 +6,14 @@ from typing import Any
 
 import voluptuous as vol
 from homeassistant.components import websocket_api
+from homeassistant.components.webhook import async_generate_url
 from homeassistant.core import HomeAssistant, callback
 
 from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
+
+_WEBHOOK_LAST_TRIGGERED_KEY = f"{DOMAIN}_webhook_last_triggered"
 
 
 @callback
@@ -251,10 +254,78 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
         
         connection.send_result(msg["id"], {"automations": automations})
 
+    @websocket_api.websocket_command(
+        {
+            "type": "home_weather/get_webhook_info",
+        }
+    )
+    @websocket_api.async_response
+    async def handle_get_webhook_info(
+        hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+    ) -> None:
+        """Return full webhook URLs and last trigger timestamps for configured webhooks."""
+        config = {}
+        if DOMAIN in hass.data:
+            for entry_id, data in hass.data[DOMAIN].items():
+                if isinstance(data, dict) and "storage" in data:
+                    storage = data.get("storage")
+                    if storage and hasattr(storage, "async_get"):
+                        config = await storage.async_get()
+                    break
+        
+        tts_config = config.get("tts", {})
+        webhooks_config = tts_config.get("webhooks", [])
+        if not webhooks_config and tts_config.get("webhook_id"):
+            webhooks_config = [{
+                "webhook_id": tts_config.get("webhook_id"),
+                "personal_name": tts_config.get("personal_name", ""),
+                "enabled": True,
+            }]
+        
+        last_triggered = hass.data.get(WEBHOOK_LAST_TRIGGERED_KEY, {})
+        
+        result = []
+        for wh in webhooks_config:
+            webhook_id = wh.get("webhook_id")
+            if not webhook_id:
+                continue
+            url_internal = ""
+            url_external = ""
+            try:
+                url_internal = async_generate_url(
+                    hass,
+                    webhook_id,
+                    allow_internal=True,
+                    allow_external=False,
+                    prefer_external=False,
+                )
+            except Exception:
+                pass
+            try:
+                url_external = async_generate_url(
+                    hass,
+                    webhook_id,
+                    allow_internal=False,
+                    allow_external=True,
+                    prefer_external=True,
+                )
+            except Exception:
+                pass
+            result.append({
+                "webhook_id": webhook_id,
+                "url": url_external or url_internal,
+                "url_internal": url_internal,
+                "url_external": url_external,
+                "last_triggered": last_triggered.get(webhook_id),
+            })
+        
+        connection.send_result(msg["id"], {"webhooks": result})
+
     websocket_api.async_register_command(hass, handle_get_config)
     websocket_api.async_register_command(hass, handle_set_config)
     websocket_api.async_register_command(hass, handle_get_weather)
     websocket_api.async_register_command(hass, handle_get_tts_entities)
     websocket_api.async_register_command(hass, handle_test_tts)
     websocket_api.async_register_command(hass, handle_get_automations)
+    websocket_api.async_register_command(hass, handle_get_webhook_info)
 

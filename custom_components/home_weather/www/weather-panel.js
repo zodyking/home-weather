@@ -18,6 +18,7 @@ class HomeWeatherPanel extends HTMLElement {
     this._narrow = null;
     this._graphHoverIndex = null;
     this._apexCharts = [];
+    this._webhookInfo = {};  // { webhook_id: { url, last_triggered } }
   }
 
   get _isNarrow() {
@@ -86,6 +87,26 @@ class HomeWeatherPanel extends HTMLElement {
     }
   }
 
+  async _loadWebhookInfo() {
+    if (!this._hass) return;
+    try {
+      const r = await this._hass.callWS({ type: "home_weather/get_webhook_info" });
+      this._webhookInfo = {};
+      (r.webhooks || []).forEach((w) => {
+        this._webhookInfo[w.webhook_id] = {
+          url: w.url || "",
+          url_internal: w.url_internal || "",
+          url_external: w.url_external || "",
+          last_triggered: w.last_triggered,
+        };
+      });
+      this._render();
+    } catch (e) {
+      console.error("Failed to load webhook info:", e);
+      this._webhookInfo = {};
+    }
+  }
+
   async _loadWeatherData() {
     if (!this._hass || !this._config || !this._config.weather_entity) return;
     try {
@@ -113,8 +134,8 @@ class HomeWeatherPanel extends HTMLElement {
       const messagePrefix = s.getElementById("message-prefix");
       if (messagePrefix) this._settings.message_prefix = messagePrefix.value || "Weather update";
       
-      // Collect media players from cards
-      const cards = s.querySelectorAll(".media-player-card");
+      // Collect media players from cards (exclude webhook cards)
+      const cards = s.querySelectorAll("#media-player-list .media-player-card");
       if (cards.length) {
         this._settings.media_players = Array.from(cards).map((card) => {
           const entitySel = card.querySelector(".media-player-select");
@@ -122,12 +143,18 @@ class HomeWeatherPanel extends HTMLElement {
           const volumeSlider = card.querySelector(".media-player-volume");
           const cacheChk = card.querySelector(".media-player-cache");
           const langInput = card.querySelector(".media-player-language");
+          const optionsInput = card.querySelector(".media-player-options");
+          let options = {};
+          if (optionsInput?.value) {
+            try { options = JSON.parse(optionsInput.value); } catch (_) {}
+          }
           return {
             entity_id: entitySel?.value || "",
             tts_entity_id: ttsSel?.value || "",
             volume: parseFloat(volumeSlider?.value || 0.6),
             cache: !!cacheChk?.checked,
             language: (langInput?.value || "").trim(),
+            options,
           };
         }).filter((m) => m.entity_id);
       }
@@ -518,6 +545,13 @@ class HomeWeatherPanel extends HTMLElement {
         .inline-toggle-label { flex: 1; font-size: 14px; color: var(--primary-text-color); }
         .settings-section-divider { border: none; border-top: 1px solid var(--divider-color); margin: 20px 0; }
         .form-hint { font-size: 12px; color: var(--secondary-text-color); margin-bottom: 16px; }
+        .webhook-status-row { display: flex; align-items: center; gap: 10px; }
+        .webhook-status-dot { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; }
+        .webhook-status-dot.idle { background: #e53935; }
+        .webhook-status-dot.triggered { background: #43a047; }
+        .webhook-status-label { font-size: 13px; font-weight: 500; color: var(--primary-text-color); }
+        .webhook-timestamp { font-size: 12px; color: var(--secondary-text-color); margin-left: auto; }
+        .webhook-url-display { flex: 1; font-size: 12px; padding: 8px 12px; background: var(--secondary-background-color); border-radius: 6px; color: var(--primary-text-color); cursor: text; }
         .form-actions { display: flex; gap: 12px; justify-content: flex-end; margin-top: 24px; }
         .btn { padding: 12px 32px; border: none; border-radius: 8px; font-size: 14px; font-weight: 500; cursor: pointer; }
         .btn-primary { background: var(--primary-color); color: var(--primary-color-text); }
@@ -530,19 +564,33 @@ class HomeWeatherPanel extends HTMLElement {
         .bento-card { background: var(--card-background-color); border-radius: var(--card-radius); border: 1px solid var(--divider-color); padding: 24px; }
         
         /* Hero Card */
-        .hero-card { display: flex; flex-direction: column; gap: 20px; background: linear-gradient(145deg, rgba(66,133,244,0.08) 0%, var(--card-background-color) 100%); }
+        .hero-card { display: flex; flex-direction: column; gap: 16px; background: linear-gradient(145deg, rgba(66,133,244,0.08) 0%, var(--card-background-color) 100%); }
         .hero-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
         .hero-main { display: flex; align-items: center; gap: 20px; }
-        .hero-icon { width: 100px; height: 100px; display: flex; align-items: center; justify-content: center; }
+        .hero-icon { width: 100px; height: 100px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
         .hero-icon .weather-icon { width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 4px 12px rgba(0,0,0,0.1)); }
         .hero-temp-block { display: flex; flex-direction: column; }
         .hero-temp { font-size: 72px; font-weight: 300; line-height: 1; color: var(--primary-text-color); letter-spacing: -2px; }
         .hero-hilo { font-size: 14px; color: var(--secondary-text-color); margin-top: 4px; }
         .hero-hilo span { margin-right: 12px; }
         .hero-condition { font-size: 20px; font-weight: 500; color: var(--primary-text-color); text-transform: capitalize; }
+        .hero-wind-row { display: flex; gap: 16px; font-size: 14px; color: var(--secondary-text-color); }
+        .hero-wind-row span { display: flex; align-items: center; gap: 6px; }
+        .hero-wind-row img { width: 18px; height: 18px; opacity: 0.85; }
         .hero-datetime { text-align: right; }
         .hero-time { font-size: 28px; font-weight: 600; color: var(--primary-text-color); }
         .hero-date { font-size: 14px; color: var(--secondary-text-color); margin-top: 4px; }
+        @media (min-width: 901px) {
+          .hero-card { align-items: center; text-align: center; }
+          .hero-top { flex-direction: column; align-items: center; width: 100%; }
+          .hero-main { flex-direction: column; align-items: center; }
+          .hero-icon { width: 180px; height: 180px; }
+          .hero-temp { font-size: 96px; }
+          .hero-hilo { justify-content: center; }
+          .hero-condition { font-size: 24px; }
+          .hero-wind-row { justify-content: center; }
+          .hero-datetime { text-align: center; }
+        }
         
         /* Highlights Grid */
         .highlights-card { display: flex; flex-direction: column; }
@@ -617,7 +665,11 @@ class HomeWeatherPanel extends HTMLElement {
     });
     const settingsBtn = s.getElementById("settings-btn");
     const backBtn = s.getElementById("back-btn");
-    if (settingsBtn) settingsBtn.addEventListener("click", () => { this._currentView = "settings"; this._render(); });
+    if (settingsBtn) settingsBtn.addEventListener("click", () => {
+      this._currentView = "settings";
+      this._render();
+      this._loadWebhookInfo();
+    });
     if (backBtn) backBtn.addEventListener("click", () => { this._currentView = "forecast"; this._render(); });
     if (this._currentView === "settings") {
       this._attachSettingsHandlers();
@@ -919,6 +971,7 @@ class HomeWeatherPanel extends HTMLElement {
     const humidity = (current.humidity ?? h0.humidity) != null ? Math.round(current.humidity ?? h0.humidity) : null;
     const precipChance = (h0.precipitation_probability ?? 0);
     const windSpeed = (current.wind_speed ?? h0.wind_speed);
+    const windGusts = (current.wind_gust_speed ?? h0.wind_gust_speed);
     const pressure = (current.pressure ?? h0.pressure);
     const uvIndex = (current.uv_index ?? h0.uv_index);
     const cloudCover = (current.cloud_coverage ?? h0.cloud_coverage);
@@ -962,6 +1015,10 @@ class HomeWeatherPanel extends HTMLElement {
               </div>
             </div>
             <div class="hero-condition">${this._getConditionLabel(condition, now)}</div>
+            <div class="hero-wind-row">
+              ${windSpeed != null ? `<span><img src="/local/home_weather/icons/wind.svg" alt=""/>Wind: ${Math.round(windSpeed)} ${windUnit}</span>` : ""}
+              ${windGusts != null ? `<span><img src="/local/home_weather/icons/windsock.svg" alt=""/>Gusts: ${Math.round(windGusts)} ${windUnit}</span>` : ""}
+            </div>
           </div>
           <div class="bento-card highlights-card">
             <div class="highlights-title">Today's Highlights</div>
@@ -1054,10 +1111,10 @@ class HomeWeatherPanel extends HTMLElement {
 
   _baseChartOptions(data) {
     return {
-      chart: { type: "area", height: 320, toolbar: { show: false }, zoom: { enabled: false }, fontFamily: "inherit" },
+      chart: { type: "area", height: 320, toolbar: { show: false }, zoom: { enabled: false }, fontFamily: "inherit", background: "transparent" },
       dataLabels: { enabled: false },
-      stroke: { curve: "smooth", width: 2 },
-      fill: { type: "gradient", gradient: { opacityFrom: 0.2, opacityTo: 0 } },
+      stroke: { curve: "smooth", width: 4 },
+      fill: { type: "gradient", gradient: { opacityFrom: 0.25, opacityTo: 0.05 } },
       xaxis: {
         categories: data.map((d) => d.time),
         labels: { style: { colors: "#94a3b8" }, trim: true, maxHeight: 36 },
@@ -1128,9 +1185,10 @@ class HomeWeatherPanel extends HTMLElement {
       const opts = {
         ...baseOpts,
         chart: { ...baseOpts.chart, type: "line", height: 280 },
-        colors: ["#e53935", "#ff7043", "#ab47bc", "#1e88e5", "#26a69a", "#42a5f5", "#757575", "#78909c", "#8d6e63", "#90a4ae", "#ffa726"],
+        colors: ["#ef5350", "#ff8a65", "#ba68c8", "#42a5f5", "#4db6ac", "#64b5f6", "#b0bec5", "#90a4ae", "#a1887f", "#78909c", "#ffb74d"],
+        stroke: { curve: "smooth", width: 4 },
         series,
-        yaxis: [{ min: 0, max: 100, labels: { formatter: (v) => Math.round(v) }, axisBorder: { show: false }, axisTicks: { show: false }, labels: { style: { colors: "#94a3b8" } } }],
+        yaxis: [{ min: 0, max: 100, labels: { formatter: (v) => String(Math.round(v)) }, axisBorder: { show: false }, axisTicks: { show: false }, labels: { style: { colors: "#94a3b8", fontSize: "12px" } } }],
         title: { text: "", align: "left", style: { fontSize: "14px", fontWeight: 600 } },
         tooltip: { shared: true, intersect: false, custom: tooltip },
         legend: { show: true, position: "top", horizontalAlign: "center", fontSize: "11px" },
@@ -1437,12 +1495,50 @@ class HomeWeatherPanel extends HTMLElement {
               <label>Webhook Configurations</label>
               <p class="form-hint">Create multiple webhooks with unique IDs for different users or scenarios.</p>
               <div id="webhooks-list" class="media-player-list">
-                ${tts.webhooks.map((wh, i) => `
+                ${tts.webhooks.map((wh, i) => {
+                  const info = this._webhookInfo[wh.webhook_id] || {};
+                  const urlInt = info.url_internal || "";
+                  const urlExt = info.url_external || "";
+                  const hasUrls = wh.webhook_id && (urlInt || urlExt);
+                  const lastTrig = info.last_triggered;
+                  const hasTriggered = !!lastTrig;
+                  const triggerTime = lastTrig ? (() => {
+                    try {
+                      const d = new Date(lastTrig);
+                      return d.toLocaleString();
+                    } catch (_) { return lastTrig; }
+                  })() : "";
+                  return `
                   <div class="media-player-card webhook-card" data-webhook-idx="${i}">
                     <div class="media-player-row">
                       <span class="media-player-label">Webhook ID</span>
                       <input type="text" class="webhook-id media-player-tts-entity" data-idx="${i}" placeholder="e.g. weather_morning" value="${wh.webhook_id || ""}"/>
                     </div>
+                    ${wh.webhook_id ? `
+                    <div class="media-player-row webhook-status-row">
+                      <span class="webhook-status-dot ${hasTriggered ? "triggered" : "idle"}"></span>
+                      <span class="webhook-status-label">${hasTriggered ? "Triggered" : "Idle"}</span>
+                      ${triggerTime ? `<span class="webhook-timestamp">${triggerTime}</span>` : ""}
+                    </div>
+                    <p class="form-hint" style="margin: 8px 0 4px;">Either URL triggers TTS when called.</p>
+                    ${urlInt ? `
+                    <div class="media-player-row">
+                      <label class="media-player-label">Internal URL</label>
+                      <input type="text" class="webhook-url-display" readonly value="${urlInt}" onclick="this.select()" title="Click to select"/>
+                    </div>
+                    ` : ""}
+                    ${urlExt ? `
+                    <div class="media-player-row">
+                      <label class="media-player-label">External URL</label>
+                      <input type="text" class="webhook-url-display" readonly value="${urlExt}" onclick="this.select()" title="Click to select"/>
+                    </div>
+                    ` : ""}
+                    ${!urlInt && !urlExt && wh.webhook_id ? `
+                    <div class="media-player-row">
+                      <label class="media-player-label">Webhook URL</label>
+                      <input type="text" class="webhook-url-display" readonly value="Save to generate URLs" title="Save settings first"/>
+                    </div>
+                    ` : ""}
                     <div class="media-player-row">
                       <span class="media-player-label">Personal Name</span>
                       <input type="text" class="webhook-name media-player-tts-entity" data-idx="${i}" placeholder="e.g. John" value="${wh.personal_name || ""}"/>
@@ -1458,7 +1554,8 @@ class HomeWeatherPanel extends HTMLElement {
                       <button class="btn btn-secondary" data-remove-webhook="${i}">Remove</button>
                     </div>
                   </div>
-                `).join("")}
+                `;
+                }).join("")}
               </div>
               <button class="btn btn-secondary" id="add-webhook" style="margin-top: 12px;">+ Add Webhook</button>
             </div>

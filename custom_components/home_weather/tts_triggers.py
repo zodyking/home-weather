@@ -23,6 +23,7 @@ from homeassistant.helpers.event import (
 )
 from homeassistant.util import dt as dt_util
 
+from .const import DOMAIN, WEBHOOK_LAST_TRIGGERED_KEY
 from .tts_notifications import (
     build_scheduled_forecast,
     build_current_change_message,
@@ -290,8 +291,11 @@ class TTSTriggerManager:
     async def _setup_webhook_trigger(self, tts_config: dict[str, Any]) -> None:
         """Set up webhook triggers for personalized forecasts.
         
-        Supports multiple webhooks with individual names.
+        Registers with Home Assistant using local_only=True and POST/PUT/GET/HEAD
+        to match native HA webhook behavior. Records last trigger timestamp.
         """
+        from aiohttp.web import Response
+        
         webhooks = tts_config.get("webhooks", [])
         
         # Backward compatibility: support old single webhook config
@@ -304,6 +308,10 @@ class TTSTriggerManager:
         if not webhooks:
             return
         
+        if WEBHOOK_LAST_TRIGGERED_KEY not in self.hass.data:
+            self.hass.data[WEBHOOK_LAST_TRIGGERED_KEY] = {}
+        last_triggered_store = self.hass.data[WEBHOOK_LAST_TRIGGERED_KEY]
+        
         for webhook_config in webhooks:
             if not webhook_config.get("enabled", True):
                 continue
@@ -314,20 +322,23 @@ class TTSTriggerManager:
             
             personal_name = webhook_config.get("personal_name", "")
             
-            # Create closure to capture personal_name for this specific webhook
-            def make_handler(name: str):
-                async def _handle_webhook(hass: HomeAssistant, wh_id: str, request) -> None:
-                    """Handle webhook request."""
-                    try:
-                        data = await request.json()
-                    except:
-                        data = {}
+            def make_handler(name: str, wh_id: str):
+                async def _handle_webhook(hass: HomeAssistant, _wh_id: str, request) -> Response | None:
+                    """Handle webhook request. Supports POST, PUT (JSON body) and GET, HEAD (no body)."""
+                    from datetime import datetime
+                    data = {}
+                    if request.method in ("POST", "PUT"):
+                        try:
+                            data = await request.json()
+                        except Exception:
+                            pass
                     
-                    # Use name from request if provided, else use configured name
                     req_name = data.get("name") or name
-                    volume = data.get("volume")  # Optional volume override
+                    volume = data.get("volume")
                     
+                    last_triggered_store[wh_id] = datetime.utcnow().isoformat() + "Z"
                     await self._fire_webhook_forecast(req_name, volume)
+                    return None
                 return _handle_webhook
             
             try:
@@ -335,7 +346,9 @@ class TTSTriggerManager:
                     "home_weather",
                     f"Weather Forecast ({personal_name or webhook_id})",
                     webhook_id,
-                    make_handler(personal_name),
+                    make_handler(personal_name, webhook_id),
+                    local_only=False,
+                    allowed_methods=["POST", "PUT", "GET", "HEAD"],
                 )
                 self._registered_webhooks.append(webhook_id)
                 _LOGGER.info("Webhook registered: %s (name: %s)", webhook_id, personal_name or "N/A")
