@@ -104,9 +104,10 @@ class TTSTriggerManager:
         self._unsub_callbacks.clear()
         
         # Unregister all webhooks
+        from homeassistant.components import webhook
         for webhook_id in self._registered_webhooks:
             try:
-                self.hass.components.webhook.async_unregister(webhook_id)
+                webhook.async_unregister(self.hass, webhook_id)
                 _LOGGER.debug("Unregistered webhook: %s", webhook_id)
             except Exception as e:
                 _LOGGER.warning("Error unregistering webhook %s: %s", webhook_id, e)
@@ -291,10 +292,10 @@ class TTSTriggerManager:
     async def _setup_webhook_trigger(self, tts_config: dict[str, Any]) -> None:
         """Set up webhook triggers for personalized forecasts.
         
-        Registers with Home Assistant using local_only=True and POST/PUT/GET/HEAD
+        Registers with Home Assistant using local_only=False and POST/PUT/GET/HEAD
         to match native HA webhook behavior. Records last trigger timestamp.
         """
-        from aiohttp.web import Response
+        from homeassistant.components import webhook
         
         webhooks = tts_config.get("webhooks", [])
         
@@ -306,54 +307,74 @@ class TTSTriggerManager:
                 webhooks = [{"webhook_id": old_webhook_id, "personal_name": old_personal_name, "enabled": True}]
         
         if not webhooks:
+            _LOGGER.debug("No webhooks configured")
             return
         
         if WEBHOOK_LAST_TRIGGERED_KEY not in self.hass.data:
             self.hass.data[WEBHOOK_LAST_TRIGGERED_KEY] = {}
-        last_triggered_store = self.hass.data[WEBHOOK_LAST_TRIGGERED_KEY]
         
         for webhook_config in webhooks:
             if not webhook_config.get("enabled", True):
+                _LOGGER.debug("Webhook %s is disabled, skipping", webhook_config.get("webhook_id"))
                 continue
             
             webhook_id = webhook_config.get("webhook_id")
             if not webhook_id:
+                _LOGGER.debug("Empty webhook_id, skipping")
                 continue
             
             personal_name = webhook_config.get("personal_name", "")
             
-            def make_handler(name: str, wh_id: str):
-                async def _handle_webhook(hass: HomeAssistant, _wh_id: str, request) -> Response | None:
-                    """Handle webhook request. Supports POST, PUT (JSON body) and GET, HEAD (no body)."""
-                    from datetime import datetime
-                    data = {}
-                    if request.method in ("POST", "PUT"):
-                        try:
-                            data = await request.json()
-                        except Exception:
-                            pass
-                    
-                    req_name = data.get("name") or name
-                    volume = data.get("volume")
-                    
-                    last_triggered_store[wh_id] = datetime.utcnow().isoformat() + "Z"
-                    await self._fire_webhook_forecast(req_name, volume)
-                    return None
-                return _handle_webhook
+            # Create the handler with proper closure binding
+            # Capture self, webhook_id, and personal_name in the closure
+            handler = self._create_webhook_handler(webhook_id, personal_name)
             
             try:
-                self.hass.components.webhook.async_register(
-                    "home_weather",
+                webhook.async_register(
+                    self.hass,
+                    DOMAIN,
                     f"Weather Forecast ({personal_name or webhook_id})",
                     webhook_id,
-                    make_handler(personal_name, webhook_id),
+                    handler,
                     local_only=False,
                     allowed_methods=["POST", "PUT", "GET", "HEAD"],
                 )
                 self._registered_webhooks.append(webhook_id)
-                _LOGGER.info("Webhook registered: %s (name: %s)", webhook_id, personal_name or "N/A")
+                _LOGGER.info("Webhook registered successfully: %s (name: %s)", webhook_id, personal_name or "N/A")
             except Exception as e:
-                _LOGGER.error("Failed to register webhook %s: %s", webhook_id, e)
+                _LOGGER.error("Failed to register webhook %s: %s", webhook_id, e, exc_info=True)
+    
+    def _create_webhook_handler(self, webhook_id: str, personal_name: str):
+        """Create a webhook handler with proper closure binding."""
+        async def handle_webhook(hass: HomeAssistant, wh_id: str, request) -> None:
+            """Handle incoming webhook request."""
+            _LOGGER.info("Webhook triggered: %s (method: %s)", wh_id, request.method)
+            
+            data = {}
+            if request.method in ("POST", "PUT"):
+                try:
+                    data = await request.json()
+                    _LOGGER.debug("Webhook payload: %s", data)
+                except Exception as e:
+                    _LOGGER.debug("No JSON body or parse error: %s", e)
+            
+            req_name = data.get("name") or personal_name
+            volume = data.get("volume")
+            
+            # Update last triggered timestamp
+            try:
+                self.hass.data[WEBHOOK_LAST_TRIGGERED_KEY][webhook_id] = datetime.utcnow().isoformat() + "Z"
+                _LOGGER.debug("Updated last_triggered for webhook %s", webhook_id)
+            except Exception as e:
+                _LOGGER.error("Failed to update last_triggered: %s", e)
+            
+            # Fire the webhook forecast
+            try:
+                await self._fire_webhook_forecast(req_name, volume)
+            except Exception as e:
+                _LOGGER.error("Failed to fire webhook forecast: %s", e, exc_info=True)
+        
+        return handle_webhook
 
     async def _setup_voice_satellite_trigger(self, tts_config: dict[str, Any]) -> None:
         """Set up voice satellite (conversation) triggers.
@@ -491,15 +512,26 @@ class TTSTriggerManager:
 
     async def _fire_webhook_forecast(self, name: str, volume: float | None) -> None:
         """Fire a webhook-triggered forecast."""
+        _LOGGER.info("_fire_webhook_forecast called with name=%s, volume=%s", name, volume)
+        
         config = self._get_config()
         weather_data = self._get_weather_data()
         tts_config = config.get("tts", {})
         media_players = config.get("media_players", [])
         
+        _LOGGER.debug("Config has %d media players, tts enabled: %s", 
+                      len(media_players), tts_config.get("enabled"))
+        
         if not media_players:
+            _LOGGER.warning("No media players configured, cannot send TTS")
             return
         
+        if not weather_data or not weather_data.get("configured"):
+            _LOGGER.warning("Weather data not available or not configured")
+        
         message = build_webhook_message(name, weather_data, config)
+        _LOGGER.debug("Built TTS message: %s", message[:100] if message else "empty")
+        
         await send_tts_with_ai_rewrite(
             self.hass,
             media_players,
