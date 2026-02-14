@@ -81,10 +81,15 @@ def _spell_time(dt: datetime | None) -> str:
         return f"{hour_word} {_spell_number(minute)} {period}"
 
 
-def _get_current_time_announcement() -> str:
-    """Get current time as a spoken announcement."""
+def _get_greeting_with_time() -> str:
+    """Get greeting with time in natural format.
+    
+    Format: "Good morning, the time is eight oh seven AM"
+    """
     now = dt_util.now()
-    return f"The time is {_spell_time(now)}"
+    greeting = _get_greeting()
+    time_spoken = _spell_time(now)
+    return f"{greeting}, the time is {time_spoken}"
 
 
 def _get_greeting() -> str:
@@ -235,7 +240,7 @@ def build_scheduled_forecast(
 ) -> str:
     """Build a full scheduled forecast message - weatherman style.
     
-    Format: Time + Greeting + Current + Today's outlook + Notable upcoming events
+    Format: Greeting with time + intro + current + today's outlook + notable events
     """
     current = weather_data.get("current", {})
     hourly = weather_data.get("hourly_forecast", [])
@@ -245,20 +250,15 @@ def build_scheduled_forecast(
     
     parts = []
     
-    # Time announcement and greeting
-    greeting = _get_greeting()
-    time_announce = _get_current_time_announcement()
+    # Greeting with time: "Good morning, the time is eight oh seven AM"
+    greeting_time = _get_greeting_with_time()
     
     if name:
-        parts.append(f"{time_announce}. {greeting} {name}.")
+        parts.append(f"{greeting_time} {name}, and here's your weather forecast.")
+    elif prefix and prefix.strip():
+        parts.append(f"{greeting_time}, and {prefix.lower()}.")
     else:
-        parts.append(f"{time_announce}.")
-    
-    # Custom prefix or default intro
-    if prefix and prefix.strip():
-        parts.append(f"{prefix}.")
-    else:
-        parts.append("Here's your weather forecast.")
+        parts.append(f"{greeting_time}, and here's your weather forecast.")
     
     # Current conditions
     condition = _normalize_condition(current.get("condition") or current.get("state", ""))
@@ -332,14 +332,13 @@ def build_webhook_message(
     
     parts = []
     
-    # Quick greeting with time
-    greeting = _get_greeting()
-    time_announce = _get_current_time_announcement()
+    # Greeting with time: "Good morning, the time is seven oh five AM"
+    greeting_time = _get_greeting_with_time()
     
     if name:
-        parts.append(f"{time_announce}. {greeting} {name}.")
+        parts.append(f"{greeting_time} {name}.")
     else:
-        parts.append(f"{time_announce}. {greeting}.")
+        parts.append(f"{greeting_time}.")
     
     # Current temp and condition (brief)
     condition = _normalize_condition(current.get("condition") or current.get("state", ""))
@@ -394,16 +393,16 @@ def build_current_change_message(
     current = weather_data.get("current", {})
     temp = current.get("temperature")
     
-    time_announce = _get_current_time_announcement()
+    greeting_time = _get_greeting_with_time()
     
     if temp is not None:
         return (
-            f"{time_announce}. Weather update. "
-            f"Conditions have changed to {new_cond}. "
-            f"It's currently {_format_temperature(temp)}."
+            f"{greeting_time}, weather alert. "
+            f"Conditions have changed to {new_cond}, "
+            f"and it's currently {_format_temperature(temp)}."
         )
     else:
-        return f"{time_announce}. Weather update. Conditions have changed to {new_cond}."
+        return f"{greeting_time}, weather alert. Conditions have changed to {new_cond}."
 
 
 def build_upcoming_change_message(
@@ -425,10 +424,10 @@ def build_upcoming_change_message(
         hours = minutes_until // 60
         time_phrase = f"in about {_spell_number(hours)} {'hour' if hours == 1 else 'hours'}"
     
-    time_announce = _get_current_time_announcement()
+    greeting_time = _get_greeting_with_time()
     
     return (
-        f"{time_announce}. Weather alert. "
+        f"{greeting_time}, weather alert. "
         f"{kind.capitalize()} expected {time_phrase} "
         f"with a {_format_percentage(probability)} chance."
     )

@@ -9,10 +9,10 @@
   "issue_tracker": "https://github.com/zodyking/home-weather/issues",
   "repository": "https://github.com/zodyking/home-weather",
   "requirements": [],
-  "version": "1.2.19",
+  "version": "1.2.20",
   "frontend": {
     "js": [
-      "/local/home_weather/weather-panel.js?v=1.2.19"
+      "/local/home_weather/weather-panel.js?v=1.2.20"
     ]
   }
 }
