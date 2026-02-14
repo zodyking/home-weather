@@ -56,7 +56,7 @@ class TTSTriggerManager:
         self._unsub_callbacks: list[Callable] = []
         self._last_condition: str | None = None
         self._upcoming_alert_fired: set[str] = set()  # Track which hours already alerted
-        self._webhook_id: str | None = None
+        self._registered_webhooks: list[str] = []  # Track registered webhook IDs
 
     async def async_setup(self) -> None:
         """Set up all enabled triggers based on config."""
@@ -102,13 +102,14 @@ class TTSTriggerManager:
                 _LOGGER.warning("Error unsubscribing trigger: %s", e)
         self._unsub_callbacks.clear()
         
-        # Unregister webhook if registered
-        if self._webhook_id:
+        # Unregister all webhooks
+        for webhook_id in self._registered_webhooks:
             try:
-                self.hass.components.webhook.async_unregister(self._webhook_id)
+                self.hass.components.webhook.async_unregister(webhook_id)
+                _LOGGER.debug("Unregistered webhook: %s", webhook_id)
             except Exception as e:
-                _LOGGER.warning("Error unregistering webhook: %s", e)
-            self._webhook_id = None
+                _LOGGER.warning("Error unregistering webhook %s: %s", webhook_id, e)
+        self._registered_webhooks.clear()
         
         _LOGGER.info("TTS triggers unloaded")
 
@@ -239,12 +240,24 @@ class TTSTriggerManager:
         _LOGGER.debug("Upcoming change trigger set up")
 
     async def _setup_sensor_triggers(self, tts_config: dict[str, Any]) -> None:
-        """Set up triggers for presence sensor state changes.
+        """Set up triggers for user-defined sensor state changes.
         
-        Fires a full forecast when a presence sensor goes from off to on.
+        Fires a full forecast when any configured sensor enters its trigger state.
+        Supports any entity type (not just binary sensors).
         """
-        sensors = tts_config.get("presence_sensors", [])
-        if not sensors:
+        sensor_triggers = tts_config.get("sensor_triggers", [])
+        if not sensor_triggers:
+            return
+        
+        # Build a mapping from entity_id to trigger_state
+        trigger_map = {}
+        for trigger in sensor_triggers:
+            entity_id = trigger.get("entity_id")
+            trigger_state = trigger.get("trigger_state", "on")
+            if entity_id:
+                trigger_map[entity_id] = trigger_state
+        
+        if not trigger_map:
             return
         
         @callback
@@ -256,45 +269,78 @@ class TTSTriggerManager:
             if not new_state or not old_state:
                 return
             
-            # Fire when sensor goes from off to on
-            if old_state.state == "off" and new_state.state == "on":
+            entity_id = new_state.entity_id
+            target_state = trigger_map.get(entity_id)
+            
+            if target_state is None:
+                return
+            
+            # Fire when sensor enters the configured trigger state
+            if old_state.state != target_state and new_state.state == target_state:
                 self.hass.async_create_task(self._fire_scheduled_forecast())
         
         unsub = async_track_state_change_event(
             self.hass,
-            sensors,
+            list(trigger_map.keys()),
             _sensor_changed,
         )
         self._unsub_callbacks.append(unsub)
-        _LOGGER.debug("Sensor triggers set up for %s", sensors)
+        _LOGGER.debug("Sensor triggers set up for %s", list(trigger_map.keys()))
 
     async def _setup_webhook_trigger(self, tts_config: dict[str, Any]) -> None:
-        """Set up webhook trigger for personalized forecasts."""
-        webhook_id = tts_config.get("webhook_id", "weather_forecast")
+        """Set up webhook triggers for personalized forecasts.
         
-        async def _handle_webhook(hass: HomeAssistant, webhook_id: str, request) -> None:
-            """Handle webhook request."""
+        Supports multiple webhooks with individual names.
+        """
+        webhooks = tts_config.get("webhooks", [])
+        
+        # Backward compatibility: support old single webhook config
+        if not webhooks:
+            old_webhook_id = tts_config.get("webhook_id")
+            old_personal_name = tts_config.get("personal_name", "")
+            if old_webhook_id:
+                webhooks = [{"webhook_id": old_webhook_id, "personal_name": old_personal_name, "enabled": True}]
+        
+        if not webhooks:
+            return
+        
+        for webhook_config in webhooks:
+            if not webhook_config.get("enabled", True):
+                continue
+            
+            webhook_id = webhook_config.get("webhook_id")
+            if not webhook_id:
+                continue
+            
+            personal_name = webhook_config.get("personal_name", "")
+            
+            # Create closure to capture personal_name for this specific webhook
+            def make_handler(name: str):
+                async def _handle_webhook(hass: HomeAssistant, wh_id: str, request) -> None:
+                    """Handle webhook request."""
+                    try:
+                        data = await request.json()
+                    except:
+                        data = {}
+                    
+                    # Use name from request if provided, else use configured name
+                    req_name = data.get("name") or name
+                    volume = data.get("volume")  # Optional volume override
+                    
+                    await self._fire_webhook_forecast(req_name, volume)
+                return _handle_webhook
+            
             try:
-                data = await request.json()
-            except:
-                data = {}
-            
-            name = data.get("name") or tts_config.get("personal_name", "")
-            volume = data.get("volume") or tts_config.get("webhook_volume")
-            
-            await self._fire_webhook_forecast(name, volume)
-        
-        try:
-            self.hass.components.webhook.async_register(
-                "home_weather",
-                "Weather Forecast",
-                webhook_id,
-                _handle_webhook,
-            )
-            self._webhook_id = webhook_id
-            _LOGGER.debug("Webhook trigger set up: %s", webhook_id)
-        except Exception as e:
-            _LOGGER.error("Failed to register webhook: %s", e)
+                self.hass.components.webhook.async_register(
+                    "home_weather",
+                    f"Weather Forecast ({personal_name or webhook_id})",
+                    webhook_id,
+                    make_handler(personal_name),
+                )
+                self._registered_webhooks.append(webhook_id)
+                _LOGGER.info("Webhook registered: %s (name: %s)", webhook_id, personal_name or "N/A")
+            except Exception as e:
+                _LOGGER.error("Failed to register webhook %s: %s", webhook_id, e)
 
     async def _setup_voice_satellite_trigger(self, tts_config: dict[str, Any]) -> None:
         """Set up voice satellite (conversation) triggers.
@@ -347,7 +393,7 @@ class TTSTriggerManager:
         weather_data = self._get_weather_data()
         tts_config = config.get("tts", {})
         media_players = config.get("media_players", [])
-        volume = tts_config.get("current_change_volume")
+        volume = None  # Volume controlled per media player
         
         if not media_players:
             return
@@ -410,7 +456,7 @@ class TTSTriggerManager:
                 minutes_until = int((h_time - now).total_seconds() / 60)
                 precip_kind = h.get("precipitation_kind") or h.get("condition", "precipitation")
                 
-                volume = tts_config.get("upcoming_change_volume")
+                volume = None  # Volume controlled per media player
                 message = build_upcoming_change_message(precip_kind, minutes_until, precip_prob)
                 
                 await send_tts_with_ai_rewrite(

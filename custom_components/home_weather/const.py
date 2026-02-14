@@ -11,7 +11,6 @@ DEFAULT_CONFIG: Final = {
         "enabled": False,
         "engine": "",  # tts.* entity_id
         "voice": "",
-        "volume_level": 0.6,
         "preroll_ms": 150,
         "cache": True,
         "language": "",
@@ -24,16 +23,12 @@ DEFAULT_CONFIG: Final = {
         "end_time": "21:00",
         "days_of_week": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
         "enable_sensor_triggered": False,
-        "presence_sensors": [],
+        "sensor_triggers": [],  # list of { entity_id, trigger_state }
         "enable_current_change": True,
-        "current_change_volume": 0.6,
         "enable_upcoming_change": True,
-        "upcoming_change_volume": 0.6,
         "minutes_before_announce": 30,
         "enable_webhook": False,
-        "webhook_id": "weather_forecast",
-        "personal_name": "",
-        "webhook_volume": 0.6,
+        "webhooks": [],  # list of { webhook_id, personal_name, enabled }
         "enable_voice_satellite": False,
         "conversation_commands": "What is the weather\nWhats the weather",
         # Precip/forecast settings
@@ -56,7 +51,7 @@ DEFAULT_CONFIG: Final = {
 UPDATE_INTERVAL: Final = 300
 
 # Version for cache busting
-VERSION: Final = "1.2.8"
+VERSION: Final = "1.2.9"
 
 # Panel configuration
 PANEL_URL_PATH: Final = "home-weather"

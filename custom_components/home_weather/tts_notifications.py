@@ -352,9 +352,10 @@ async def send_tts(
             _LOGGER.warning("No TTS entity configured for %s", entity_id)
             continue
         
-        volume = volume_override or mp.get("volume") or global_tts_config.get("volume_level", 0.6)
+        volume = volume_override if volume_override is not None else mp.get("volume", 0.6)
         cache = mp.get("cache", global_tts_config.get("cache", True))
         language = mp.get("language") or global_tts_config.get("language", "")
+        options = mp.get("options", {})
         
         try:
             # Step 1: Set volume
@@ -380,6 +381,8 @@ async def send_tts(
             }
             if language:
                 service_data["language"] = language
+            if options and isinstance(options, dict):
+                service_data["options"] = options
             
             await hass.services.async_call(
                 "tts",

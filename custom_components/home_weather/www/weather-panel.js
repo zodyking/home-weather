@@ -231,7 +231,7 @@ class HomeWeatherPanel extends HTMLElement {
     if (!Array.isArray(arr)) return [];
     return arr.map((item) => {
       if (typeof item === "string") {
-        return { entity_id: item, tts_entity_id: "", volume: 0.6, cache: false, language: "" };
+        return { entity_id: item, tts_entity_id: "", volume: 0.6, cache: false, language: "", options: {} };
       }
       return {
         entity_id: item.entity_id || "",
@@ -239,6 +239,7 @@ class HomeWeatherPanel extends HTMLElement {
         volume: item.volume ?? 0.6,
         cache: !!item.cache,
         language: item.language || "",
+        options: item.options || {},
       };
     }).filter((m) => m.entity_id);
   }
@@ -256,14 +257,68 @@ class HomeWeatherPanel extends HTMLElement {
     const volumeSlider = card.querySelector(".media-player-volume");
     const cacheChk = card.querySelector(".media-player-cache");
     const langInput = card.querySelector(".media-player-language");
+    const optionsInput = card.querySelector(".media-player-options");
+    
+    // Parse options JSON safely
+    let options = {};
+    if (optionsInput?.value) {
+      try {
+        options = JSON.parse(optionsInput.value);
+      } catch (e) {
+        // Keep existing options if parse fails
+        options = list[index]?.options || {};
+      }
+    }
+    
     list[index] = {
       entity_id: entitySel?.value || "",
       tts_entity_id: ttsSel?.value || "",
       volume: parseFloat(volumeSlider?.value || 0.6),
       cache: cacheChk?.checked || false,
       language: langInput?.value || "",
+      options: options,
     };
     this._settings.media_players = list;
+  }
+
+  _syncSensorTriggerFromCard(index) {
+    const s = this.shadowRoot;
+    if (!s) return;
+    const cards = s.querySelectorAll(".sensor-trigger-card");
+    const card = cards[index];
+    if (!card) return;
+    if (!this._settings.tts) this._settings.tts = {};
+    if (!Array.isArray(this._settings.tts.sensor_triggers)) this._settings.tts.sensor_triggers = [];
+    const list = [...this._settings.tts.sensor_triggers];
+    if (!list[index]) list[index] = {};
+    const entitySel = card.querySelector(".sensor-trigger-entity");
+    const stateInput = card.querySelector(".sensor-trigger-state");
+    list[index] = {
+      entity_id: entitySel?.value || "",
+      trigger_state: stateInput?.value || "on",
+    };
+    this._settings.tts.sensor_triggers = list;
+  }
+
+  _syncWebhookFromCard(index) {
+    const s = this.shadowRoot;
+    if (!s) return;
+    const cards = s.querySelectorAll(".webhook-card");
+    const card = cards[index];
+    if (!card) return;
+    if (!this._settings.tts) this._settings.tts = {};
+    if (!Array.isArray(this._settings.tts.webhooks)) this._settings.tts.webhooks = [];
+    const list = [...this._settings.tts.webhooks];
+    if (!list[index]) list[index] = {};
+    const webhookIdInput = card.querySelector(".webhook-id");
+    const nameInput = card.querySelector(".webhook-name");
+    const enabledChk = card.querySelector(".webhook-enabled");
+    list[index] = {
+      webhook_id: webhookIdInput?.value || "",
+      personal_name: nameInput?.value || "",
+      enabled: enabledChk?.checked !== false,
+    };
+    this._settings.tts.webhooks = list;
   }
 
   _isNightTime(datetime) {
@@ -468,80 +523,71 @@ class HomeWeatherPanel extends HTMLElement {
         .btn-primary { background: var(--primary-color); color: var(--primary-color-text); }
         .btn-secondary { background: var(--secondary-background-color); color: var(--primary-text-color); }
         .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-        .weather-dashboard { --accent-color: #4285f4; --hero-gradient: linear-gradient(135deg, #4285f4 0%, #34a853 50%, #fbbc04 100%); }
-        .current-section { display: flex; flex-direction: column; gap: 24px; margin-bottom: 20px; padding: 28px 32px; background: linear-gradient(145deg, var(--card-background-color) 0%, rgba(66,133,244,0.06) 100%); border-radius: 20px; border: 1px solid var(--divider-color); box-shadow: 0 4px 24px rgba(0,0,0,0.06), 0 1px 3px rgba(0,0,0,0.04); }
-        .current-hero { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 24px; }
-        .current-left { display: flex; align-items: center; gap: 28px; flex-wrap: wrap; }
-        .current-icon-block { display: flex; flex-direction: column; align-items: center; gap: 10px; }
-        .current-icon { width: 96px; height: 80px; display: flex; align-items: center; justify-content: center; overflow: visible; }
-        .current-icon .weather-icon { width: 96px; height: 80px; object-fit: contain; filter: drop-shadow(0 2px 8px rgba(0,0,0,0.08)); }
-        .current-condition { font-size: 18px; color: var(--primary-text-color); text-transform: capitalize; font-weight: 500; text-align: center; letter-spacing: 0.3px; }
-        .current-temp-block { display: flex; flex-direction: column; gap: 10px; }
-        .current-temp { font-size: 80px; font-weight: 200; color: var(--primary-text-color); line-height: 1; letter-spacing: -3px; }
-        .current-date-row { width: 100%; padding: 12px 0 0; border-top: 1px solid var(--divider-color); margin-top: 8px; }
-        .weather-date { font-size: 20px; font-weight: 500; color: var(--secondary-text-color); letter-spacing: -0.2px; line-height: 1.3; }
-        .current-metrics { display: flex; flex-wrap: nowrap; gap: 12px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; -ms-overflow-style: none; }
-        .current-metrics::-webkit-scrollbar { display: none; }
-        .metric-pill { flex-shrink: 0; display: flex; align-items: center; gap: 12px; padding: 14px 18px; background: var(--secondary-background-color); border-radius: 14px; border: 1px solid var(--divider-color); transition: all 0.2s ease; }
-        .metric-pill:hover { filter: brightness(1.05); transform: translateY(-1px); box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
-        .metric-pill-icon { width: 32px; height: 32px; flex-shrink: 0; opacity: 0.85; }
-        .metric-pill-content { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-        .metric-pill-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--secondary-text-color); opacity: 0.9; }
-        .metric-pill-value { font-size: 16px; font-weight: 600; color: var(--primary-text-color); }
-        .graph-section { margin-bottom: 20px; }
-        .graph-legend { display: flex; gap: 20px; margin-bottom: 10px; font-size: 12px; color: var(--secondary-text-color); }
-        .graph-legend-item { display: flex; align-items: center; gap: 6px; }
-        .graph-legend-item .dot { width: 10px; height: 10px; border-radius: 50%; }
-        .graph-legend-item .dot.temp { background: #e53935; }
-        .graph-legend-item .dot.precip { background: #1e88e5; }
-        .graph-legend-item .dot.wind { background: #757575; }
-        .graph-container { position: relative; background: var(--card-background-color); border-radius: 12px; padding: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); border: 1px solid var(--divider-color); }
-        .graph-container.combined-graph { display: flex; flex-direction: column; gap: 24px; }
-        .graph-chart { min-height: 200px; }
-        .graph-svg { width: 100%; height: 90px; display: block; }
-        .graph-times { position: absolute; bottom: 8px; left: 44px; right: 12px; height: 20px; font-size: 10px; font-weight: 500; color: var(--secondary-text-color); }
-        .graph-time { position: absolute; transform: translate(-50%, 0); }
-        .graph-tooltip { position: absolute; background: var(--card-background-color); border: 1px solid var(--divider-color); border-radius: 8px; padding: 10px 14px; font-size: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 10; pointer-events: none; }
-        .graph-tooltip .tooltip-time { font-weight: 600; margin-bottom: 4px; }
-        .graph-tooltip .tooltip-row { display: flex; justify-content: space-between; gap: 16px; }
-        .graph-tooltip .tooltip-row span:first-child { color: var(--secondary-text-color); }
-        .forecast-moon-row { display: grid; grid-template-columns: 1fr auto; gap: 24px; margin-bottom: 20px; align-items: start; }
-        @media (max-width: 900px) { .forecast-moon-row { grid-template-columns: 1fr; } }
-        .forecast-section { overflow-x: visible; overflow-y: visible; min-width: 0; }
-        .moon-phase-section { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px 32px; background: var(--card-background-color); border-radius: 20px; border: 1px solid var(--divider-color); box-shadow: 0 2px 12px rgba(0,0,0,0.06); min-width: 180px; }
-        .moon-phase-section-title { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--secondary-text-color); margin-bottom: 16px; }
-        .moon-phase-icon { width: 200px; height: 200px; display: flex; align-items: center; justify-content: center; }
-        .moon-phase-icon img { width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 4px 16px rgba(0,0,0,0.15)); }
-        .moon-phase-name { font-size: 16px; font-weight: 600; color: var(--primary-text-color); margin-top: 12px; text-align: center; }
-        .moon-phase-details { font-size: 13px; color: var(--secondary-text-color); margin-top: 6px; }
-        .forecast-tabs { display: flex; gap: 8px; margin-bottom: 12px; }
-        .forecast-tab { padding: 10px 20px; background: var(--card-background-color); border: 1px solid var(--divider-color); border-radius: 8px; color: var(--secondary-text-color); cursor: pointer; font-size: 14px; font-weight: 500; }
-        .forecast-tab:hover { color: var(--primary-text-color); border-color: var(--primary-text-color); }
+        /* Bento Grid Dashboard */
+        .weather-dashboard { --accent-color: #4285f4; --card-radius: 20px; --gap: 16px; }
+        .bento-grid { display: grid; grid-template-columns: 2fr 1fr; gap: var(--gap); margin-bottom: var(--gap); }
+        @media (max-width: 900px) { .bento-grid { grid-template-columns: 1fr; } }
+        .bento-card { background: var(--card-background-color); border-radius: var(--card-radius); border: 1px solid var(--divider-color); padding: 24px; }
+        
+        /* Hero Card */
+        .hero-card { display: flex; flex-direction: column; gap: 20px; background: linear-gradient(145deg, rgba(66,133,244,0.08) 0%, var(--card-background-color) 100%); }
+        .hero-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+        .hero-main { display: flex; align-items: center; gap: 20px; }
+        .hero-icon { width: 100px; height: 100px; display: flex; align-items: center; justify-content: center; }
+        .hero-icon .weather-icon { width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 4px 12px rgba(0,0,0,0.1)); }
+        .hero-temp-block { display: flex; flex-direction: column; }
+        .hero-temp { font-size: 72px; font-weight: 300; line-height: 1; color: var(--primary-text-color); letter-spacing: -2px; }
+        .hero-hilo { font-size: 14px; color: var(--secondary-text-color); margin-top: 4px; }
+        .hero-hilo span { margin-right: 12px; }
+        .hero-condition { font-size: 20px; font-weight: 500; color: var(--primary-text-color); text-transform: capitalize; }
+        .hero-datetime { text-align: right; }
+        .hero-time { font-size: 28px; font-weight: 600; color: var(--primary-text-color); }
+        .hero-date { font-size: 14px; color: var(--secondary-text-color); margin-top: 4px; }
+        
+        /* Highlights Grid */
+        .highlights-card { display: flex; flex-direction: column; }
+        .highlights-title { font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--secondary-text-color); margin-bottom: 16px; }
+        .highlights-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; flex: 1; }
+        .highlight-item { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 16px 12px; background: var(--secondary-background-color); border-radius: 12px; text-align: center; min-height: 90px; }
+        .highlight-icon { width: 28px; height: 28px; margin-bottom: 8px; opacity: 0.8; }
+        .highlight-value { font-size: 18px; font-weight: 600; color: var(--primary-text-color); }
+        .highlight-label { font-size: 11px; color: var(--secondary-text-color); text-transform: uppercase; letter-spacing: 0.3px; margin-top: 4px; }
+        
+        /* Forecast Strip */
+        .forecast-row { display: grid; grid-template-columns: 1fr auto; gap: var(--gap); margin-bottom: var(--gap); }
+        @media (max-width: 900px) { .forecast-row { grid-template-columns: 1fr; } }
+        .forecast-card-container { background: var(--card-background-color); border-radius: var(--card-radius); border: 1px solid var(--divider-color); padding: 20px; overflow: hidden; }
+        .forecast-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+        .forecast-title { font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--secondary-text-color); }
+        .forecast-tabs { display: flex; gap: 8px; }
+        .forecast-tab { padding: 6px 14px; background: transparent; border: 1px solid var(--divider-color); border-radius: 6px; color: var(--secondary-text-color); cursor: pointer; font-size: 12px; font-weight: 500; transition: all 0.2s; }
+        .forecast-tab:hover { border-color: var(--primary-text-color); color: var(--primary-text-color); }
         .forecast-tab.active { background: var(--accent-color); color: white; border-color: var(--accent-color); }
-        .daily-scroll { display: flex; gap: 12px; overflow-y: hidden; padding: 16px 4px; min-width: 0; }
-        .daily-scroll.view-7day { overflow-x: visible; flex-wrap: nowrap; }
-        .daily-scroll.view-24h { overflow-x: auto; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; scrollbar-width: none; -ms-overflow-style: none; }
-        .daily-scroll.view-24h::-webkit-scrollbar { width: 0; height: 0; display: none; }
-        .daily-scroll.view-24h::-webkit-scrollbar-track, .daily-scroll.view-24h::-webkit-scrollbar-thumb { display: none; width: 0; height: 0; background: transparent; }
-        .forecast-card { display: flex; flex-direction: column; align-items: center; scroll-snap-align: start; padding: 12px 8px; background: var(--card-background-color); border-radius: 16px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.06); border: none; transition: all 0.25s ease; overflow: visible; }
-        .forecast-card.day-card { flex: 1 1 0; min-width: 90px; }
-        .daily-scroll.view-24h .forecast-card { flex: 0 0 110px; min-width: 110px; }
-        .forecast-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
-        .forecast-card.current-day { background: linear-gradient(180deg, rgba(66,133,244,0.12) 0%, rgba(66,133,244,0.04) 100%); box-shadow: 0 2px 12px rgba(66,133,244,0.2); }
-        .day-icon { width: 56px; height: 48px; margin: 0 auto 8px; display: flex; align-items: center; justify-content: center; overflow: visible; }
-        .forecast-card.day-card .day-icon { width: 48px; height: 40px; margin-bottom: 6px; }
-        .forecast-card.day-card .day-icon .weather-icon { width: 48px; height: 40px; }
-        .forecast-card-label { font-size: 14px; font-weight: 600; color: var(--primary-text-color); margin-bottom: 8px; letter-spacing: -0.3px; display: block; width: 100%; }
-        .forecast-card.day-card .forecast-card-label { font-size: 13px; margin-bottom: 6px; }
-        .day-icon .weather-icon { width: 56px; height: 48px; object-fit: contain; }
-        .forecast-card-condition { font-size: 11px; color: var(--secondary-text-color); text-transform: capitalize; margin-bottom: 8px; display: block; width: 100%; }
-        .forecast-card.day-card .forecast-card-condition { font-size: 10px; margin-bottom: 6px; }
-        .forecast-card-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 8px; width: 100%; font-size: 11px; color: var(--secondary-text-color); text-align: left; }
-        .forecast-card-grid .left { text-align: left; }
-        .forecast-card-grid .right { text-align: right; }
-        .forecast-card-grid .col-span-full { grid-column: 1 / -1; text-align: center; }
-        .forecast-card-grid .row { display: contents; }
-        .forecast-card-grid .col { min-width: 0; }
+        .forecast-scroll { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 8px; scrollbar-width: thin; }
+        .forecast-scroll::-webkit-scrollbar { height: 4px; }
+        .forecast-scroll::-webkit-scrollbar-thumb { background: var(--divider-color); border-radius: 2px; }
+        .forecast-item { flex: 0 0 auto; min-width: 80px; padding: 14px 12px; background: var(--secondary-background-color); border-radius: 12px; text-align: center; transition: all 0.2s; }
+        .forecast-item:hover { transform: translateY(-2px); }
+        .forecast-item.current { background: linear-gradient(180deg, rgba(66,133,244,0.15) 0%, rgba(66,133,244,0.05) 100%); }
+        .forecast-item-day { font-size: 12px; font-weight: 600; color: var(--primary-text-color); margin-bottom: 8px; }
+        .forecast-item-icon { width: 36px; height: 36px; margin: 0 auto 8px; }
+        .forecast-item-icon .weather-icon { width: 100%; height: 100%; }
+        .forecast-item-temp { font-size: 14px; font-weight: 600; color: var(--primary-text-color); }
+        .forecast-item-low { font-size: 12px; color: var(--secondary-text-color); }
+        .forecast-item-precip { font-size: 10px; color: var(--info-color, #1e88e5); margin-top: 4px; }
+        
+        /* Moon Phase */
+        .moon-card { display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 160px; background: var(--card-background-color); border-radius: var(--card-radius); border: 1px solid var(--divider-color); padding: 24px; }
+        .moon-title { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--secondary-text-color); margin-bottom: 12px; }
+        .moon-icon { width: 80px; height: 80px; margin-bottom: 12px; }
+        .moon-icon img { width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 2px 8px rgba(0,0,0,0.15)); }
+        .moon-name { font-size: 14px; font-weight: 600; color: var(--primary-text-color); text-align: center; }
+        .moon-details { font-size: 11px; color: var(--secondary-text-color); margin-top: 4px; text-align: center; }
+        
+        /* Chart Section */
+        .chart-card { background: var(--card-background-color); border-radius: var(--card-radius); border: 1px solid var(--divider-color); padding: 20px; }
+        .chart-title { font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--secondary-text-color); margin-bottom: 16px; }
+        .chart-container { min-height: 280px; }
       </style>
       <div class="${this._isNarrow ? "narrow" : ""}">
         <div class="header">
@@ -631,18 +677,20 @@ class HomeWeatherPanel extends HTMLElement {
       });
     });
     
-    // Days of week checkboxes
+    // Days of week checkboxes - prevent double toggle from label behavior
     s.querySelectorAll("#days-of-week .checkbox-item").forEach((item) => {
-      item.addEventListener("click", () => {
+      item.addEventListener("click", (e) => {
+        e.preventDefault();
         item.classList.toggle("checked");
         const checkbox = item.querySelector("input");
         if (checkbox) checkbox.checked = item.classList.contains("checked");
       });
     });
     
-    // Multi-select items (presence sensors)
+    // Multi-select items (presence sensors) - prevent double toggle from label behavior
     s.querySelectorAll(".multi-select-item").forEach((item) => {
-      item.addEventListener("click", () => {
+      item.addEventListener("click", (e) => {
+        e.preventDefault();
         item.classList.toggle("selected");
         const checkbox = item.querySelector("input");
         if (checkbox) checkbox.checked = item.classList.contains("selected");
@@ -660,9 +708,91 @@ class HomeWeatherPanel extends HTMLElement {
       });
     });
     
+    // Sensor trigger card handlers
+    s.querySelectorAll(".sensor-trigger-card").forEach((card) => {
+      const idx = parseInt(card.dataset.sensorIdx, 10);
+      const entitySelect = card.querySelector(".sensor-trigger-entity");
+      const stateInput = card.querySelector(".sensor-trigger-state");
+      
+      if (entitySelect) {
+        entitySelect.addEventListener("change", () => {
+          this._syncSensorTriggerFromCard(idx);
+        });
+      }
+      if (stateInput) {
+        stateInput.addEventListener("input", () => {
+          this._syncSensorTriggerFromCard(idx);
+        });
+      }
+    });
+    
+    // Sensor trigger remove buttons
+    s.querySelectorAll("[data-remove-sensor]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const idx = parseInt(btn.dataset.removeSensor, 10);
+        if (!this._settings.tts) this._settings.tts = {};
+        const list = [...(this._settings.tts.sensor_triggers || [])];
+        list.splice(idx, 1);
+        this._settings.tts.sensor_triggers = list;
+        this._render();
+      });
+    });
+    
+    // Add sensor trigger
+    const addSensorBtn = s.getElementById("add-sensor-trigger");
+    if (addSensorBtn) {
+      addSensorBtn.addEventListener("click", () => {
+        if (!this._settings.tts) this._settings.tts = {};
+        if (!Array.isArray(this._settings.tts.sensor_triggers)) this._settings.tts.sensor_triggers = [];
+        this._settings.tts.sensor_triggers.push({ entity_id: "", trigger_state: "on" });
+        this._render();
+      });
+    }
+    
+    // Webhook card handlers
+    s.querySelectorAll(".webhook-card").forEach((card) => {
+      const idx = parseInt(card.dataset.webhookIdx, 10);
+      const webhookIdInput = card.querySelector(".webhook-id");
+      const nameInput = card.querySelector(".webhook-name");
+      const enabledChk = card.querySelector(".webhook-enabled");
+      
+      if (webhookIdInput) {
+        webhookIdInput.addEventListener("input", () => this._syncWebhookFromCard(idx));
+      }
+      if (nameInput) {
+        nameInput.addEventListener("input", () => this._syncWebhookFromCard(idx));
+      }
+      if (enabledChk) {
+        enabledChk.addEventListener("change", () => this._syncWebhookFromCard(idx));
+      }
+    });
+    
+    // Webhook remove buttons
+    s.querySelectorAll("[data-remove-webhook]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const idx = parseInt(btn.dataset.removeWebhook, 10);
+        if (!this._settings.tts) this._settings.tts = {};
+        const list = [...(this._settings.tts.webhooks || [])];
+        list.splice(idx, 1);
+        this._settings.tts.webhooks = list;
+        this._render();
+      });
+    });
+    
+    // Add webhook
+    const addWebhookBtn = s.getElementById("add-webhook");
+    if (addWebhookBtn) {
+      addWebhookBtn.addEventListener("click", () => {
+        if (!this._settings.tts) this._settings.tts = {};
+        if (!Array.isArray(this._settings.tts.webhooks)) this._settings.tts.webhooks = [];
+        this._settings.tts.webhooks.push({ webhook_id: "", personal_name: "", enabled: true });
+        this._render();
+      });
+    }
+    
     // Media player card sync handlers
     s.querySelectorAll(".media-player-card").forEach((card, i) => {
-      card.querySelectorAll(".media-player-select, .media-player-tts-entity, .media-player-language").forEach((el) => {
+      card.querySelectorAll(".media-player-select, .media-player-tts-entity, .media-player-language, .media-player-options").forEach((el) => {
         el.addEventListener("change", () => this._syncMediaPlayerFromCard(i));
         el.addEventListener("input", () => this._syncMediaPlayerFromCard(i));
       });
@@ -724,7 +854,7 @@ class HomeWeatherPanel extends HTMLElement {
         const val = addMediaSelect.value;
         if (!val) return;
         const list = [...(this._settings.media_players || [])];
-        list.push({ entity_id: val, tts_entity_id: "", volume: 0.6, cache: false, language: "" });
+        list.push({ entity_id: val, tts_entity_id: "", volume: 0.6, cache: false, language: "", options: {} });
         this._settings.media_players = list;
         this._render();
       });
@@ -756,12 +886,16 @@ class HomeWeatherPanel extends HTMLElement {
     const daily = (this._weatherData.daily_forecast || []).slice(0, 7);
     const h0 = hourly[0] || {};
     const now = new Date();
-    const dateTimeStr = this._formatDateTimeWithTime(now);
     const condition = current.condition || current.state || "—";
     const temp = (current.temperature ?? h0.temperature) != null ? Math.round(current.temperature ?? h0.temperature) : "—";
     const windUnit = (current.wind_speed_unit || "mph").toLowerCase();
     const pressureUnit = (current.pressure_unit || "inHg").toLowerCase();
     const precipUnit = (current.precipitation_unit || "in").toLowerCase();
+
+    // Hi/Lo from today's daily forecast
+    const todayDaily = daily[0] || {};
+    const hiTemp = todayDaily.temperature != null ? Math.round(todayDaily.temperature) : null;
+    const loTemp = todayDaily.templow != null ? Math.round(todayDaily.templow) : null;
 
     const graphData = hourly.slice(0, 24).map((h) => ({
       time: this._formatTime(h.datetime),
@@ -782,119 +916,124 @@ class HomeWeatherPanel extends HTMLElement {
     this._graphWindUnit = windUnit;
 
     const feelsLike = (current.apparent_temperature ?? h0.apparent_temperature) != null ? Math.round(current.apparent_temperature ?? h0.apparent_temperature) : null;
-    const dewPoint = (current.dew_point ?? h0.dew_point) != null ? Math.round(current.dew_point ?? h0.dew_point) : null;
     const humidity = (current.humidity ?? h0.humidity) != null ? Math.round(current.humidity ?? h0.humidity) : null;
     const precipChance = (h0.precipitation_probability ?? 0);
-    const precipAmount = (current.precipitation ?? h0.precipitation);
     const windSpeed = (current.wind_speed ?? h0.wind_speed);
-    const windGusts = (current.wind_gust_speed ?? h0.wind_gust_speed);
     const pressure = (current.pressure ?? h0.pressure);
-    const cloudCover = (current.cloud_coverage ?? h0.cloud_coverage);
     const uvIndex = (current.uv_index ?? h0.uv_index);
+    const cloudCover = (current.cloud_coverage ?? h0.cloud_coverage);
 
-    const metricPills = [
-      feelsLike != null && { icon: "thermometer-warmer.svg", label: "Feels Like", value: `${feelsLike}°` },
-      dewPoint != null && { icon: "thermometer-raindrop.svg", label: "Dew Point", value: `${dewPoint}°` },
-      humidity != null && { icon: "humidity.svg", label: "Humidity", value: `${humidity}%` },
-      { icon: "raindrop.svg", label: "Precip Chance", value: `${Math.round(precipChance)}%` },
-      precipAmount != null && precipAmount > 0 && { icon: "raindrop-measure.svg", label: "Rain", value: `${precipAmount} ${precipUnit}` },
-      windSpeed != null && { icon: "wind.svg", label: "Wind", value: `${Math.round(windSpeed)} ${windUnit}` },
-      windGusts != null && { icon: "windsock.svg", label: "Gusts", value: `${Math.round(windGusts)} ${windUnit}` },
-      pressure != null && { icon: "barometer.svg", label: "Pressure", value: `${pressure} ${pressureUnit}` },
-      cloudCover != null && { icon: "cloud-up.svg", label: "Clouds", value: `${cloudCover}%` },
-      uvIndex != null && { icon: "uv-index.svg", label: "UV Index", value: String(uvIndex) },
-    ].filter(Boolean);
+    // Highlights for the grid (6 items in 2x3 grid)
+    const highlights = [
+      { icon: "thermometer-warmer.svg", label: "Feels Like", value: feelsLike != null ? `${feelsLike}°` : "—" },
+      { icon: "humidity.svg", label: "Humidity", value: humidity != null ? `${humidity}%` : "—" },
+      { icon: "wind.svg", label: "Wind", value: windSpeed != null ? `${Math.round(windSpeed)} ${windUnit}` : "—" },
+      { icon: "raindrop.svg", label: "Precip", value: `${Math.round(precipChance)}%` },
+      { icon: "uv-index.svg", label: "UV Index", value: uvIndex != null ? String(uvIndex) : "—" },
+      { icon: "barometer.svg", label: "Pressure", value: pressure != null ? `${pressure} ${pressureUnit}` : "—" },
+    ];
+
+    // Moon phase
+    const moon = this._getMoonPhase(now);
+
+    // Time formatting
+    const timeStr = now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    const dateStr = now.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" });
 
     return `
       <div class="weather-dashboard">
-        <div class="current-section">
-          <div class="current-hero">
-            <div class="current-left">
-              <div class="current-icon-block">
-                <div class="current-icon">${this._getConditionIcon(condition, "large", now)}</div>
-                <div class="current-condition">${this._getConditionLabel(condition, now)}</div>
-              </div>
-              <div class="current-temp-block">
-                <span class="current-temp">${temp}°</span>
-              </div>
-            </div>
-            <div class="current-right">
-              <div class="weather-date">${dateTimeStr}</div>
-            </div>
-          </div>
-          <div class="current-metrics">
-            ${metricPills.map((p) => `
-              <div class="metric-pill">
-                <img src="/local/home_weather/icons/${p.icon}" alt="" class="metric-pill-icon" width="32" height="32" loading="lazy"/>
-                <div class="metric-pill-content">
-                  <span class="metric-pill-label">${p.label}</span>
-                  <span class="metric-pill-value">${p.value}</span>
-                </div>
-              </div>
-            `).join("")}
-          </div>
-        </div>
-        <div class="forecast-moon-row">
-        <div class="forecast-section">
-          <div class="forecast-tabs">
-            <button class="forecast-tab ${this._forecastView === "7day" ? "active" : ""}" data-view="7day">7 Day</button>
-            <button class="forecast-tab ${this._forecastView === "24h" ? "active" : ""}" data-view="24h">24 Hour</button>
-          </div>
-          <div class="daily-scroll ${this._forecastView === "7day" ? "view-7day" : "view-24h"}">
-            ${this._forecastView === "24h"
-              ? hourly.slice(0, 24).map((h, i) => {
-                  const hiTemp = h.temperature != null ? Math.round(h.temperature) : "—";
-                  const windVal = h.wind_speed != null ? `${Math.round(h.wind_speed)} ${windUnit.toUpperCase()}` : "—";
-                  const precipVal = this._formatPrecip(h.precipitation_probability);
-                  const timeLabel = i === 0 ? "Now" : this._formatTime(h.datetime);
-                  return `
-                <div class="forecast-card ${i === 0 ? "current-day" : ""}">
-                  <div class="forecast-card-label">${timeLabel}</div>
-                  <div class="day-icon">${this._getConditionIcon(h.condition, null, h.datetime)}</div>
-                  <div class="forecast-card-condition">${this._getConditionLabel(h.condition, h.datetime)}</div>
-                  <div class="forecast-card-grid">
-                    <span class="col left">Temp: ${hiTemp}°</span>
-                    <span class="col right">Precip: ${precipVal}</span>
-                    <span class="col col-span-full">Wind Speed: ${windVal}</span>
+        <!-- Top Row: Hero + Highlights -->
+        <div class="bento-grid">
+          <div class="bento-card hero-card">
+            <div class="hero-top">
+              <div class="hero-main">
+                <div class="hero-icon">${this._getConditionIcon(condition, "large", now)}</div>
+                <div class="hero-temp-block">
+                  <div class="hero-temp">${temp}°</div>
+                  <div class="hero-hilo">
+                    ${hiTemp != null ? `<span>H: ${hiTemp}°</span>` : ""}
+                    ${loTemp != null ? `<span>L: ${loTemp}°</span>` : ""}
                   </div>
                 </div>
-              `;
-                }).join("")
-              : daily.map((d, i) => {
-                  const hiTemp = d.temperature != null ? Math.round(d.temperature) : "—";
-                  const lowTemp = d.templow != null ? Math.round(d.templow) : "—";
-                  const precipVal = this._formatPrecip(d.precipitation_probability);
-                  const dateMMDD = this._formatDateMMDD(d.datetime);
-                  return `
-                <div class="forecast-card day-card ${i === 0 ? "current-day" : ""}">
-                  <div class="forecast-card-label">${this._formatDayLabel(d.datetime)}</div>
-                  <div class="day-icon">${this._getConditionIcon(d.condition, null, null, true)}</div>
-                  <div class="forecast-card-condition">${d.condition || "—"}</div>
-                  <div class="forecast-card-grid">
-                    <span class="col left">Hi: ${hiTemp}°</span>
-                    <span class="col right">Low: ${lowTemp}°</span>
-                    <span class="col left">Precip: ${precipVal}</span>
-                    <span class="col right">${dateMMDD}</span>
-                  </div>
+              </div>
+              <div class="hero-datetime">
+                <div class="hero-time">${timeStr}</div>
+                <div class="hero-date">${dateStr}</div>
+              </div>
+            </div>
+            <div class="hero-condition">${this._getConditionLabel(condition, now)}</div>
+          </div>
+          <div class="bento-card highlights-card">
+            <div class="highlights-title">Today's Highlights</div>
+            <div class="highlights-grid">
+              ${highlights.map((h) => `
+                <div class="highlight-item">
+                  <img src="/local/home_weather/icons/${h.icon}" alt="" class="highlight-icon" loading="lazy"/>
+                  <div class="highlight-value">${h.value}</div>
+                  <div class="highlight-label">${h.label}</div>
                 </div>
-              `;
-                }).join("")
-            }
+              `).join("")}
+            </div>
           </div>
         </div>
-        <div class="moon-phase-section">
-          <div class="moon-phase-section-title">Moon Phase</div>
-          <div class="moon-phase-icon">
-            <img src="/local/home_weather/icons/Moon%20Phase/${this._getMoonPhase(now).icon}.svg" alt="${this._getMoonPhase(now).name}" loading="lazy"/>
+
+        <!-- Second Row: Forecast + Moon -->
+        <div class="forecast-row">
+          <div class="forecast-card-container">
+            <div class="forecast-header">
+              <div class="forecast-title">Forecast</div>
+              <div class="forecast-tabs">
+                <button class="forecast-tab ${this._forecastView === "7day" ? "active" : ""}" data-view="7day">7 Day</button>
+                <button class="forecast-tab ${this._forecastView === "24h" ? "active" : ""}" data-view="24h">24 Hour</button>
+              </div>
+            </div>
+            <div class="forecast-scroll">
+              ${this._forecastView === "24h"
+                ? hourly.slice(0, 24).map((h, i) => {
+                    const hTemp = h.temperature != null ? Math.round(h.temperature) : "—";
+                    const precipVal = this._formatPrecip(h.precipitation_probability);
+                    const timeLabel = i === 0 ? "Now" : this._formatTime(h.datetime);
+                    return `
+                      <div class="forecast-item ${i === 0 ? "current" : ""}">
+                        <div class="forecast-item-day">${timeLabel}</div>
+                        <div class="forecast-item-icon">${this._getConditionIcon(h.condition, null, h.datetime)}</div>
+                        <div class="forecast-item-temp">${hTemp}°</div>
+                        <div class="forecast-item-precip">${precipVal}</div>
+                      </div>
+                    `;
+                  }).join("")
+                : daily.map((d, i) => {
+                    const dHi = d.temperature != null ? Math.round(d.temperature) : "—";
+                    const dLo = d.templow != null ? Math.round(d.templow) : "—";
+                    const precipVal = this._formatPrecip(d.precipitation_probability);
+                    const dayLabel = this._formatDayLabel(d.datetime);
+                    return `
+                      <div class="forecast-item ${i === 0 ? "current" : ""}">
+                        <div class="forecast-item-day">${dayLabel}</div>
+                        <div class="forecast-item-icon">${this._getConditionIcon(d.condition, null, null, true)}</div>
+                        <div class="forecast-item-temp">${dHi}°</div>
+                        <div class="forecast-item-low">${dLo}°</div>
+                        <div class="forecast-item-precip">${precipVal}</div>
+                      </div>
+                    `;
+                  }).join("")
+              }
+            </div>
           </div>
-          <div class="moon-phase-name">${this._getMoonPhase(now).name}</div>
-          <div class="moon-phase-details">${this._getMoonPhase(now).illumination}% illuminated · Day ${this._getMoonPhase(now).daysSinceNew}</div>
-        </div>
-        </div>
-        <div class="graph-section">
-          <div class="graph-container combined-graph">
-            <div id="apex-chart-combined" class="graph-chart"></div>
+          <div class="moon-card">
+            <div class="moon-title">Moon Phase</div>
+            <div class="moon-icon">
+              <img src="/local/home_weather/icons/Moon%20Phase/${moon.icon}.svg" alt="${moon.name}" loading="lazy"/>
+            </div>
+            <div class="moon-name">${moon.name}</div>
+            <div class="moon-details">${moon.illumination}% illuminated</div>
           </div>
+        </div>
+
+        <!-- Third Row: Chart -->
+        <div class="chart-card">
+          <div class="chart-title">24-Hour Overview</div>
+          <div class="chart-container" id="apex-chart-combined"></div>
         </div>
       </div>
     `;
@@ -988,12 +1127,13 @@ class HomeWeatherPanel extends HTMLElement {
       const baseOpts = this._baseChartOptions(data);
       const opts = {
         ...baseOpts,
-        chart: { ...baseOpts.chart, type: "line" },
+        chart: { ...baseOpts.chart, type: "line", height: 280 },
         colors: ["#e53935", "#ff7043", "#ab47bc", "#1e88e5", "#26a69a", "#42a5f5", "#757575", "#78909c", "#8d6e63", "#90a4ae", "#ffa726"],
         series,
-        yaxis: [{ min: 0, max: 100, labels: { formatter: (v) => v }, axisBorder: { show: false }, axisTicks: { show: false }, labels: { style: { colors: "#94a3b8" } } }],
-        title: { text: "All metrics (normalized)", align: "left", style: { fontSize: "14px", fontWeight: 600 } },
+        yaxis: [{ min: 0, max: 100, labels: { formatter: (v) => Math.round(v) }, axisBorder: { show: false }, axisTicks: { show: false }, labels: { style: { colors: "#94a3b8" } } }],
+        title: { text: "", align: "left", style: { fontSize: "14px", fontWeight: 600 } },
         tooltip: { shared: true, intersect: false, custom: tooltip },
+        legend: { show: true, position: "top", horizontalAlign: "center", fontSize: "11px" },
       };
       const ch = new ApexCharts(container, opts);
       await ch.render();
@@ -1017,10 +1157,10 @@ class HomeWeatherPanel extends HTMLElement {
       cache: true, language: "", enable_time_based: false, hour_pattern: 3,
       minute_offset: 3, start_time: "08:00", end_time: "21:00",
       days_of_week: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
-      enable_sensor_triggered: false, presence_sensors: [],
-      enable_current_change: false, current_change_volume: 0.6,
-      enable_upcoming_change: false, upcoming_change_volume: 0.6, minutes_before_announce: 30,
-      enable_webhook: false, webhook_id: "weather_forecast", personal_name: "", webhook_volume: 0.6,
+      enable_sensor_triggered: false, sensor_triggers: [],
+      enable_current_change: false,
+      enable_upcoming_change: false, minutes_before_announce: 30,
+      enable_webhook: false, webhooks: [],
       enable_voice_satellite: false, conversation_commands: "What is the weather\nWhats the weather",
       precip_threshold: 30, hours_ahead: 24, hourly_segments_count: 3,
       wind_speed_threshold: 15, wind_gust_threshold: 20, daily_forecast_days: 3,
@@ -1028,6 +1168,9 @@ class HomeWeatherPanel extends HTMLElement {
       ai_rewrite_prompt: "You are a friendly meteorologist. Rewrite this weather forecast in a natural, conversational way.",
     };
     const tts = { ...defaultTts, ...(this._settings.tts || {}) };
+    // Ensure arrays
+    if (!Array.isArray(tts.sensor_triggers)) tts.sensor_triggers = [];
+    if (!Array.isArray(tts.webhooks)) tts.webhooks = [];
     const mediaPlayers = this._normalizeMediaPlayers(this._settings.media_players || []);
     const usedMediaPlayerIds = new Set(mediaPlayers.map((m) => m.entity_id));
     const availableMediaPlayers = mediaPlayerEntities.filter((e) => !usedMediaPlayerIds.has(e));
@@ -1115,11 +1258,6 @@ class HomeWeatherPanel extends HTMLElement {
             </div>
             
             <div class="form-group">
-              <label>Default Volume</label>
-              ${renderSlider("tts-volume", tts.volume_level, 0, 1, 0.05)}
-            </div>
-            
-            <div class="form-group">
               <label>Preroll Delay (ms)</label>
               <input type="number" id="tts-preroll" min="0" max="2000" step="50" value="${tts.preroll_ms}"/>
             </div>
@@ -1176,6 +1314,10 @@ class HomeWeatherPanel extends HTMLElement {
                   <div class="media-player-row">
                     <label class="media-player-label">Language</label>
                     <input type="text" class="media-player-language" data-field="language" placeholder="Override language" value="${m.language || ""}"/>
+                  </div>
+                  <div class="media-player-row">
+                    <label class="media-player-label">Options (JSON)</label>
+                    <input type="text" class="media-player-options" data-field="options" placeholder='{"key": "value"}' value='${JSON.stringify(m.options || {}).replace(/'/g, "&#39;")}'/>
                   </div>
                   <div class="media-player-row">
                     <button type="button" class="test-tts-btn" data-test-media="${i}">Test TTS</button>
@@ -1238,11 +1380,7 @@ class HomeWeatherPanel extends HTMLElement {
           <!-- Current Change Alerts -->
           ${renderCollapsible("current-change", "Current Change Alerts", "Alert when weather changes", `
             ${renderToggle("enable-current-change", tts.enable_current_change, "Enable Current Change Alerts")}
-            
-            <div class="form-group" style="margin-top: 16px;">
-              <label>Alert Volume</label>
-              ${renderSlider("current-change-volume", tts.current_change_volume, 0, 1, 0.05)}
-            </div>
+            <p class="form-hint" style="margin-top: 12px;">Volume is controlled per media player.</p>
           `)}
           
           <!-- Upcoming Change Alerts -->
@@ -1258,47 +1396,71 @@ class HomeWeatherPanel extends HTMLElement {
                 <option value="60" ${tts.minutes_before_announce === 60 ? "selected" : ""}>1 hour</option>
               </select>
             </div>
-            
-            <div class="form-group">
-              <label>Alert Volume</label>
-              ${renderSlider("upcoming-change-volume", tts.upcoming_change_volume, 0, 1, 0.05)}
-            </div>
           `)}
           
           <!-- Sensor Triggered -->
-          ${renderCollapsible("sensor-triggered", "Sensor Triggered", "Announce when presence detected", `
+          ${renderCollapsible("sensor-triggered", "Sensor Triggered", "Announce when entity state changes", `
             ${renderToggle("enable-sensor-triggered", tts.enable_sensor_triggered, "Enable Sensor-Triggered Forecasts")}
             
             <div class="form-group" style="margin-top: 16px;">
-              <label>Presence Sensors</label>
-              <div class="multi-select" id="presence-sensors">
-                ${binarySensorEntities.slice(0, 50).map((e) => `
-                  <label class="multi-select-item ${tts.presence_sensors.includes(e) ? "selected" : ""}" data-entity="${e}">
-                    <input type="checkbox" ${tts.presence_sensors.includes(e) ? "checked" : ""}/>
-                    ${e}
-                  </label>
+              <label>Sensor Triggers</label>
+              <p class="form-hint">Add entities and define the state that triggers a TTS announcement.</p>
+              <div id="sensor-triggers-list" class="media-player-list">
+                ${tts.sensor_triggers.map((st, i) => `
+                  <div class="media-player-card sensor-trigger-card" data-sensor-idx="${i}">
+                    <div class="media-player-row">
+                      <span class="media-player-label">Entity</span>
+                      <select class="sensor-trigger-entity media-player-controls" data-idx="${i}">
+                        <option value="">-- Select Entity --</option>
+                        ${entities.slice(0, 500).map((e) => `<option value="${e}" ${e === st.entity_id ? "selected" : ""}>${e}</option>`).join("")}
+                      </select>
+                    </div>
+                    <div class="media-player-row">
+                      <span class="media-player-label">Trigger State</span>
+                      <input type="text" class="sensor-trigger-state media-player-tts-entity" data-idx="${i}" placeholder="e.g. on, home, open" value="${st.trigger_state || ""}"/>
+                    </div>
+                    <div class="media-player-row" style="justify-content: flex-end;">
+                      <button class="btn btn-secondary" data-remove-sensor="${i}">Remove</button>
+                    </div>
+                  </div>
                 `).join("")}
               </div>
+              <button class="btn btn-secondary" id="add-sensor-trigger" style="margin-top: 12px;">+ Add Sensor Trigger</button>
             </div>
           `)}
           
           <!-- Webhook -->
-          ${renderCollapsible("webhook", "Webhook Trigger", "External API trigger", `
-            ${renderToggle("enable-webhook", tts.enable_webhook, "Enable Webhook Trigger")}
+          ${renderCollapsible("webhook", "Webhook Triggers", `${tts.webhooks.length} configured`, `
+            ${renderToggle("enable-webhook", tts.enable_webhook, "Enable Webhook Triggers")}
             
             <div class="form-group" style="margin-top: 16px;">
-              <label>Webhook ID</label>
-              <input type="text" id="webhook-id" placeholder="weather_forecast" value="${tts.webhook_id}"/>
-            </div>
-            
-            <div class="form-group">
-              <label>Personal Name (for greeting)</label>
-              <input type="text" id="personal-name" placeholder="e.g. John" value="${tts.personal_name}"/>
-            </div>
-            
-            <div class="form-group">
-              <label>Webhook Volume</label>
-              ${renderSlider("webhook-volume", tts.webhook_volume, 0, 1, 0.05)}
+              <label>Webhook Configurations</label>
+              <p class="form-hint">Create multiple webhooks with unique IDs for different users or scenarios.</p>
+              <div id="webhooks-list" class="media-player-list">
+                ${tts.webhooks.map((wh, i) => `
+                  <div class="media-player-card webhook-card" data-webhook-idx="${i}">
+                    <div class="media-player-row">
+                      <span class="media-player-label">Webhook ID</span>
+                      <input type="text" class="webhook-id media-player-tts-entity" data-idx="${i}" placeholder="e.g. weather_morning" value="${wh.webhook_id || ""}"/>
+                    </div>
+                    <div class="media-player-row">
+                      <span class="media-player-label">Personal Name</span>
+                      <input type="text" class="webhook-name media-player-tts-entity" data-idx="${i}" placeholder="e.g. John" value="${wh.personal_name || ""}"/>
+                    </div>
+                    <div class="media-player-row">
+                      <span class="media-player-label">Enabled</span>
+                      <label class="toggle-switch">
+                        <input type="checkbox" class="webhook-enabled" data-idx="${i}" ${wh.enabled !== false ? "checked" : ""}/>
+                        <span class="toggle-slider"></span>
+                      </label>
+                    </div>
+                    <div class="media-player-row" style="justify-content: flex-end;">
+                      <button class="btn btn-secondary" data-remove-webhook="${i}">Remove</button>
+                    </div>
+                  </div>
+                `).join("")}
+              </div>
+              <button class="btn btn-secondary" id="add-webhook" style="margin-top: 12px;">+ Add Webhook</button>
             </div>
           `)}
           
@@ -1384,17 +1546,13 @@ class HomeWeatherPanel extends HTMLElement {
       if (day) daysOfWeek.push(day);
     });
     
-    // Collect presence sensors
-    const presenceSensors = [];
-    s.querySelectorAll("#presence-sensors .multi-select-item.selected").forEach((el) => {
-      const entity = el.dataset.entity;
-      if (entity) presenceSensors.push(entity);
-    });
+    // Collect sensor triggers and webhooks from settings state (already synced via card handlers)
+    const sensorTriggers = this._settings.tts?.sensor_triggers || [];
+    const webhooks = this._settings.tts?.webhooks || [];
     
     return {
       enabled: s.getElementById("tts-enabled")?.checked || false,
       engine: s.getElementById("tts-engine")?.value || "",
-      volume_level: parseFloat(s.getElementById("tts-volume")?.value || 0.6),
       preroll_ms: parseInt(s.getElementById("tts-preroll")?.value || 150, 10),
       cache: s.getElementById("tts-cache")?.checked || false,
       language: s.getElementById("tts-language")?.value || "",
@@ -1405,16 +1563,12 @@ class HomeWeatherPanel extends HTMLElement {
       end_time: s.getElementById("end-time")?.value || "21:00",
       days_of_week: daysOfWeek.length > 0 ? daysOfWeek : ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
       enable_sensor_triggered: s.getElementById("enable-sensor-triggered")?.checked || false,
-      presence_sensors: presenceSensors,
+      sensor_triggers: sensorTriggers.filter((t) => t.entity_id),
       enable_current_change: s.getElementById("enable-current-change")?.checked || false,
-      current_change_volume: parseFloat(s.getElementById("current-change-volume")?.value || 0.6),
       enable_upcoming_change: s.getElementById("enable-upcoming-change")?.checked || false,
-      upcoming_change_volume: parseFloat(s.getElementById("upcoming-change-volume")?.value || 0.6),
       minutes_before_announce: parseInt(s.getElementById("minutes-before-announce")?.value || 30, 10),
       enable_webhook: s.getElementById("enable-webhook")?.checked || false,
-      webhook_id: s.getElementById("webhook-id")?.value || "weather_forecast",
-      personal_name: s.getElementById("personal-name")?.value || "",
-      webhook_volume: parseFloat(s.getElementById("webhook-volume")?.value || 0.6),
+      webhooks: webhooks.filter((w) => w.webhook_id),
       enable_voice_satellite: s.getElementById("enable-voice-satellite")?.checked || false,
       conversation_commands: s.getElementById("conversation-commands")?.value || "",
       precip_threshold: parseInt(s.getElementById("precip-threshold")?.value || 30, 10),
