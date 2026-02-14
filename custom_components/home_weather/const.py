@@ -40,14 +40,14 @@ DEFAULT_CONFIG: Final = {
     },
     # Each media player has its own complete TTS config
     "media_players": [],  # list of { entity_id, tts_entity_id, volume, preroll_ms, cache, language, options }
-    "message_prefix": "Weather update",
+    "message_prefix": "Here's your weather forecast",
 }
 
 # Update interval for weather coordinator (5 minutes)
 UPDATE_INTERVAL: Final = 300
 
 # Version for cache busting
-VERSION: Final = "1.2.18"
+VERSION: Final = "1.2.19"
 
 # Panel configuration
 PANEL_URL_PATH: Final = "home-weather"

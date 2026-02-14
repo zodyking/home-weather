@@ -1,27 +1,32 @@
-"""TTS notification message builders and dispatch for Home Weather integration."""
+"""TTS notification message builders and dispatch for Home Weather integration.
+
+Intelligent weatherman-style announcements with:
+- Time announcements
+- Current day focus for webhook/alarm triggers
+- Future-focused (never mentions past hours)
+- Notable conditions highlighted (precipitation times, high winds, etc.)
+"""
 from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.core import HomeAssistant
+from homeassistant.util import dt as dt_util
 
 from .const import NUMBER_WORDS
 
 _LOGGER = logging.getLogger(__name__)
 
 
+# ============================================================================
+# Number and Time Formatting
+# ============================================================================
+
 def _spell_number(n: int | float) -> str:
-    """Convert a number to spelled-out words for clean TTS pronunciation.
-    
-    Examples:
-        72 -> "seventy two"
-        100 -> "one hundred"
-        5 -> "five"
-        -3 -> "negative three"
-    """
+    """Convert a number to spelled-out words for clean TTS pronunciation."""
     if n is None:
         return ""
     
@@ -50,26 +55,17 @@ def _spell_number(n: int | float) -> str:
             return f"{NUMBER_WORDS.get(hundreds, str(hundreds))} hundred"
         return f"{NUMBER_WORDS.get(hundreds, str(hundreds))} hundred {_spell_number(remainder)}"
     
-    # For larger numbers, just return the string representation
     return str(n)
 
 
-def _spell_time(dt: datetime) -> str:
-    """Format a datetime as spoken time for clean TTS pronunciation.
-    
-    Examples:
-        7:00 AM -> "seven AM"
-        7:03 AM -> "seven oh three AM"
-        12:00 PM -> "twelve PM"
-        12:15 PM -> "twelve fifteen PM"
-    """
+def _spell_time(dt: datetime | None) -> str:
+    """Format a datetime as spoken time (e.g., 'seven oh three AM')."""
     if dt is None:
         return ""
     
     hour = dt.hour
     minute = dt.minute
     
-    # Convert to 12-hour format
     period = "AM" if hour < 12 else "PM"
     hour_12 = hour % 12
     if hour_12 == 0:
@@ -85,6 +81,12 @@ def _spell_time(dt: datetime) -> str:
         return f"{hour_word} {_spell_number(minute)} {period}"
 
 
+def _get_current_time_announcement() -> str:
+    """Get current time as a spoken announcement."""
+    now = dt_util.now()
+    return f"The time is {_spell_time(now)}"
+
+
 def _get_greeting() -> str:
     """Get time-appropriate greeting."""
     hour = datetime.now().hour
@@ -98,64 +100,132 @@ def _get_greeting() -> str:
         return "Good night"
 
 
+# ============================================================================
+# Weather Data Formatting
+# ============================================================================
+
 def _normalize_condition(condition: str) -> str:
-    """Normalize weather condition for TTS pronunciation.
-    
-    Examples:
-        "partly_cloudy" -> "partly cloudy"
-        "partlycloudy" -> "partly cloudy"
-        "clear-night" -> "clear"
-    """
+    """Normalize weather condition for TTS pronunciation."""
     if not condition:
-        return "unknown"
+        return "current conditions"
     
     c = condition.lower().strip()
-    
-    # Remove day/night suffixes
     c = c.replace("-night", "").replace("-day", "")
     c = c.replace("_night", "").replace("_day", "")
-    
-    # Replace separators with spaces
     c = c.replace("_", " ").replace("-", " ")
-    
-    # Handle common compound words
     c = c.replace("partlycloudy", "partly cloudy")
     c = c.replace("mostlycloudy", "mostly cloudy")
-    c = c.replace("clearsky", "clear sky")
-    c = c.replace("thunderstorm", "thunder storm")
+    c = c.replace("clearsky", "clear skies")
+    c = c.replace("thunderstorm", "thunderstorms")
     
     return c.strip()
 
 
-def _format_temperature(temp: int | float, spell: bool = True) -> str:
+def _format_temperature(temp: int | float | None) -> str:
     """Format temperature for TTS."""
     if temp is None:
         return ""
-    t = int(round(temp))
-    if spell:
-        return f"{_spell_number(t)} degrees"
-    return f"{t} degrees"
+    return f"{_spell_number(int(round(temp)))} degrees"
 
 
-def _format_percentage(val: int | float, spell: bool = True) -> str:
+def _format_percentage(val: int | float | None) -> str:
     """Format percentage for TTS."""
     if val is None:
         return ""
-    v = int(round(val))
-    if spell:
-        return f"{_spell_number(v)} percent"
-    return f"{v} percent"
+    return f"{_spell_number(int(round(val)))} percent"
 
 
-def _format_wind(speed: int | float, unit: str = "mph", spell: bool = True) -> str:
+def _format_wind(speed: int | float | None, unit: str = "mph") -> str:
     """Format wind speed for TTS."""
     if speed is None:
         return ""
     s = int(round(speed))
     unit_spoken = "miles per hour" if unit.lower() in ("mph", "mi/h") else unit
-    if spell:
-        return f"{_spell_number(s)} {unit_spoken}"
-    return f"{s} {unit_spoken}"
+    return f"{_spell_number(s)} {unit_spoken}"
+
+
+def _parse_datetime(dt_val: str | datetime | None) -> datetime | None:
+    """Parse a datetime value from string or datetime object."""
+    if dt_val is None:
+        return None
+    if isinstance(dt_val, datetime):
+        return dt_val
+    try:
+        return datetime.fromisoformat(dt_val.replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+def _get_time_description(dt: datetime) -> str:
+    """Get a human-readable time description relative to now."""
+    now = dt_util.now()
+    diff = dt - now
+    hours = diff.total_seconds() / 3600
+    
+    if hours < 1:
+        return "within the hour"
+    elif hours < 2:
+        return "in about an hour"
+    elif hours < 3:
+        return "in a couple hours"
+    else:
+        return f"around {_spell_time(dt)}"
+
+
+# ============================================================================
+# Intelligent Message Builders
+# ============================================================================
+
+def _get_today_forecast(daily: list[dict]) -> dict | None:
+    """Get today's forecast from daily data."""
+    if not daily:
+        return None
+    return daily[0] if daily else None
+
+
+def _get_upcoming_precipitation(hourly: list[dict], threshold: int = 30) -> list[dict]:
+    """Find upcoming precipitation events in the next 12 hours (future only)."""
+    now = dt_util.now()
+    upcoming = []
+    
+    for h in hourly[:12]:
+        h_time = _parse_datetime(h.get("datetime"))
+        if h_time is None or h_time <= now:
+            continue  # Skip past hours
+        
+        precip_prob = h.get("precipitation_probability", 0) or 0
+        if precip_prob >= threshold:
+            upcoming.append({
+                "time": h_time,
+                "prob": precip_prob,
+                "condition": h.get("condition", "precipitation"),
+            })
+    
+    return upcoming
+
+
+def _get_upcoming_high_winds(hourly: list[dict], speed_threshold: int = 15, gust_threshold: int = 25) -> list[dict]:
+    """Find upcoming high wind events in the next 12 hours (future only)."""
+    now = dt_util.now()
+    upcoming = []
+    
+    for h in hourly[:12]:
+        h_time = _parse_datetime(h.get("datetime"))
+        if h_time is None or h_time <= now:
+            continue
+        
+        wind_speed = h.get("wind_speed", 0) or 0
+        wind_gust = h.get("wind_gust", 0) or 0
+        
+        if wind_speed >= speed_threshold or wind_gust >= gust_threshold:
+            upcoming.append({
+                "time": h_time,
+                "speed": wind_speed,
+                "gust": wind_gust,
+            })
+            break  # Only mention the first high wind event
+    
+    return upcoming
 
 
 def build_scheduled_forecast(
@@ -163,27 +233,32 @@ def build_scheduled_forecast(
     config: dict[str, Any],
     name: str = "",
 ) -> str:
-    """Build a full scheduled forecast message.
+    """Build a full scheduled forecast message - weatherman style.
     
-    Format: Greeting + current conditions + hourly segments + daily outlook.
+    Format: Time + Greeting + Current + Today's outlook + Notable upcoming events
     """
     current = weather_data.get("current", {})
     hourly = weather_data.get("hourly_forecast", [])
     daily = weather_data.get("daily_forecast", [])
     tts_config = config.get("tts", {})
-    
-    greeting = _get_greeting()
-    prefix = config.get("message_prefix", "Weather update")
+    prefix = config.get("message_prefix", "")
     
     parts = []
     
-    # Greeting and intro
-    if name:
-        parts.append(f"{greeting} {name}.")
-    else:
-        parts.append(f"{greeting}.")
+    # Time announcement and greeting
+    greeting = _get_greeting()
+    time_announce = _get_current_time_announcement()
     
-    parts.append(f"{prefix}.")
+    if name:
+        parts.append(f"{time_announce}. {greeting} {name}.")
+    else:
+        parts.append(f"{time_announce}.")
+    
+    # Custom prefix or default intro
+    if prefix and prefix.strip():
+        parts.append(f"{prefix}.")
+    else:
+        parts.append("Here's your weather forecast.")
     
     # Current conditions
     condition = _normalize_condition(current.get("condition") or current.get("state", ""))
@@ -193,75 +268,116 @@ def build_scheduled_forecast(
     wind_unit = current.get("wind_speed_unit", "mph")
     
     if temp is not None:
-        parts.append(f"Currently, it's {_format_temperature(temp)} and {condition}.")
+        parts.append(f"Right now it's {_format_temperature(temp)} with {condition}.")
+    
+    # Today's high and low
+    today = _get_today_forecast(daily)
+    if today:
+        hi = today.get("temperature")
+        lo = today.get("templow")
+        today_cond = _normalize_condition(today.get("condition", ""))
+        
+        if hi is not None and lo is not None:
+            parts.append(f"Today expect {today_cond} with a high of {_format_temperature(hi)} and a low of {_format_temperature(lo)}.")
+        elif hi is not None:
+            parts.append(f"Today's high will be {_format_temperature(hi)}.")
+    
+    # Upcoming precipitation
+    precip_threshold = tts_config.get("precip_threshold", 30)
+    upcoming_precip = _get_upcoming_precipitation(hourly, precip_threshold)
+    if upcoming_precip:
+        first = upcoming_precip[0]
+        time_desc = _get_time_description(first["time"])
+        cond = _normalize_condition(first["condition"])
+        parts.append(f"Expect {cond} {time_desc} with a {_format_percentage(first['prob'])} chance.")
+    
+    # Upcoming high winds
+    wind_threshold = tts_config.get("wind_speed_threshold", 15)
+    gust_threshold = tts_config.get("wind_gust_threshold", 25)
+    upcoming_winds = _get_upcoming_high_winds(hourly, wind_threshold, gust_threshold)
+    if upcoming_winds:
+        wind_event = upcoming_winds[0]
+        time_desc = _get_time_description(wind_event["time"])
+        if wind_event["gust"] > wind_event["speed"]:
+            parts.append(f"Watch for wind gusts up to {_format_wind(wind_event['gust'], wind_unit)} {time_desc}.")
+        else:
+            parts.append(f"Winds picking up to {_format_wind(wind_event['speed'], wind_unit)} {time_desc}.")
+    
+    # Tomorrow preview (brief)
+    if len(daily) > 1:
+        tomorrow = daily[1]
+        tom_hi = tomorrow.get("temperature")
+        tom_cond = _normalize_condition(tomorrow.get("condition", ""))
+        if tom_hi is not None:
+            parts.append(f"Tomorrow looks like {tom_cond} with a high near {_format_temperature(tom_hi)}.")
+    
+    return " ".join(parts)
+
+
+def build_webhook_message(
+    name: str,
+    weather_data: dict[str, Any],
+    config: dict[str, Any],
+) -> str:
+    """Build a SHORT, focused wake-up alarm forecast.
+    
+    This is triggered when a user's phone alarm goes off.
+    Focus on TODAY only - current conditions and what to expect for the day.
+    Keep it brief and actionable.
+    """
+    current = weather_data.get("current", {})
+    hourly = weather_data.get("hourly_forecast", [])
+    daily = weather_data.get("daily_forecast", [])
+    tts_config = config.get("tts", {})
+    
+    parts = []
+    
+    # Quick greeting with time
+    greeting = _get_greeting()
+    time_announce = _get_current_time_announcement()
+    
+    if name:
+        parts.append(f"{time_announce}. {greeting} {name}.")
     else:
-        parts.append(f"Currently, the conditions are {condition}.")
+        parts.append(f"{time_announce}. {greeting}.")
     
-    if humidity is not None:
-        parts.append(f"Humidity is at {_format_percentage(humidity)}.")
+    # Current temp and condition (brief)
+    condition = _normalize_condition(current.get("condition") or current.get("state", ""))
+    temp = current.get("temperature")
     
-    if wind_speed is not None and wind_speed > 5:
-        parts.append(f"Winds are {_format_wind(wind_speed, wind_unit)}.")
+    if temp is not None:
+        parts.append(f"Currently {_format_temperature(temp)} and {condition}.")
     
-    # Hourly segments (next few hours)
-    hourly_segments = tts_config.get("hourly_segments_count", 3)
-    if hourly and hourly_segments > 0:
-        precip_threshold = tts_config.get("precip_threshold", 30)
-        upcoming_precip = []
-        
-        for i, h in enumerate(hourly[:12]):
-            precip_prob = h.get("precipitation_probability", 0) or 0
-            if precip_prob >= precip_threshold:
-                h_time = h.get("datetime")
-                if isinstance(h_time, str):
-                    try:
-                        h_time = datetime.fromisoformat(h_time.replace("Z", "+00:00"))
-                    except:
-                        continue
-                if h_time:
-                    upcoming_precip.append({
-                        "time": h_time,
-                        "prob": precip_prob,
-                        "condition": h.get("condition", ""),
-                    })
-        
-        if upcoming_precip:
-            first = upcoming_precip[0]
-            parts.append(
-                f"Expect {_normalize_condition(first['condition'])} around {_spell_time(first['time'])} "
-                f"with a {_format_percentage(first['prob'])} chance of precipitation."
-            )
+    # Today's high/low
+    today = _get_today_forecast(daily)
+    if today:
+        hi = today.get("temperature")
+        lo = today.get("templow")
+        if hi is not None and lo is not None:
+            parts.append(f"High of {_format_temperature(hi)}, low of {_format_temperature(lo)}.")
+        elif hi is not None:
+            parts.append(f"High of {_format_temperature(hi)} today.")
     
-    # Daily outlook
-    daily_days = tts_config.get("daily_forecast_days", 3)
-    if daily and daily_days > 0:
-        for i, d in enumerate(daily[:daily_days]):
-            if i == 0:
-                day_name = "Today"
-            elif i == 1:
-                day_name = "Tomorrow"
-            else:
-                try:
-                    dt_str = d.get("datetime")
-                    if isinstance(dt_str, str):
-                        dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
-                        day_name = dt.strftime("%A")
-                    else:
-                        day_name = f"Day {i + 1}"
-                except:
-                    day_name = f"Day {i + 1}"
-            
-            hi = d.get("temperature")
-            lo = d.get("templow")
-            cond = _normalize_condition(d.get("condition", ""))
-            
-            if hi is not None and lo is not None:
-                parts.append(
-                    f"{day_name}: {cond} with a high of {_format_temperature(hi)} "
-                    f"and a low of {_format_temperature(lo)}."
-                )
-            elif hi is not None:
-                parts.append(f"{day_name}: {cond} with a high of {_format_temperature(hi)}.")
+    # Most important: precipitation timing
+    precip_threshold = tts_config.get("precip_threshold", 30)
+    upcoming_precip = _get_upcoming_precipitation(hourly, precip_threshold)
+    if upcoming_precip:
+        first = upcoming_precip[0]
+        time_desc = _get_time_description(first["time"])
+        cond = _normalize_condition(first["condition"])
+        parts.append(f"{cond.capitalize()} expected {time_desc}.")
+    else:
+        # No precipitation expected
+        parts.append("No precipitation expected today.")
+    
+    # High winds warning (only if significant)
+    wind_threshold = tts_config.get("wind_speed_threshold", 15)
+    gust_threshold = tts_config.get("wind_gust_threshold", 25)
+    upcoming_winds = _get_upcoming_high_winds(hourly, wind_threshold, gust_threshold)
+    if upcoming_winds:
+        wind_event = upcoming_winds[0]
+        time_desc = _get_time_description(wind_event["time"])
+        parts.append(f"Gusty winds {time_desc}.")
     
     return " ".join(parts)
 
@@ -278,13 +394,16 @@ def build_current_change_message(
     current = weather_data.get("current", {})
     temp = current.get("temperature")
     
+    time_announce = _get_current_time_announcement()
+    
     if temp is not None:
         return (
-            f"Weather alert. Conditions have changed from {old_cond} to {new_cond}. "
-            f"Current temperature is {_format_temperature(temp)}."
+            f"{time_announce}. Weather update. "
+            f"Conditions have changed to {new_cond}. "
+            f"It's currently {_format_temperature(temp)}."
         )
     else:
-        return f"Weather alert. Conditions have changed from {old_cond} to {new_cond}."
+        return f"{time_announce}. Weather update. Conditions have changed to {new_cond}."
 
 
 def build_upcoming_change_message(
@@ -293,33 +412,31 @@ def build_upcoming_change_message(
     probability: int,
 ) -> str:
     """Build a message for upcoming precipitation."""
-    kind = precip_kind.lower() if precip_kind else "precipitation"
+    kind = _normalize_condition(precip_kind) if precip_kind else "precipitation"
     
     if minutes_until < 5:
         time_phrase = "very soon"
     elif minutes_until < 15:
-        time_phrase = "in about {_spell_number(minutes_until)} minutes"
+        time_phrase = f"in about {_spell_number(minutes_until)} minutes"
     elif minutes_until < 60:
-        mins = int(round(minutes_until / 5) * 5)  # Round to nearest 5
+        mins = int(round(minutes_until / 5) * 5)
         time_phrase = f"in about {_spell_number(mins)} minutes"
     else:
         hours = minutes_until // 60
         time_phrase = f"in about {_spell_number(hours)} {'hour' if hours == 1 else 'hours'}"
     
+    time_announce = _get_current_time_announcement()
+    
     return (
-        f"Weather alert. {kind.capitalize()} expected {time_phrase} "
+        f"{time_announce}. Weather alert. "
+        f"{kind.capitalize()} expected {time_phrase} "
         f"with a {_format_percentage(probability)} chance."
     )
 
 
-def build_webhook_message(
-    name: str,
-    weather_data: dict[str, Any],
-    config: dict[str, Any],
-) -> str:
-    """Build a personalized forecast message triggered by webhook."""
-    return build_scheduled_forecast(weather_data, config, name=name)
-
+# ============================================================================
+# TTS Dispatch
+# ============================================================================
 
 async def send_tts(
     hass: HomeAssistant,
@@ -329,13 +446,13 @@ async def send_tts(
 ) -> None:
     """Send TTS to all configured media players.
     
-    Each media player has its own TTS settings (tts_entity_id, volume, cache, language, preroll_ms, options).
-    
-    Per uber-eats-order-tracker pattern:
-    1. Set volume on each media player
-    2. Wait for preroll delay
-    3. Send TTS speak command
-    4. Wait for playback to complete before next player
+    Each media player has its own TTS settings:
+    - tts_entity_id (required)
+    - volume
+    - preroll_ms  
+    - cache
+    - language (optional, only included if non-empty)
+    - options (optional dict, only included if non-empty)
     """
     if not media_players_config:
         _LOGGER.warning("No media players configured for TTS")
@@ -350,7 +467,6 @@ async def send_tts(
         if not entity_id:
             continue
         
-        # TTS entity is required per-player (no global fallback)
         tts_entity = mp.get("tts_entity_id")
         if not tts_entity:
             _LOGGER.warning("No TTS entity configured for %s, skipping", entity_id)
@@ -363,7 +479,7 @@ async def send_tts(
         language = mp.get("language", "")
         options = mp.get("options", {})
         
-        _LOGGER.info("Sending TTS to %s via %s (volume: %.2f, preroll: %dms)", entity_id, tts_entity, volume, preroll_ms)
+        _LOGGER.info("Sending TTS to %s via %s", entity_id, tts_entity)
         
         try:
             # Step 1: Set volume
@@ -371,41 +487,44 @@ async def send_tts(
                 await hass.services.async_call(
                     "media_player",
                     "volume_set",
-                    {
-                        "entity_id": entity_id,
-                        "volume_level": volume,
-                    },
+                    {"entity_id": entity_id, "volume_level": volume},
                     blocking=True,
                 )
             except Exception as vol_e:
                 _LOGGER.warning("Failed to set volume on %s: %s", entity_id, vol_e)
             
-            # Step 2: Preroll delay (per-player)
+            # Step 2: Preroll delay
             if preroll_ms > 0:
                 await asyncio.sleep(preroll_ms / 1000)
             
-            # Step 3: TTS speak - use blocking to wait for completion
+            # Step 3: Build service data - only include non-empty optional fields
             service_data: dict[str, Any] = {
                 "media_player_entity_id": entity_id,
                 "message": message,
                 "cache": cache,
             }
-            if language:
-                service_data["language"] = language
-            if options and isinstance(options, dict):
+            
+            # Only add language if it's a non-empty string
+            if language and isinstance(language, str) and language.strip():
+                service_data["language"] = language.strip()
+            
+            # Only add options if it's a non-empty dict
+            if options and isinstance(options, dict) and len(options) > 0:
                 service_data["options"] = options
+            
+            _LOGGER.debug("TTS service data: %s", service_data)
             
             await hass.services.async_call(
                 "tts",
                 "speak",
                 service_data,
                 target={"entity_id": tts_entity},
-                blocking=True,  # Wait for TTS to complete before moving to next player
+                blocking=True,
             )
             
-            _LOGGER.info("TTS sent successfully to %s via %s", entity_id, tts_entity)
+            _LOGGER.info("TTS sent successfully to %s", entity_id)
             
-            # Add delay between players to avoid "already streaming" errors
+            # Delay between players
             if i < len(media_players_config) - 1:
                 await asyncio.sleep(0.5)
             
@@ -420,15 +539,7 @@ async def send_tts_with_ai_rewrite(
     message: str,
     volume_override: float | None = None,
 ) -> None:
-    """Send TTS with optional AI rewrite of the message.
-    
-    Args:
-        hass: Home Assistant instance
-        media_players_config: List of media player configs (each with tts_entity_id, volume, etc.)
-        tts_config: TTS config dict containing AI rewrite settings (use_ai_rewrite, ai_task_entity, ai_rewrite_prompt)
-        message: The message to speak
-        volume_override: Optional volume override
-    """
+    """Send TTS with optional AI rewrite of the message."""
     use_ai = tts_config.get("use_ai_rewrite", False)
     ai_entity = tts_config.get("ai_task_entity", "")
     ai_prompt = tts_config.get("ai_rewrite_prompt", "")
@@ -437,7 +548,6 @@ async def send_tts_with_ai_rewrite(
     
     if use_ai and ai_entity:
         try:
-            # Call ai_task.generate_data to rewrite the message
             result = await hass.services.async_call(
                 "ai_task",
                 "generate_data",

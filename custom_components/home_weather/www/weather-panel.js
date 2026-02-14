@@ -1054,15 +1054,40 @@ class HomeWeatherPanel extends HTMLElement {
         btn.disabled = true;
         
         try {
-          await this._hass.callWS({
+          // Parse options JSON if it exists
+          let optionsObj = {};
+          if (mp.options) {
+            if (typeof mp.options === "string" && mp.options.trim()) {
+              try {
+                optionsObj = JSON.parse(mp.options);
+              } catch (e) {
+                console.warn("Failed to parse TTS options:", e);
+              }
+            } else if (typeof mp.options === "object") {
+              optionsObj = mp.options;
+            }
+          }
+          
+          const wsData = {
             type: "home_weather/test_tts",
             media_player_entity_id: mp.entity_id,
             tts_entity_id: ttsEntity,
             message: "This is a test of the weather announcement system.",
             volume: mp.volume || 0.6,
             cache: mp.cache || false,
-            language: mp.language || "",
-          });
+          };
+          
+          // Only add language if non-empty
+          if (mp.language && mp.language.trim()) {
+            wsData.language = mp.language.trim();
+          }
+          
+          // Only add options if non-empty object
+          if (optionsObj && Object.keys(optionsObj).length > 0) {
+            wsData.options = optionsObj;
+          }
+          
+          await this._hass.callWS(wsData);
         } catch (e) {
           console.error("Test TTS failed:", e);
           alert("Test TTS failed: " + e.message);
@@ -1539,8 +1564,9 @@ class HomeWeatherPanel extends HTMLElement {
             <div class="collapsible-content" style="display: block; padding-top: 20px;">
               ${renderToggle("tts-enabled", tts.enabled, "Enable TTS Announcements")}
               <div class="form-group" style="margin-top: 16px;">
-                <label>Message Prefix</label>
-                <input type="text" id="message-prefix" placeholder="e.g. Weather update" value="${messagePrefix}"/>
+                <label>Message Intro</label>
+                <input type="text" id="message-prefix" placeholder="Here's your weather forecast" value="${messagePrefix}"/>
+                <p class="form-hint" style="margin-top: 6px;">Time is announced automatically: "The time is seven oh five AM. [Your intro]. Right now it's..."</p>
               </div>
             </div>
           </div>

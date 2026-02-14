@@ -177,6 +177,7 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
             vol.Optional("volume", default=0.5): vol.Coerce(float),
             vol.Optional("cache", default=True): bool,
             vol.Optional("language", default=""): str,
+            vol.Optional("options", default={}): dict,
         }
     )
     @websocket_api.async_response
@@ -193,6 +194,7 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
         volume = msg.get("volume", 0.5)
         cache = msg.get("cache", True)
         language = msg.get("language", "")
+        options = msg.get("options", {})
         
         try:
             # Set volume
@@ -206,14 +208,22 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
                 blocking=True,
             )
             
-            # Send TTS
+            # Build TTS service data - only include non-empty optional fields
             service_data: dict[str, Any] = {
                 "media_player_entity_id": media_player,
                 "message": message,
                 "cache": cache,
             }
-            if language:
-                service_data["language"] = language
+            
+            # Only add language if non-empty
+            if language and isinstance(language, str) and language.strip():
+                service_data["language"] = language.strip()
+            
+            # Only add options if non-empty dict
+            if options and isinstance(options, dict) and len(options) > 0:
+                service_data["options"] = options
+            
+            _LOGGER.debug("Test TTS service data: %s", service_data)
             
             await hass.services.async_call(
                 "tts",
