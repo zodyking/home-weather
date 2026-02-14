@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+import voluptuous as vol
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
 
@@ -58,11 +59,13 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
 
         storage = None
         coordinator = None
+        trigger_manager = None
         if DOMAIN in hass.data:
             for entry_id, data in hass.data[DOMAIN].items():
                 if isinstance(data, dict):
                     storage = data.get("storage")
                     coordinator = data.get("coordinator")
+                    trigger_manager = data.get("trigger_manager")
                     if storage:
                         break
 
@@ -75,6 +78,12 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
             await storage.async_save(config)
             if coordinator:
                 await coordinator.async_request_refresh()
+            
+            # Reload triggers when config changes
+            if trigger_manager:
+                await trigger_manager.async_unload()
+                await trigger_manager.async_setup()
+            
             connection.send_result(msg["id"], {"success": True})
         except Exception as e:
             _LOGGER.error("Error saving config: %s", e)
@@ -112,7 +121,140 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
 
         connection.send_result(msg["id"], {"data": data})
 
+    @websocket_api.websocket_command(
+        {
+            "type": "home_weather/get_tts_entities",
+        }
+    )
+    @websocket_api.async_response
+    async def handle_get_tts_entities(
+        hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+    ) -> None:
+        """Handle get_tts_entities WebSocket command.
+        
+        Returns all TTS, media player, binary sensor, and AI task entities.
+        """
+        entities = {
+            "tts": [],
+            "media_players": [],
+            "binary_sensors": [],
+            "ai_task": [],
+        }
+        
+        for entity_id, state in hass.states.async_all():
+            if entity_id.startswith("tts."):
+                entities["tts"].append({
+                    "entity_id": entity_id,
+                    "name": state.attributes.get("friendly_name", entity_id),
+                })
+            elif entity_id.startswith("media_player."):
+                entities["media_players"].append({
+                    "entity_id": entity_id,
+                    "name": state.attributes.get("friendly_name", entity_id),
+                    "state": state.state,
+                })
+            elif entity_id.startswith("binary_sensor."):
+                entities["binary_sensors"].append({
+                    "entity_id": entity_id,
+                    "name": state.attributes.get("friendly_name", entity_id),
+                    "device_class": state.attributes.get("device_class"),
+                })
+            elif entity_id.startswith("ai_task."):
+                entities["ai_task"].append({
+                    "entity_id": entity_id,
+                    "name": state.attributes.get("friendly_name", entity_id),
+                })
+        
+        connection.send_result(msg["id"], entities)
+
+    @websocket_api.websocket_command(
+        {
+            vol.Required("type"): "home_weather/test_tts",
+            vol.Required("media_player_entity_id"): str,
+            vol.Required("tts_entity_id"): str,
+            vol.Required("message"): str,
+            vol.Optional("volume", default=0.5): vol.Coerce(float),
+            vol.Optional("cache", default=True): bool,
+            vol.Optional("language", default=""): str,
+        }
+    )
+    @websocket_api.async_response
+    async def handle_test_tts(
+        hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+    ) -> None:
+        """Handle test_tts WebSocket command.
+        
+        Fires a one-shot TTS test with specific entity/player/message/volume.
+        """
+        media_player = msg["media_player_entity_id"]
+        tts_entity = msg["tts_entity_id"]
+        message = msg["message"]
+        volume = msg.get("volume", 0.5)
+        cache = msg.get("cache", True)
+        language = msg.get("language", "")
+        
+        try:
+            # Set volume
+            await hass.services.async_call(
+                "media_player",
+                "volume_set",
+                {
+                    "entity_id": media_player,
+                    "volume_level": volume,
+                },
+                blocking=True,
+            )
+            
+            # Send TTS
+            service_data: dict[str, Any] = {
+                "media_player_entity_id": media_player,
+                "message": message,
+                "cache": cache,
+            }
+            if language:
+                service_data["language"] = language
+            
+            await hass.services.async_call(
+                "tts",
+                "speak",
+                service_data,
+                target={"entity_id": tts_entity},
+                blocking=False,
+            )
+            
+            connection.send_result(msg["id"], {"success": True})
+        except Exception as e:
+            _LOGGER.error("Test TTS failed: %s", e)
+            connection.send_error(msg["id"], "tts_failed", str(e))
+
+    @websocket_api.websocket_command(
+        {
+            "type": "home_weather/get_automations",
+        }
+    )
+    @websocket_api.async_response
+    async def handle_get_automations(
+        hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+    ) -> None:
+        """Handle get_automations WebSocket command.
+        
+        Returns list of automation entities for reference.
+        """
+        automations = []
+        for entity_id, state in hass.states.async_all():
+            if entity_id.startswith("automation."):
+                automations.append({
+                    "entity_id": entity_id,
+                    "name": state.attributes.get("friendly_name", entity_id),
+                    "state": state.state,
+                })
+        
+        connection.send_result(msg["id"], {"automations": automations})
+
     websocket_api.async_register_command(hass, handle_get_config)
     websocket_api.async_register_command(hass, handle_set_config)
     websocket_api.async_register_command(hass, handle_get_weather)
+    websocket_api.async_register_command(hass, handle_get_tts_entities)
+    websocket_api.async_register_command(hass, handle_test_tts)
+    websocket_api.async_register_command(hass, handle_get_automations)
 

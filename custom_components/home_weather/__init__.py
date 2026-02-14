@@ -23,6 +23,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     from .storage import HomeWeatherStorage
     from .coordinator import WeatherCoordinator
     from .services import async_setup_websocket_api
+    from .tts_triggers import TTSTriggerManager
 
     storage = HomeWeatherStorage(hass)
     await storage.async_load()
@@ -30,14 +31,30 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = WeatherCoordinator(hass, storage)
     await coordinator.async_request_refresh()
 
+    # Set up TTS trigger manager
+    def get_config():
+        return storage._data or {}
+    
+    def get_weather_data():
+        return coordinator.data or {}
+    
+    trigger_manager = TTSTriggerManager(hass, get_config, get_weather_data)
+
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = {
         "storage": storage,
         "coordinator": coordinator,
+        "trigger_manager": trigger_manager,
     }
 
     async_setup_websocket_api(hass)
     await _register_panel(hass)
+    
+    # Set up TTS triggers after everything else is ready
+    try:
+        await trigger_manager.async_setup()
+    except Exception as e:
+        _LOGGER.error("Failed to set up TTS triggers: %s", e)
 
     return True
 
@@ -45,6 +62,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     if entry.entry_id in hass.data.get(DOMAIN, {}):
+        entry_data = hass.data[DOMAIN][entry.entry_id]
+        
+        # Unload TTS triggers
+        trigger_manager = entry_data.get("trigger_manager")
+        if trigger_manager:
+            try:
+                await trigger_manager.async_unload()
+            except Exception as e:
+                _LOGGER.warning("Error unloading TTS triggers: %s", e)
+        
         del hass.data[DOMAIN][entry.entry_id]
     return True
 
