@@ -611,7 +611,131 @@ class HomeWeatherPanel extends HTMLElement {
     this._apexCharts = [];
     s.innerHTML = `
       <style>
-        :host { display: block; padding: 16px; max-width: 1200px; margin: 0 auto; }
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        :host {
+          --bg: #070a0f;
+          --bg-2: #0b1017;
+          --panel: rgba(17, 23, 32, 0.88);
+          --panel-2: rgba(21, 28, 38, 0.94);
+          --panel-3: rgba(25, 34, 46, 0.98);
+          --stroke: rgba(126, 166, 255, 0.12);
+          --stroke-2: rgba(126, 166, 255, 0.2);
+          --text: #eef4fb;
+          --muted: #93a2b8;
+          --blue: #78a6ff;
+          --blue-2: #99bcff;
+          --cyan: #8ed8ff;
+          --green: #63d7a0;
+          --primary-text-color: #eef4fb;
+          --secondary-text-color: #93a2b8;
+          --card-background-color: rgba(17, 23, 32, 0.95);
+          --divider-color: rgba(126, 166, 255, 0.12);
+          --primary-color: #78a6ff;
+          --primary-color-text: #070a0f;
+          --accent-color: #78a6ff;
+          --error-color: #ff7e7e;
+          --shadow: 0 24px 60px rgba(0, 0, 0, 0.34);
+          --radius-xl: 30px;
+          --radius-lg: 24px;
+          --radius-md: 18px;
+          --radius-sm: 14px;
+          --glass: saturate(135%) blur(18px);
+        }
+        :host { display: block; min-height: 100%; padding: 0; max-width: none; margin: 0; font-family: Inter, SF Pro Display, SF Pro Text, Arial, sans-serif;
+          background: radial-gradient(circle at top left, rgba(120,166,255,0.12), transparent 24%), radial-gradient(circle at 80% 18%, rgba(142,216,255,0.06), transparent 18%), linear-gradient(180deg, #06090d 0%, #0b1017 100%);
+          color: var(--text); }
+        .hud-wrapper { position: relative; min-height: 100%; }
+        .hud-wrapper::before { content: ""; position: absolute; inset: 0; background: linear-gradient(rgba(255,255,255,0.018) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.018) 1px, transparent 1px); background-size: 48px 48px; opacity: 0.22; mask-image: radial-gradient(circle at center, black 42%, transparent 100%); pointer-events: none; }
+        .hud-wrapper::after { content: ""; position: absolute; inset: 14px; border: 1px solid rgba(126,166,255,0.08); border-radius: 26px; pointer-events: none; }
+        .weather-app { padding: 18px; display: grid; grid-template-rows: 78px 1fr; gap: 16px; min-height: calc(100vh - 36px); min-width: 0; }
+        .glass { background: var(--panel); border: 1px solid var(--stroke); border-radius: var(--radius-xl); box-shadow: var(--shadow); backdrop-filter: var(--glass); -webkit-backdrop-filter: var(--glass); }
+        .topbar { display: grid; grid-template-columns: 1fr auto 56px; gap: 14px; align-items: stretch; min-width: 0; }
+        .title-card, .status-card { display: flex; align-items: center; min-width: 0; padding: 0 22px; }
+        .title-card { justify-content: space-between; gap: 16px; }
+        .title-wrap { min-width: 0; }
+        .eyebrow { color: var(--muted); font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; margin-bottom: 5px; }
+        .title { font-size: 34px; line-height: 1; font-weight: 700; letter-spacing: -0.04em; }
+        .subtitle { margin-top: 6px; color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .pill { height: 34px; padding: 0 14px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.035); display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; white-space: nowrap; }
+        .status-card { gap: 10px; justify-content: center; padding: 0 14px; }
+        .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 12px rgba(99,215,160,0.42); }
+        .icon-btn { border: 1px solid var(--stroke); background: var(--panel); border-radius: 18px; box-shadow: var(--shadow); display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--text); transition: 0.16s ease; backdrop-filter: var(--glass); width: 56px; height: 56px; }
+        .icon-btn:hover { border-color: var(--stroke-2); background: var(--panel-2); }
+        .gear { width: 20px; height: 20px; border: 2px solid var(--text); border-radius: 50%; position: relative; opacity: 0.92; }
+        .gear::before { content: ""; position: absolute; inset: 5px; border: 2px solid var(--text); border-radius: 50%; }
+        .content { display: grid; grid-template-columns: 1.26fr 0.94fr; grid-template-rows: 1fr 0.92fr; gap: 16px; min-width: 0; min-height: 0; }
+        .hero { grid-column: 1; grid-row: 1; }
+        .highlights { grid-column: 2; grid-row: 1; }
+        .forecast { grid-column: 1; grid-row: 2; }
+        .bottom-right { grid-column: 2; grid-row: 2; }
+        .card { min-width: 0; min-height: 0; padding: 18px 20px 20px; display: flex; flex-direction: column; }
+        .card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+        .card-title { font-size: 14px; font-weight: 700; letter-spacing: -0.01em; }
+        .card-sub { margin-top: 4px; font-size: 12px; color: var(--muted); }
+        .tag { height: 28px; padding: 0 12px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.04); display: inline-flex; align-items: center; color: var(--blue-2); font-size: 11px; white-space: nowrap; }
+        .hero-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 1.06fr 0.94fr; gap: 18px; align-items: center; }
+        .hero-left { display: flex; flex-direction: column; justify-content: space-between; min-height: 0; }
+        .condition-row { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
+        .condition-row .weather-icon { width: 80px; height: 80px; flex: 0 0 auto; display: flex; align-items: center; justify-content: center; }
+        .condition-row .weather-icon img { width: 88px; height: 72px; object-fit: contain; }
+        .temp-row { display: flex; align-items: flex-start; gap: 10px; }
+        .temp-row .value { font-size: clamp(92px, 8vw, 132px); line-height: 0.84; font-weight: 700; letter-spacing: -0.08em; }
+        .temp-row .unit { margin-top: 14px; font-size: 28px; font-weight: 700; color: var(--blue-2); }
+        .hero-meta { margin-top: 10px; color: var(--muted); font-size: 14px; display: flex; flex-wrap: wrap; gap: 10px 18px; }
+        .time-block { margin-top: 20px; }
+        .time-block .time { font-size: 34px; font-weight: 700; letter-spacing: -0.04em; }
+        .time-block .date { margin-top: 6px; color: var(--muted); font-size: 15px; }
+        .time-block .condition { margin-top: 14px; font-size: 22px; font-weight: 600; letter-spacing: -0.02em; }
+        .hero-note { margin-top: 8px; color: var(--muted); font-size: 13px; line-height: 1.45; max-width: 90%; }
+        .orbital { position: relative; display: flex; align-items: center; justify-content: center; min-height: 0; height: 100%; }
+        .orbital::before, .orbital::after { content: ""; position: absolute; background: rgba(255,255,255,0.05); pointer-events: none; }
+        .orbital::before { left: 10%; right: 10%; top: 50%; height: 1px; }
+        .orbital::after { top: 10%; bottom: 10%; left: 50%; width: 1px; }
+        .ring-shell { width: min(100%, 360px); aspect-ratio: 1; position: relative; display: grid; place-items: center; border-radius: 50%; background: radial-gradient(circle at center, transparent 58%, rgba(255,255,255,0.08) 58%, rgba(255,255,255,0.08) 60%, transparent 60%), radial-gradient(circle at center, transparent 72%, rgba(255,255,255,0.06) 72%, rgba(255,255,255,0.06) 73%, transparent 73%); }
+        .ring { width: 72%; aspect-ratio: 1; border-radius: 50%; border: 12px solid var(--blue); background: rgba(255,255,255,0.03); box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06); display: grid; place-items: center; position: relative; }
+        .ring::before { content: ""; position: absolute; top: -8px; left: 50%; transform: translateX(-50%); width: 16px; height: 16px; border-radius: 50%; background: var(--cyan); }
+        .ring-center { text-align: center; }
+        .ring-center .small { font-size: 10px; text-transform: uppercase; letter-spacing: 0.16em; color: var(--muted); }
+        .ring-center .big { margin-top: 8px; font-size: clamp(44px, 4vw, 60px); font-weight: 700; letter-spacing: -0.06em; }
+        .ring-center .state { margin-top: 6px; font-size: 12px; color: var(--blue-2); letter-spacing: 0.08em; white-space: nowrap; }
+        .highlights-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .highlight { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: 22px; padding: 16px; min-height: 120px; display: flex; flex-direction: column; justify-content: space-between; }
+        .highlight .top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+        .highlight .label { color: var(--muted); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; }
+        .highlight .icon { font-size: 16px; opacity: 0.95; }
+        .highlight .icon img { width: 24px; height: 24px; object-fit: contain; }
+        .highlight .value { font-size: 32px; font-weight: 700; letter-spacing: -0.04em; }
+        .highlight .sub { color: var(--muted); font-size: 11px; }
+        .forecast-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+        .switcher { display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: 999px; padding: 4px; }
+        .switcher button { height: 30px; padding: 0 14px; border: 0; border-radius: 999px; background: transparent; color: var(--muted); font-size: 12px; cursor: pointer; transition: 0.16s ease; }
+        .switcher button.active { background: rgba(120,166,255,0.2); color: var(--text); }
+        .forecast-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(7, 1fr); gap: 10px; }
+        .forecast-card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: 22px; padding: 16px 12px; display: flex; flex-direction: column; align-items: center; justify-content: space-between; min-height: 160px; text-align: center; }
+        .forecast-card.active { background: rgba(120,166,255,0.12); border-color: rgba(153,188,255,0.16); }
+        .forecast-card .day { font-size: 12px; color: var(--text); font-weight: 600; }
+        .forecast-card .icon { margin: 10px 0 8px; display: flex; align-items: center; justify-content: center; }
+        .forecast-card .icon img { width: 48px; height: 40px; object-fit: contain; }
+        .forecast-card .temps { line-height: 1.25; }
+        .forecast-card .high { font-size: 28px; font-weight: 700; letter-spacing: -0.04em; }
+        .forecast-card .low { color: var(--muted); font-size: 16px; }
+        .forecast-card .rain { margin-top: 8px; color: var(--blue-2); font-size: 12px; font-weight: 600; }
+        .forecast-scroll-24h { flex: 1; min-height: 0; display: flex; gap: 10px; overflow-x: auto; padding-bottom: 8px; scrollbar-width: thin; }
+        .forecast-scroll-24h::-webkit-scrollbar { height: 4px; }
+        .forecast-scroll-24h::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 2px; }
+        .bottom-right-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: 0.92fr 1.08fr; gap: 10px; }
+        .moon-card, .hourly-card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: 24px; padding: 16px; min-height: 0; }
+        .moon-card { display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; }
+        .moon-card .moon-icon { width: 84px; height: 84px; margin-bottom: 18px; }
+        .moon-card .moon-icon img { width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 2px 8px rgba(0,0,0,0.2)); }
+        .moon-title { font-size: 20px; font-weight: 600; letter-spacing: -0.02em; }
+        .moon-sub { margin-top: 6px; color: var(--muted); font-size: 13px; }
+        .hourly-card { display: flex; flex-direction: column; }
+        .hourly-title { color: var(--muted); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; margin-bottom: 14px; }
+        .chart-container { flex: 1; min-height: 200px; width: 100%; }
+        .footer-note { position: absolute; right: 22px; bottom: 18px; color: rgba(255,255,255,0.28); font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; pointer-events: none; }
+        @media (max-width: 1450px) { .forecast-grid { grid-template-columns: repeat(4, 1fr); } }
+        @media (max-width: 1180px) { .weather-app { min-height: 1600px; } .content { grid-template-columns: 1fr; grid-template-rows: auto; } .hero, .highlights, .forecast, .bottom-right { grid-column: auto; grid-row: auto; } .hero-body, .bottom-right-grid { grid-template-columns: 1fr; } .topbar { grid-template-columns: 1fr auto; } .status-card { display: none; } }
         .loading, .error { text-align: center; padding: 48px 16px; color: var(--secondary-text-color); }
         .error { color: var(--error-color); }
         .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px solid var(--divider-color); flex-wrap: wrap; gap: 12px; }
@@ -810,35 +934,62 @@ class HomeWeatherPanel extends HTMLElement {
         .chart-title { font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--secondary-text-color); margin-bottom: 16px; }
         .chart-container { min-height: 280px; }
       </style>
-      <div class="${this._isNarrow ? "narrow" : ""}">
-        <div class="header">
-          <div class="header-left">
-            <button class="hamburger" id="hamburger-btn" aria-label="Open Home Assistant sidebar">
-              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></svg>
-            </button>
-            <h1>Home Weather</h1>
-          </div>
-          <div class="header-right">
-            ${this._currentView === "forecast"
-              ? `<button class="header-btn" id="settings-btn" aria-label="Settings" data-view="settings">
-                  <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19.14 12.94c.04-.31.06-.63.06-.94 0-.31-.02-.63-.06-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
-                </button>`
-              : `<button class="header-btn" id="back-btn" aria-label="Back to dashboard" data-view="forecast">
+      ${this._currentView === "forecast"
+        ? `<div class="hud-wrapper">
+            <div class="weather-app">
+              <header class="topbar">
+                ${this._isNarrow ? `<button class="hamburger icon-btn" id="hamburger-btn" aria-label="Open sidebar" style="width:48px;height:48px;"><svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></svg></button>` : ""}
+                <section class="glass title-card">
+                  <div class="title-wrap">
+                    <div class="eyebrow">WEATHER DASHBOARD</div>
+                    <div class="title">Home Weather</div>
+                    <div class="subtitle">A cleaner high fidelity weather HUD for wall display or tablet</div>
+                  </div>
+                </section>
+                <section class="glass status-card">
+                  <div class="pill"><span class="status-dot"></span>Live</div>
+                  <div class="pill">${this._forecastView === "7day" ? "7 Day" : "24 Hour"}</div>
+                  <div class="pill">Updated Now</div>
+                </section>
+                <button class="icon-btn" id="gear-btn" aria-label="Settings">
+                  <div class="gear"></div>
+                </button>
+              </header>
+              ${this._renderContent()}
+            </div>
+            <div class="footer-note">Home Weather</div>
+          </div>`
+        : `<div class="${this._isNarrow ? "narrow" : ""}">
+            <div class="header">
+              <div class="header-left">
+                <button class="hamburger" id="hamburger-btn" aria-label="Open Home Assistant sidebar">
+                  <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></svg>
+                </button>
+                <h1>Home Weather</h1>
+              </div>
+              <div class="header-right">
+                <button class="header-btn" id="back-btn" aria-label="Back to dashboard" data-view="forecast">
                   <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
                   <span style="margin-left:6px;font-size:14px">Back to dashboard</span>
-                </button>`
-            }
-          </div>
-        </div>
-      </div>
-      ${this._renderContent()}
+                </button>
+              </div>
+            </div>
+            ${this._renderContent()}
+          </div>`
+      }
     `;
     s.getElementById("hamburger-btn")?.addEventListener("click", () => {
       this.dispatchEvent(new CustomEvent("hass-toggle-menu", { bubbles: true, composed: true }));
     });
     const settingsBtn = s.getElementById("settings-btn");
+    const gearBtn = s.getElementById("gear-btn");
     const backBtn = s.getElementById("back-btn");
     if (settingsBtn) settingsBtn.addEventListener("click", () => {
+      this._currentView = "settings";
+      this._render();
+      this._loadWebhookInfo();
+    });
+    if (gearBtn) gearBtn.addEventListener("click", () => {
       this._currentView = "settings";
       this._render();
       this._loadWebhookInfo();
@@ -848,7 +999,7 @@ class HomeWeatherPanel extends HTMLElement {
       this._attachSettingsHandlers();
     } else if (this._currentView === "forecast") {
       this._initApexChart();
-      s.querySelectorAll(".forecast-tab").forEach((btn) => {
+      s.querySelectorAll(".switcher button, .forecast-tab").forEach((btn) => {
         btn.addEventListener("click", () => {
           this._forecastView = btn.dataset.view || "7day";
           this._render();
@@ -1155,15 +1306,27 @@ class HomeWeatherPanel extends HTMLElement {
   }
 
   _renderContent() {
-    if (!this._hass) return `<div class="loading">Connecting...</div>`;
-    if (this._loading && !this._config) return `<div class="loading">Loading...</div>`;
-    if (this._error && !this._config) return `<div class="error">${String(this._error)}</div>`;
+    if (!this._hass) {
+      return this._currentView === "forecast"
+        ? `<section class="content"><article class="glass card" style="grid-column:1/-1;padding:48px;text-align:center"><div class="loading">Connecting...</div></article></section>`
+        : `<div class="loading">Connecting...</div>`;
+    }
+    if (this._loading && !this._config) {
+      return this._currentView === "forecast"
+        ? `<section class="content"><article class="glass card" style="grid-column:1/-1;padding:48px;text-align:center"><div class="loading">Loading...</div></article></section>`
+        : `<div class="loading">Loading...</div>`;
+    }
+    if (this._error && !this._config) {
+      return this._currentView === "forecast"
+        ? `<section class="content"><article class="glass card" style="grid-column:1/-1;padding:48px;text-align:center"><div class="error">${String(this._error)}</div></article></section>`
+        : `<div class="error">${String(this._error)}</div>`;
+    }
     return this._currentView === "forecast" ? this._renderForecast() : this._renderSettings();
   }
 
   _renderForecast() {
     if (!this._weatherData || !this._weatherData.configured) {
-      return `<div class="error">Weather data not available. Please configure the integration in Settings.</div>`;
+      return `<section class="content"><article class="glass card" style="grid-column:1/-1;padding:48px;text-align:center"><div class="error">Weather data not available. Please configure the integration in Settings.</div></article></section>`;
     }
     const current = this._weatherData.current || {};
     const hourly = this._weatherData.hourly_forecast || [];
@@ -1225,106 +1388,149 @@ class HomeWeatherPanel extends HTMLElement {
     const timeStr = now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
     const dateStr = now.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" });
 
+    const tempUnit = this._useFahrenheit ? "°F" : "°C";
+    const highlightsWithSub = [
+      { icon: "thermometer-warmer.svg", label: "Feels Like", value: feelsLike != null ? `${feelsLike}°` : "—", sub: "Cold wind effect" },
+      { icon: "humidity.svg", label: "Humidity", value: humidity != null ? `${humidity}%` : "—", sub: "Moderate moisture" },
+      { icon: "wind.svg", label: "Wind", value: windSpeed != null ? `${Math.round(windSpeed)} ${windUnit}` : "—", sub: "Breezy" },
+      { icon: "raindrop.svg", label: "Precip", value: `${Math.round(precipChance)}%`, sub: "Chance today" },
+      { icon: "uv-index.svg", label: "UV Index", value: uvIndex != null ? String(uvIndex) : "—", sub: uvIndex != null && uvIndex > 5 ? "High exposure" : "Moderate" },
+      { icon: "barometer.svg", label: "Pressure", value: pressure != null ? `${pressure} ${pressureUnit}` : "—", sub: "Steady" },
+    ];
+
     return `
-      <div class="weather-dashboard">
-        <!-- Top Row: Hero + Highlights -->
-        <div class="bento-grid">
-          <div class="bento-card hero-card">
-            <div class="hero-top">
-              <div class="hero-main">
-                <div class="hero-icon">${this._getConditionIcon(condition, "large", now)}</div>
-                <div class="hero-temp-block">
-                  <div class="hero-temp">${temp}°</div>
-                  <div class="hero-hilo">
-                    ${hiTemp != null ? `<span>H: ${hiTemp}°</span>` : ""}
-                    ${loTemp != null ? `<span>L: ${loTemp}°</span>` : ""}
+      <section class="content">
+        <article class="glass card hero">
+          <div class="card-head">
+            <div>
+              <div class="card-title">Current Conditions</div>
+              <div class="card-sub">Local snapshot with live time, temperature, and wind</div>
+            </div>
+            <div class="tag">Now</div>
+          </div>
+          <div class="hero-body">
+            <div class="hero-left">
+              <div>
+                <div class="condition-row">
+                  <div class="weather-icon">${this._getConditionIcon(condition, "large", now)}</div>
+                </div>
+                <div class="temp-row">
+                  <div class="value">${temp}</div>
+                  <div class="unit">°</div>
+                </div>
+                <div class="hero-meta">
+                  ${hiTemp != null ? `<span>H: ${hiTemp}°</span>` : ""}
+                  ${loTemp != null ? `<span>L: ${loTemp}°</span>` : ""}
+                  ${windSpeed != null ? `<span>Wind ${Math.round(windSpeed)} ${windUnit}</span>` : ""}
+                  ${windGusts != null ? `<span>Gusts ${Math.round(windGusts)} ${windUnit}</span>` : ""}
+                </div>
+                <div class="time-block">
+                  <div class="time">${timeStr}</div>
+                  <div class="date">${dateStr}</div>
+                  <div class="condition">${this._getConditionLabel(condition, now)}</div>
+                  <div class="hero-note">Local conditions with live data</div>
+                </div>
+              </div>
+            </div>
+            <div class="orbital">
+              <div class="ring-shell">
+                <div class="ring">
+                  <div class="ring-center">
+                    <div class="small">Feels Like</div>
+                    <div class="big">${feelsLike != null ? feelsLike + "°" : "—"}</div>
+                    <div class="state">Humidity ${humidity != null ? humidity + "%" : "—"}</div>
                   </div>
                 </div>
               </div>
-              <div class="hero-datetime">
-                <div class="hero-time">${timeStr}</div>
-                <div class="hero-date">${dateStr}</div>
-              </div>
-            </div>
-            <div class="hero-condition">${this._getConditionLabel(condition, now)}</div>
-            <div class="hero-wind-row">
-              ${windSpeed != null ? `<span><img src="/local/home_weather/icons/wind.svg" alt=""/>Wind: ${Math.round(windSpeed)} ${windUnit}</span>` : ""}
-              ${windGusts != null ? `<span><img src="/local/home_weather/icons/windsock.svg" alt=""/>Gusts: ${Math.round(windGusts)} ${windUnit}</span>` : ""}
             </div>
           </div>
-          <div class="bento-card highlights-card">
-            <div class="highlights-title">Today's Highlights</div>
-            <div class="highlights-grid">
-              ${highlights.map((h) => `
-                <div class="highlight-item">
-                  <img src="/local/home_weather/icons/${h.icon}" alt="" class="highlight-icon" loading="lazy"/>
-                  <div class="highlight-value">${h.value}</div>
-                  <div class="highlight-label">${h.label}</div>
+        </article>
+
+        <article class="glass card highlights">
+          <div class="card-head">
+            <div>
+              <div class="card-title">Today's Highlights</div>
+              <div class="card-sub">Key metrics at a glance</div>
+            </div>
+          </div>
+          <div class="highlights-grid">
+            ${highlightsWithSub.map((h) => `
+              <div class="highlight">
+                <div class="top">
+                  <span class="label">${h.label}</span>
+                  <span class="icon"><img src="/local/home_weather/icons/${h.icon}" alt="" loading="lazy"/></span>
                 </div>
-              `).join("")}
-            </div>
-          </div>
-        </div>
-
-        <!-- Second Row: Forecast + Moon -->
-        <div class="forecast-row">
-          <div class="forecast-card-container">
-            <div class="forecast-header">
-              <div class="forecast-title">Forecast</div>
-              <div class="forecast-tabs">
-                <button class="forecast-tab ${this._forecastView === "7day" ? "active" : ""}" data-view="7day">7 Day</button>
-                <button class="forecast-tab ${this._forecastView === "24h" ? "active" : ""}" data-view="24h">24 Hour</button>
+                <div class="value">${h.value}</div>
+                <div class="sub">${h.sub}</div>
               </div>
-            </div>
-            <div class="forecast-scroll">
-              ${this._forecastView === "24h"
-                ? hourly.slice(0, 24).map((h, i) => {
-                    const hTemp = h.temperature != null ? Math.round(h.temperature) : "—";
-                    const precipVal = this._formatPrecip(h.precipitation_probability);
-                    const timeLabel = i === 0 ? "Now" : this._formatTime(h.datetime);
-                    return `
-                      <div class="forecast-item ${i === 0 ? "current" : ""}">
-                        <div class="forecast-item-day">${timeLabel}</div>
-                        <div class="forecast-item-icon">${this._getConditionIcon(h.condition, null, h.datetime)}</div>
-                        <div class="forecast-item-temp">${hTemp}°</div>
-                        <div class="forecast-item-precip">${precipVal}</div>
-                      </div>
-                    `;
-                  }).join("")
-                : daily.map((d, i) => {
-                    const dHi = d.temperature != null ? Math.round(d.temperature) : "—";
-                    const dLo = d.templow != null ? Math.round(d.templow) : "—";
-                    const precipVal = this._formatPrecip(d.precipitation_probability);
-                    const dayLabel = this._formatDayLabel(d.datetime);
-                    return `
-                      <div class="forecast-item ${i === 0 ? "current" : ""}">
-                        <div class="forecast-item-day">${dayLabel}</div>
-                        <div class="forecast-item-icon">${this._getConditionIcon(d.condition, null, null, true)}</div>
-                        <div class="forecast-item-temp">${dHi}°</div>
-                        <div class="forecast-item-low">${dLo}°</div>
-                        <div class="forecast-item-precip">${precipVal}</div>
-                      </div>
-                    `;
-                  }).join("")
-              }
-            </div>
+            `).join("")}
           </div>
-          <div class="moon-card">
-            <div class="moon-title">Moon Phase</div>
-            <div class="moon-icon">
-              <img src="/local/home_weather/icons/Moon%20Phase/${moon.icon}.svg" alt="${moon.name}" loading="lazy"/>
-            </div>
-            <div class="moon-name">${moon.name}</div>
-            <div class="moon-details">${moon.illumination}% illuminated</div>
-          </div>
-        </div>
+        </article>
 
-        <!-- Third Row: Chart -->
-        <div class="chart-card">
-          <div class="chart-title">24-Hour Overview</div>
-          <div class="chart-container" id="apex-chart-combined"></div>
+        <article class="glass card forecast">
+          <div class="forecast-top">
+            <div class="card-title">Forecast</div>
+            <div class="switcher">
+              <button class="${this._forecastView === "7day" ? "active" : ""}" data-view="7day">7 Day</button>
+              <button class="${this._forecastView === "24h" ? "active" : ""}" data-view="24h">24 Hour</button>
+            </div>
+          </div>
+          ${this._forecastView === "7day"
+            ? `<div class="forecast-grid">
+                ${daily.map((d, i) => {
+                  const dHi = d.temperature != null ? Math.round(d.temperature) : "—";
+                  const dLo = d.templow != null ? Math.round(d.templow) : "—";
+                  const precipVal = this._formatPrecip(d.precipitation_probability);
+                  const dayLabel = this._formatDayLabel(d.datetime);
+                  return `
+                    <div class="forecast-card ${i === 0 ? "active" : ""}">
+                      <div class="day">${dayLabel}</div>
+                      <div class="icon">${this._getConditionIcon(d.condition, null, null, true)}</div>
+                      <div class="temps">
+                        <div class="high">${dHi}°</div>
+                        <div class="low">${dLo}°</div>
+                      </div>
+                      <div class="rain">${precipVal}</div>
+                    </div>
+                  `;
+                }).join("")}
+              </div>`
+            : `<div class="forecast-scroll-24h">
+              ${hourly.slice(0, 24).map((h, i) => {
+                const hTemp = h.temperature != null ? Math.round(h.temperature) : "—";
+                const precipVal = this._formatPrecip(h.precipitation_probability);
+                const timeLabel = i === 0 ? "Now" : this._formatTime(h.datetime);
+                return `
+                  <div class="forecast-card ${i === 0 ? "active" : ""}">
+                    <div class="day">${timeLabel}</div>
+                    <div class="icon">${this._getConditionIcon(h.condition, null, h.datetime)}</div>
+                    <div class="temps">
+                      <div class="high">${hTemp}°</div>
+                    </div>
+                    <div class="rain">${precipVal}</div>
+                  </div>
+                `;
+              }).join("")}
+            </div>`
+          }
+        </article>
+
+        <div class="bottom-right">
+          <div class="bottom-right-grid">
+            <div class="moon-card">
+              <div class="moon-icon">
+                <img src="/local/home_weather/icons/Moon%20Phase/${moon.icon}.svg" alt="${moon.name}" loading="lazy"/>
+              </div>
+              <div class="moon-title">${moon.name}</div>
+              <div class="moon-sub">${moon.illumination}% illuminated</div>
+            </div>
+            <div class="hourly-card">
+              <div class="hourly-title">24 Hour Overview</div>
+              <div class="chart-container" id="apex-chart-combined"></div>
+            </div>
+          </div>
         </div>
-      </div>
+      </section>
     `;
   }
 
