@@ -29,6 +29,11 @@ from .tts_notifications import (
     build_current_change_message,
     build_upcoming_change_message,
     build_webhook_message,
+    build_sunrise_upcoming_message,
+    build_sunrise_final_message,
+    build_sunset_upcoming_message,
+    build_sunset_final_message,
+    send_tts,
     send_tts_with_ai_rewrite,
 )
 
@@ -58,6 +63,9 @@ class TTSTriggerManager:
         self._last_condition: str | None = None
         self._upcoming_alert_fired: set[str] = set()  # Track which hours already alerted
         self._registered_webhooks: list[str] = []  # Track registered webhook IDs
+        self._sun_alerts_last_upcoming: dict[str, datetime] = {}  # event_key -> last announce
+        self._sun_alerts_final_fired: set[str] = set()  # event_key for sunrise/sunset final
+        self._sun_alert_state: dict[str, Any] = {}  # Track sun alert announcements
 
     async def async_setup(self) -> None:
         """Set up all enabled triggers based on config."""
@@ -91,6 +99,11 @@ class TTSTriggerManager:
         # Voice satellite trigger
         if tts_config.get("enable_voice_satellite", False):
             await self._setup_voice_satellite_trigger(tts_config)
+        
+        # Sun alerts (sunrise/sunset TTS and automation)
+        sun_alerts = config.get("sun_alerts", {})
+        if sun_alerts.get("enabled", False):
+            await self._setup_sun_alerts_trigger(config)
         
         _LOGGER.info("TTS triggers set up successfully")
 
@@ -423,6 +436,155 @@ class TTSTriggerManager:
             _LOGGER.info("Voice satellite commands configured: %s", commands)
         except Exception as e:
             _LOGGER.warning("Voice satellite setup not fully supported: %s", e)
+
+    async def _setup_sun_alerts_trigger(self, config: dict[str, Any]) -> None:
+        """Set up sunrise/sunset TTS and automation triggers.
+
+        Uses sun.sun entity's next_rising/next_setting. Runs every 60 seconds.
+        At minutes_before: TTS upcoming message, repeat at interval_minutes.
+        At sunrise/sunset (±1 min): TTS final message, then trigger automation if enabled.
+        """
+        sun_alerts = config.get("sun_alerts", {})
+        media_players = config.get("media_players", [])
+        if not media_players:
+            _LOGGER.warning("No media players for sun alerts TTS, skipping")
+            return
+
+        def _parse_sun_time(val: str | None) -> datetime | None:
+            if not val:
+                return None
+            try:
+                dt = dt_util.parse_datetime(str(val).replace("Z", "+00:00"))
+                return dt_util.as_local(dt) if dt and dt.tzinfo else dt
+            except Exception:
+                return None
+
+        @callback
+        def _check_sun_alerts(now: datetime) -> None:
+            self.hass.async_create_task(self._check_sun_alerts_async(config))
+
+        unsub = async_track_time_interval(
+            self.hass,
+            _check_sun_alerts,
+            timedelta(minutes=1),
+        )
+        self._unsub_callbacks.append(unsub)
+        _LOGGER.debug("Sun alerts trigger set up (check every 60s)")
+
+    async def _check_sun_alerts_async(self, config: dict[str, Any]) -> None:
+        """Check sunrise/sunset and fire TTS/automation as needed."""
+        sun_alerts = config.get("sun_alerts", {})
+        media_players = config.get("media_players", [])
+        if not media_players or not sun_alerts.get("enabled"):
+            return
+
+        sun_state = self.hass.states.get("sun.sun")
+        if not sun_state or not sun_state.attributes:
+            return
+
+        now = dt_util.now()
+        today_key = now.strftime("%Y-%m-%d")
+
+        # Reset daily: clear final_fired and last_upcoming from previous days
+        self._sun_alerts_final_fired = {k for k in self._sun_alerts_final_fired if k.endswith(f"_{today_key}")}
+        self._sun_alerts_last_upcoming = {k: v for k, v in self._sun_alerts_last_upcoming.items() if k.endswith(f"_{today_key}")}
+
+        def _parse(val: str | None) -> datetime | None:
+            if not val:
+                return None
+            try:
+                dt = dt_util.parse_datetime(str(val).replace("Z", "+00:00"))
+                return dt_util.as_local(dt) if dt and dt.tzinfo else dt
+            except Exception:
+                return None
+
+        next_rising = _parse(sun_state.attributes.get("next_rising"))
+        next_setting = _parse(sun_state.attributes.get("next_setting"))
+
+        # Sunrise TTS and automation
+        sunrise_tts = sun_alerts.get("sunrise_tts") or {}
+        sunrise_auto = sun_alerts.get("sunrise_automation") or {}
+        if sunrise_tts.get("enabled") and next_rising:
+            mins_before = sunrise_tts.get("minutes_before", 15)
+            interval = sunrise_tts.get("interval_minutes", 5)
+            window_start = next_rising - timedelta(minutes=mins_before)
+            event_key_up = f"sunrise_up_{today_key}"
+            event_key_final = f"sunrise_final_{today_key}"
+
+            if now >= next_rising:
+                diff_mins = (now - next_rising).total_seconds() / 60
+                if diff_mins <= 1 and event_key_final not in self._sun_alerts_final_fired:
+                    self._sun_alerts_final_fired.add(event_key_final)
+                    automation_triggered = False
+                    if sunrise_auto.get("enabled") and sunrise_auto.get("entity_id"):
+                        try:
+                            await self.hass.services.async_call(
+                                "automation",
+                                "trigger",
+                                {"entity_id": sunrise_auto["entity_id"]},
+                            )
+                            automation_triggered = True
+                            _LOGGER.info("Sunrise automation triggered: %s", sunrise_auto["entity_id"])
+                        except Exception as e:
+                            _LOGGER.warning("Sunrise automation failed: %s", e)
+                    msg = build_sunrise_final_message(automation_triggered)
+                    await send_tts(self.hass, media_players, msg)
+                    _LOGGER.info("Sunrise final TTS sent")
+            elif window_start <= now < next_rising:
+                mins_until = int((next_rising - now).total_seconds() / 60)
+                last = self._sun_alerts_last_upcoming.get(event_key_up)
+                if last is None or (now - last).total_seconds() >= interval * 60:
+                    self._sun_alerts_last_upcoming[event_key_up] = now
+                    msg = build_sunrise_upcoming_message(mins_until)
+                    await send_tts(self.hass, media_players, msg)
+                    _LOGGER.info("Sunrise upcoming TTS: %d minutes", mins_until)
+
+        # Sunset TTS and automation
+        sunset_tts = sun_alerts.get("sunset_tts") or {}
+        sunset_auto = sun_alerts.get("sunset_automation") or {}
+        if sunset_tts.get("enabled") and next_setting:
+            mins_before = sunset_tts.get("minutes_before", 15)
+            interval = sunset_tts.get("interval_minutes", 5)
+            window_start = next_setting - timedelta(minutes=mins_before)
+            event_key_up = f"sunset_up_{today_key}"
+            event_key_final = f"sunset_final_{today_key}"
+
+            if now >= next_setting:
+                diff_mins = (now - next_setting).total_seconds() / 60
+                if diff_mins <= 1 and event_key_final not in self._sun_alerts_final_fired:
+                    self._sun_alerts_final_fired.add(event_key_final)
+                    automation_triggered = False
+                    if sunset_auto.get("enabled") and sunset_auto.get("entity_id"):
+                        try:
+                            await self.hass.services.async_call(
+                                "automation",
+                                "trigger",
+                                {"entity_id": sunset_auto["entity_id"]},
+                            )
+                            automation_triggered = True
+                            _LOGGER.info("Sunset automation triggered: %s", sunset_auto["entity_id"])
+                        except Exception as e:
+                            _LOGGER.warning("Sunset automation failed: %s", e)
+                    msg = build_sunset_final_message(automation_triggered)
+                    await send_tts(self.hass, media_players, msg)
+                    _LOGGER.info("Sunset final TTS sent")
+            elif window_start <= now < next_setting:
+                mins_until = int((next_setting - now).total_seconds() / 60)
+                last = self._sun_alerts_last_upcoming.get(event_key_up)
+                if last is None or (now - last).total_seconds() >= interval * 60:
+                    self._sun_alerts_last_upcoming[event_key_up] = now
+                    msg = build_sunset_upcoming_message(mins_until)
+                    await send_tts(self.hass, media_players, msg)
+                    _LOGGER.info("Sunset upcoming TTS: %d minutes", mins_until)
+
+        # Reset final-fired for new day (keep keys from last 2 days max)
+        cutoff = (now - timedelta(days=1)).strftime("%Y-%m-%d")
+        self._sun_alerts_final_fired = {k for k in self._sun_alerts_final_fired if k.split("_")[-1] >= cutoff}
+        cutoff_up = (now - timedelta(minutes=60)).strftime("%Y-%m-%d %H:%M")
+        self._sun_alerts_last_upcoming = {
+            k: v for k, v in self._sun_alerts_last_upcoming.items()
+            if v.strftime("%Y-%m-%d %H:%M") >= cutoff_up[:10]
+        }
 
     async def _fire_scheduled_forecast(self, target_media_player: str = "") -> None:
         """Fire a scheduled forecast TTS.

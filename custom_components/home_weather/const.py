@@ -41,6 +41,13 @@ DEFAULT_CONFIG: Final = {
     # Each media player has its own complete TTS config
     "media_players": [],  # list of { entity_id, tts_entity_id, volume, preroll_ms, cache, language, options }
     "message_prefix": "Here's your weather forecast",
+    "sun_alerts": {
+        "enabled": False,
+        "sunrise_tts": {"enabled": False, "minutes_before": 15, "interval_minutes": 5},
+        "sunset_tts": {"enabled": False, "minutes_before": 15, "interval_minutes": 5},
+        "sunrise_automation": {"enabled": False, "entity_id": ""},
+        "sunset_automation": {"enabled": False, "entity_id": ""},
+    },
 }
 
 # Update interval for weather coordinator (5 minutes)

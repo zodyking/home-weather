@@ -421,6 +421,66 @@ def build_current_change_message(
         return f"{greeting_time}, weather alert. Conditions have changed to {new_cond}."
 
 
+# ============================================================================
+# Sunrise/Sunset TTS Messages
+# ============================================================================
+
+def build_sunrise_upcoming_message(minutes_until: int) -> str:
+    """Build TTS message for upcoming sunrise.
+
+    Format: 'Good morning, the time is currently {time}. The sun is going to
+    rise in {minutes} minutes.'
+    """
+    greeting = "Good morning"
+    time_spoken = _spell_time(dt_util.now())
+    mins = _spell_number(minutes_until)
+    mins_phrase = "1 minute" if minutes_until == 1 else f"{mins} minutes"
+    return f"{greeting}, the time is currently {time_spoken}. The sun is going to rise in {mins_phrase}."
+
+
+def build_sunrise_final_message(automation_triggered: bool) -> str:
+    """Build TTS message when sunrise has occurred.
+
+    Format: 'Good morning, the time is currently {time}. The sun has risen.'
+    + if automation: 'Your sun rise automation has been triggered.'
+    """
+    greeting = "Good morning"
+    time_spoken = _spell_time(dt_util.now())
+    msg = f"{greeting}, the time is currently {time_spoken}. The sun has risen."
+    if automation_triggered:
+        msg += " Your sun rise automation has been triggered."
+    return msg
+
+
+def build_sunset_upcoming_message(minutes_until: int) -> str:
+    """Build TTS message for upcoming sunset.
+
+    Format: 'Good evening, the time is currently {time}. The sun is going to
+    set in {minutes} minutes.'
+    """
+    hour = datetime.now().hour
+    greeting = "Good evening" if hour < 21 else "Good night"
+    time_spoken = _spell_time(dt_util.now())
+    mins = _spell_number(minutes_until)
+    mins_phrase = "1 minute" if minutes_until == 1 else f"{mins} minutes"
+    return f"{greeting}, the time is currently {time_spoken}. The sun is going to set in {mins_phrase}."
+
+
+def build_sunset_final_message(automation_triggered: bool) -> str:
+    """Build TTS message when sunset has occurred.
+
+    Format: 'Good evening, the time is currently {time}. The sun has set.'
+    + if automation: 'Your sun set automation has been triggered.'
+    """
+    hour = datetime.now().hour
+    greeting = "Good evening" if hour < 21 else "Good night"
+    time_spoken = _spell_time(dt_util.now())
+    msg = f"{greeting}, the time is currently {time_spoken}. The sun has set."
+    if automation_triggered:
+        msg += " Your sun set automation has been triggered."
+    return msg
+
+
 def build_upcoming_change_message(
     precip_kind: str,
     minutes_until: int,

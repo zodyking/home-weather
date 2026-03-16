@@ -210,6 +210,9 @@ class HomeWeatherPanel extends HTMLElement {
       // Collect all TTS settings using helper
       this._settings.tts = this._collectTtsSettings();
       
+      // Collect sun alerts
+      this._settings.sun_alerts = this._collectSunAlertsSettings();
+      
       // Collect message prefix
       const messagePrefix = s.getElementById("message-prefix");
       if (messagePrefix) this._settings.message_prefix = messagePrefix.value || "Weather update";
@@ -365,6 +368,7 @@ class HomeWeatherPanel extends HTMLElement {
       ai_task: "ai_task.",
       switch: "switch.",
       light: "light.",
+      automation: "automation.",
       all: "", // all entities
     };
     const prefix = prefixMap[entityType] || "";
@@ -648,6 +652,13 @@ class HomeWeatherPanel extends HTMLElement {
     return condition || "—";
   }
 
+  _formatConditionText(condition) {
+    if (!condition || !String(condition).trim()) return "—";
+    return String(condition)
+      .replace(/_/g, " ")
+      .replace(/\b\w/g, (c) => c.toUpperCase());
+  }
+
   _getConditionIcon(condition, size, datetime, forceDay = false) {
     const c = (condition || "").toLowerCase().replace(/\s+/g, "");
     const isNight = forceDay ? false : this._isNightTime(datetime);
@@ -763,16 +774,16 @@ class HomeWeatherPanel extends HTMLElement {
         .hud-wrapper { position: relative; min-height: 100%; overflow: auto; }
         .hud-wrapper::before { content: ""; position: absolute; inset: 0; background: linear-gradient(rgba(255,255,255,0.018) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.018) 1px, transparent 1px); background-size: 48px 48px; opacity: 0.22; mask-image: radial-gradient(circle at center, black 42%, transparent 100%); pointer-events: none; }
         .hud-wrapper::after { content: ""; position: absolute; inset: 14px; border: 1px solid rgba(126,166,255,0.08); border-radius: 26px; pointer-events: none; }
-        .weather-app { padding: 18px; display: grid; grid-template-rows: 78px 1fr; gap: 16px; height: 100%; min-height: 0; min-width: 0; }
+        .weather-app { padding: clamp(12px, 2vw, 18px); display: grid; grid-template-rows: 78px 1fr; gap: clamp(12px, 1.5vw, 16px); height: 100%; min-height: 0; min-width: 0; }
         .glass { background: var(--panel); border: 1px solid var(--stroke); border-radius: var(--radius-xl); box-shadow: var(--shadow); backdrop-filter: var(--glass); -webkit-backdrop-filter: var(--glass); }
         .topbar { display: grid; grid-template-columns: 1fr auto 56px; gap: 14px; align-items: stretch; min-width: 0; }
         .topbar .icon-btn { height: 100%; width: 56px; min-width: 56px; }
         .title-card, .status-card { display: flex; align-items: center; min-width: 0; padding: 0 22px; }
         .title-card { justify-content: space-between; gap: 16px; }
         .title-wrap { min-width: 0; }
-        .eyebrow { color: var(--muted); font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; margin-bottom: 5px; }
-        .title { font-size: 34px; line-height: 1; font-weight: 700; letter-spacing: -0.04em; }
-        .subtitle { margin-top: 6px; color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .eyebrow { color: var(--muted); font-size: clamp(9px, 1vw, 10px); letter-spacing: 0.2em; text-transform: uppercase; margin-bottom: 5px; }
+        .title { font-size: clamp(24px, 4vw, 34px); line-height: 1; font-weight: 700; letter-spacing: -0.04em; }
+        .subtitle { margin-top: 6px; color: var(--muted); font-size: clamp(11px, 1.5vw, 13px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .pill { height: 34px; padding: 0 14px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.035); display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; white-space: nowrap; }
         .status-card { gap: 10px; justify-content: center; padding: 0 14px; }
         .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 12px rgba(99,215,160,0.42); }
@@ -780,22 +791,24 @@ class HomeWeatherPanel extends HTMLElement {
         .icon-btn:hover { border-color: var(--stroke-2); background: var(--panel-2); }
         .gear { width: 20px; height: 20px; border: 2px solid var(--text); border-radius: 50%; position: relative; opacity: 0.92; }
         .gear::before { content: ""; position: absolute; inset: 5px; border: 2px solid var(--text); border-radius: 50%; }
-        .content { display: grid; grid-template-columns: 1fr 1.2fr; grid-template-rows: 1fr 0.92fr; gap: 16px; min-width: 0; min-height: 0; }
+        .content { display: grid; grid-template-columns: 1fr 1.2fr; grid-template-rows: 1fr auto; gap: clamp(12px, 1.5vw, 16px); min-width: 0; min-height: 0; }
         .hero { grid-column: 1; grid-row: 1; }
         .highlights { grid-column: 2; grid-row: 1; }
-        .forecast { grid-column: 1; grid-row: 2; min-height: 0; }
-        .bottom-right { grid-column: 2; grid-row: 2; }
-        .card { min-width: 0; min-height: 0; padding: 18px 20px 20px; display: flex; flex-direction: column; }
-        .card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
-        .card-title { font-size: 14px; font-weight: 700; letter-spacing: -0.01em; }
-        .card-sub { margin-top: 4px; font-size: 12px; color: var(--muted); }
+        .bottom-row { grid-column: 1 / -1; grid-row: 2; display: grid; grid-template-columns: 2.33fr 1fr; gap: clamp(12px, 1.5vw, 16px); min-height: 0; }
+        .forecast { min-height: 0; }
+        .bottom-right { min-height: 0; }
+        .card { min-width: 0; min-height: 0; padding: clamp(12px, 2vw, 20px); display: flex; flex-direction: column; }
+        .card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: clamp(8px, 1vw, 12px); margin-bottom: clamp(12px, 1.5vw, 16px); }
+        .card-title { font-size: clamp(12px, 1.5vw, 14px); font-weight: 700; letter-spacing: -0.01em; }
+        .card-sub { margin-top: 4px; font-size: clamp(11px, 1.2vw, 12px); color: var(--muted); }
         .tag { height: 28px; padding: 0 12px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.04); display: inline-flex; align-items: center; color: var(--blue-2); font-size: 11px; white-space: nowrap; }
         .hero-body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
         .hero-body-stack { }
         .hero-full-circle { position: relative; width: 100%; max-width: min(100%, 280px); aspect-ratio: 1; margin: 0 auto; flex-shrink: 0; }
         .hero-full-circle .ring-shell { width: 100%; height: 100%; position: relative; display: grid; place-items: center; }
         .hero-arc-top { position: absolute; inset: 0; pointer-events: none; }
-        .hero-chip { position: absolute; padding: 4px 10px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.04); font-size: 11px; color: var(--muted); white-space: nowrap; transform: translate(-50%, -50%); }
+        .hero-arc-top svg { width: 100%; height: 100%; overflow: visible; }
+        .hero-arc-top text { font-size: 11px; fill: var(--muted); }
         .hero-arc-bottom { position: absolute; bottom: 0; left: 0; right: 0; height: 36px; pointer-events: none; }
         .hero-arc-bottom svg { width: 100%; height: 100%; overflow: visible; }
         .hero-arc-bottom text { font-size: 12px; fill: var(--muted); }
@@ -806,14 +819,14 @@ class HomeWeatherPanel extends HTMLElement {
         .temp-row { display: flex; align-items: flex-start; gap: 10px; }
         .temp-row .value { font-size: clamp(92px, 8vw, 132px); line-height: 0.84; font-weight: 700; letter-spacing: -0.08em; }
         .temp-row .unit { margin-top: 14px; font-size: 28px; font-weight: 700; color: var(--blue-2); }
-        .hero-meta { margin-top: 10px; color: var(--muted); font-size: 14px; display: flex; flex-wrap: wrap; gap: 10px 18px; }
+        .hero-meta { margin-top: 10px; color: var(--muted); font-size: clamp(12px, 1.5vw, 14px); display: flex; flex-wrap: wrap; gap: clamp(8px, 1vw, 18px); }
         .time-block { margin-top: 20px; }
         .time-block .time { font-size: 34px; font-weight: 700; letter-spacing: -0.04em; }
         .time-block .date { margin-top: 6px; color: var(--muted); font-size: 15px; }
         .time-block .condition { margin-top: 14px; font-size: 22px; font-weight: 600; letter-spacing: -0.02em; }
         .hero-note { margin-top: 8px; color: var(--muted); font-size: 13px; line-height: 1.45; max-width: 90%; }
         .orbital { position: relative; display: flex; align-items: center; justify-content: center; min-height: 0; height: 100%; }
-        .ring-shell { width: min(100%, 360px); aspect-ratio: 1; position: relative; display: grid; place-items: center; border-radius: 50%; background: radial-gradient(circle at center, transparent 58%, rgba(255,255,255,0.08) 58%, rgba(255,255,255,0.08) 60%, transparent 60%), radial-gradient(circle at center, transparent 72%, rgba(255,255,255,0.06) 72%, rgba(255,255,255,0.06) 73%, transparent 73%); }
+        .ring-shell { width: min(100%, 360px); aspect-ratio: 1; position: relative; display: grid; place-items: center; border-radius: 50%; }
         .ring { width: 72%; aspect-ratio: 1; border-radius: 50%; border: 12px solid var(--blue); background: rgba(255,255,255,0.03); box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06); display: grid; place-items: center; position: relative; }
         .ring-center { text-align: center; }
         .ring-center .small { font-size: 10px; text-transform: uppercase; letter-spacing: 0.16em; color: var(--muted); }
@@ -839,11 +852,12 @@ class HomeWeatherPanel extends HTMLElement {
         .switcher button { height: 30px; padding: 0 14px; border: 0; border-radius: 999px; background: transparent; color: var(--muted); font-size: 12px; cursor: pointer; transition: 0.16s ease; }
         .switcher button.active { background: rgba(120,166,255,0.2); color: var(--text); }
         .forecast-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(7, 1fr); gap: 10px; align-items: stretch; }
-        .forecast-card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: 22px; padding: 12px 10px; display: flex; flex-direction: column; align-items: center; justify-content: space-between; min-height: 120px; text-align: center; }
+        .forecast-card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: 22px; padding: clamp(8px, 1vw, 12px) clamp(8px, 1vw, 10px); display: flex; flex-direction: column; align-items: center; justify-content: space-between; min-height: 120px; text-align: center; }
         .forecast-card.active { background: rgba(120,166,255,0.12); border-color: rgba(153,188,255,0.16); }
-        .forecast-card .day { font-size: 12px; color: var(--text); font-weight: 600; }
-        .forecast-card .icon { margin: 10px 0 8px; display: flex; align-items: center; justify-content: center; }
+        .forecast-card .day { font-size: clamp(11px, 1.2vw, 12px); color: var(--text); font-weight: 600; }
+        .forecast-card .icon { margin: 10px 0 4px; display: flex; align-items: center; justify-content: center; }
         .forecast-card .icon img { width: 48px; height: 40px; object-fit: contain; }
+        .forecast-card .condition { font-size: clamp(10px, 1vw, 11px); color: var(--muted); margin-bottom: 6px; text-align: center; line-height: 1.2; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .forecast-card .temps { line-height: 1.25; }
         .forecast-card .high { font-size: 28px; font-weight: 700; letter-spacing: -0.04em; }
         .forecast-card .low { color: var(--muted); font-size: 16px; }
@@ -862,8 +876,11 @@ class HomeWeatherPanel extends HTMLElement {
         .moon-card-fill .moon-icon-wrapper { width: 120px; height: 120px; display: flex; align-items: center; justify-content: center; overflow: visible; }
         .moon-card-fill .moon-icon-wrapper img { transform: scale(1.5); width: 120px; height: 120px; }
         .moon-card-fill .moon-icon-wrap .moon-icon { width: 120px; height: 120px; margin: 0; transform: scale(1.55); }
+        .sun-icon-wrap { width: 120px; height: 120px; margin-bottom: 12px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; overflow: visible; }
+        .sun-icon-wrap img { width: 120px; height: 120px; object-fit: contain; transform: scale(1.2); filter: drop-shadow(0 2px 8px rgba(0,0,0,0.2)); }
         .moon-pane, .sun-pane { display: flex; flex-direction: column; align-items: center; gap: 8px; flex: 1; min-height: 0; }
-        .sun-pane .sun-stat { font-size: 14px; color: var(--text); }
+        .sun-pane .sun-title { font-size: 20px; font-weight: 600; letter-spacing: -0.02em; margin-bottom: 4px; }
+        .sun-pane .sun-stat { font-size: 13px; color: var(--text); }
         .sun-pane .sun-label { color: var(--muted); font-size: 12px; margin-right: 8px; }
         .sun-pane .sun-attribution { margin-top: 12px; font-size: 10px; color: var(--muted); }
         .moon-card-fill .moon-meta, .moon-card-fill .moon-sun { margin-top: 8px; font-size: 12px; color: var(--muted); }
@@ -880,7 +897,10 @@ class HomeWeatherPanel extends HTMLElement {
         .footer-note { position: absolute; right: 22px; bottom: 18px; color: rgba(255,255,255,0.28); font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; pointer-events: none; }
         @media (max-width: 1450px) { .forecast-grid { grid-template-columns: repeat(4, 1fr); } }
         @media (min-width: 1181px) { .hud-wrapper { height: 100vh; overflow: hidden; } }
-        @media (max-width: 1180px) { .weather-app { min-height: 1600px; } .content { grid-template-columns: 1fr; grid-template-rows: auto; } .hero, .highlights, .forecast, .bottom-right { grid-column: auto; grid-row: auto; } .hero-body { grid-template-columns: 1fr; } .topbar { grid-template-columns: 1fr auto; } .status-card { display: none; } }
+        @media (max-width: 1180px) { .weather-app { min-height: 1600px; } .content { grid-template-columns: 1fr; grid-template-rows: auto; } .hero, .highlights { grid-column: auto; grid-row: auto; } .bottom-row { grid-template-columns: 1fr; } .hero-body { grid-template-columns: 1fr; } .topbar { grid-template-columns: 1fr auto; } .status-card { display: none; } }
+        @media (max-width: 900px) { .weather-app { padding: clamp(10px, 2vw, 14px); gap: clamp(10px, 1.5vw, 14px); } .hero-full-circle { max-width: min(100%, 240px); } }
+        @media (max-width: 768px) { .weather-app { padding: 10px; } .topbar .icon-btn { width: 48px; min-width: 48px; } }
+        @media (max-width: 375px) { .forecast-scroll-24h .forecast-card { min-width: 72px; } }
         .loading, .error { text-align: center; padding: 48px 16px; color: var(--secondary-text-color); }
         .error { color: var(--error-color); }
         .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px solid var(--divider-color); flex-wrap: wrap; gap: 12px; }
@@ -1553,20 +1573,22 @@ class HomeWeatherPanel extends HTMLElement {
     this._ensureSunTimes(lat, lon, now).catch(() => {});
 
     const metaItems = [];
-    const slotAngles = [-72, -36, 0, 36, 72];
-    let ai = 0;
-    if (hiTemp != null) metaItems.push({ text: `H: ${hiTemp}°`, angle: slotAngles[ai++] });
-    if (loTemp != null) metaItems.push({ text: `L: ${loTemp}°`, angle: slotAngles[ai++] });
-    if (feelsLike != null) metaItems.push({ text: `Feels ${feelsLike}°`, angle: slotAngles[ai++] });
-    if (windSpeed != null) metaItems.push({ text: `Wind ${Math.round(windSpeed)} ${windUnit}`, angle: slotAngles[ai++] });
-    if (windGusts != null) metaItems.push({ text: `Gusts ${Math.round(windGusts)} ${windUnit}`, angle: slotAngles[ai++] });
-    const n = metaItems.length;
-    if (n > 1) {
-      for (let i = 0; i < n; i++) metaItems[i].angle = -72 + (144 * i / (n - 1));
-    } else if (n === 1) {
-      metaItems[0].angle = 0;
-    }
+    if (hiTemp != null) metaItems.push(`H: ${hiTemp}°`);
+    if (loTemp != null) metaItems.push(`L: ${loTemp}°`);
+    if (feelsLike != null) metaItems.push(`Feels ${feelsLike}°`);
+    if (windSpeed != null) metaItems.push(`Wind ${Math.round(windSpeed)} ${windUnit}`);
+    if (windGusts != null) metaItems.push(`Gusts ${Math.round(windGusts)} ${windUnit}`);
+    const arcTopOffsets = metaItems.length ? metaItems.map((_, i, arr) => (arr.length > 1 ? 12 + (76 * i / (arr.length - 1)) : 50)).map((p) => p.toFixed(1)) : [];
+    const escapeSvg = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    const arcTopSvg = metaItems.length > 0 ? `
+      <svg class="hero-arc-top-svg" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet">
+        <defs><path id="hero-arc-top-path" d="M 10 38 Q 50 8 90 38" fill="none" stroke="none"/></defs>
+        ${metaItems.map((text, i) => `<text fill="var(--muted)" font-size="10" text-anchor="middle"><textPath href="#hero-arc-top-path" startOffset="${arcTopOffsets[i]}%">${escapeSvg(text)}</textPath></text>`).join("")}
+      </svg>` : "";
     const arcBottomText = `${timeStr} · ${dateStr}`.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    const arcTopOffsets = n > 1 ? metaItems.map((_, i) => 15 + (70 * i / (n - 1))) : [50];
+    const arcTopTexts = metaItems.map((m) => m.text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"));
+    const arcTopSvg = metaItems.length > 0 ? `<svg class="hero-arc-top-svg" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet"><defs><path id="hero-arc-top-path" d="M 10 40 Q 50 2 90 40" fill="none" stroke="none"/></defs>${metaItems.map((_, i) => `<text><textPath href="#hero-arc-top-path" startOffset="${arcTopOffsets[i]}%" text-anchor="middle">${arcTopTexts[i]}</textPath></text>`).join("")}</svg>` : "";
 
     return `
       <section class="content">
@@ -1581,13 +1603,14 @@ class HomeWeatherPanel extends HTMLElement {
           <div class="hero-body hero-body-stack">
             <div class="hero-full-circle">
               <div class="hero-arc-top">
-                ${metaItems.map((m) => {
-                  const rad = (m.angle * Math.PI) / 180;
-                  const r = 42;
-                  const left = 50 + r * Math.sin(rad);
-                  const top = 50 - r * Math.cos(rad);
-                  return `<span class="hero-chip" style="left:${left}%;top:${top}%;transform:translate(-50%,-50%) rotate(${m.angle}deg);">${m.text}</span>`;
-                }).join("")}
+                <svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet">
+                  <defs><path id="hero-arc-top-path" d="M 10 40 Q 50 5 90 40" fill="none" stroke="none"/></defs>
+                  ${metaItems.map((m, i) => {
+                    const pct = n > 1 ? (15 + (70 * i / (n - 1))) : 50;
+                    const escaped = (m.text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+                    return `<text text-anchor="middle"><textPath href="#hero-arc-top-path" startOffset="${pct}%">${escaped}</textPath></text>`;
+                  }).join("")}
+                </svg>
               </div>
               <div class="ring-shell">
                 <div class="ring">
@@ -1625,6 +1648,7 @@ class HomeWeatherPanel extends HTMLElement {
           }
         </article>
 
+        <div class="bottom-row">
         <article class="glass card forecast">
           <div class="forecast-top">
             <div class="card-title">Forecast</div>
@@ -1644,6 +1668,7 @@ class HomeWeatherPanel extends HTMLElement {
                     <div class="forecast-card ${i === 0 ? "active" : ""}">
                       <div class="day">${dayLabel}</div>
                       <div class="icon">${this._getConditionIcon(d.condition, null, null, true)}</div>
+                      <div class="condition">${this._formatConditionText(d.condition)}</div>
                       <div class="temps">
                         <div class="high">${dHi}°</div>
                         <div class="low">${dLo}°</div>
@@ -1662,6 +1687,7 @@ class HomeWeatherPanel extends HTMLElement {
                   <div class="forecast-card ${i === 0 ? "active" : ""}">
                     <div class="day">${timeLabel}</div>
                     <div class="icon">${this._getConditionIcon(h.condition, null, h.datetime)}</div>
+                    <div class="condition">${this._formatConditionText(h.condition)}</div>
                     <div class="temps">
                       <div class="high">${hTemp}°</div>
                     </div>
@@ -1697,6 +1723,10 @@ class HomeWeatherPanel extends HTMLElement {
                   <div class="moon-meta">Day ${moon.daysSinceNew} · Next full in ${moon.daysToFull ?? "—"} days</div>
                 </div>`
               : `<div class="sun-pane">
+                  <div class="sun-icon-wrap">
+                    <img src="/local/home_weather/icons/day/clear-day.svg" alt="Sun" loading="lazy"/>
+                  </div>
+                  <div class="sun-title">Solar Times</div>
                   <div class="sun-stat"><span class="sun-label">Sunrise</span> ${sunriseStr}</div>
                   <div class="sun-stat"><span class="sun-label">Sunset</span> ${sunsetStr}</div>
                   <div class="sun-stat"><span class="sun-label">Solar noon</span> ${solarNoonStr}</div>
@@ -1706,6 +1736,7 @@ class HomeWeatherPanel extends HTMLElement {
                 </div>`
             }
           </div>
+        </div>
         </div>
       </section>
     `;
@@ -1909,6 +1940,13 @@ class HomeWeatherPanel extends HTMLElement {
     const usedMediaPlayerIds = new Set(mediaPlayers.map((m) => m.entity_id));
     const availableMediaPlayers = mediaPlayerEntities.filter((e) => !usedMediaPlayerIds.has(e));
     const messagePrefix = this._settings.message_prefix || "Weather update";
+    const defaultSunAlerts = { enabled: false, sunrise_tts: { enabled: false, minutes_before: 15, interval_minutes: 5 }, sunset_tts: { enabled: false, minutes_before: 15, interval_minutes: 5 }, sunrise_automation: { enabled: false, entity_id: "" }, sunset_automation: { enabled: false, entity_id: "" } };
+    const sunAlerts = { ...defaultSunAlerts, ...(this._settings.sun_alerts || {}) };
+    if (!sunAlerts.sunrise_tts) sunAlerts.sunrise_tts = defaultSunAlerts.sunrise_tts;
+    if (!sunAlerts.sunset_tts) sunAlerts.sunset_tts = defaultSunAlerts.sunset_tts;
+    if (!sunAlerts.sunrise_automation) sunAlerts.sunrise_automation = defaultSunAlerts.sunrise_automation;
+    if (!sunAlerts.sunset_automation) sunAlerts.sunset_automation = defaultSunAlerts.sunset_automation;
+    const automationEntities = entities.filter((e) => e.startsWith("automation."));
     
     // Track expanded sections
     if (!this._expandedSections) this._expandedSections = new Set(["general-tts"]);
@@ -2117,6 +2155,47 @@ class HomeWeatherPanel extends HTMLElement {
                 <option value="45" ${tts.minutes_before_announce === 45 ? "selected" : ""}>45 minutes</option>
                 <option value="60" ${tts.minutes_before_announce === 60 ? "selected" : ""}>1 hour</option>
               </select>
+            </div>
+          `)}
+          
+          <!-- Sunrise & Sunset Alerts -->
+          ${renderCollapsible("sun-alerts", "Sunrise & Sunset Alerts", "TTS and automations at sunrise/sunset", `
+            ${renderToggle("sun-alerts-enabled", sunAlerts.enabled, "Enable Sunrise/Sunset Alerts")}
+            
+            <div class="form-group" style="margin-top: 16px;">
+              <div class="collapsible-title" style="margin-bottom: 8px;">Sunrise TTS</div>
+              ${renderToggle("sunrise-tts-enabled", sunAlerts.sunrise_tts.enabled, "Enable sunrise announcements")}
+              <div class="form-group" style="margin-top: 12px;">
+                <label>Minutes before sunrise to start</label>
+                <input type="number" id="sunrise-minutes-before" min="5" max="60" value="${sunAlerts.sunrise_tts.minutes_before}"/>
+              </div>
+              <div class="form-group">
+                <label>Repeat interval (minutes) until sunrise</label>
+                <input type="number" id="sunrise-interval-minutes" min="1" max="30" value="${sunAlerts.sunrise_tts.interval_minutes}"/>
+              </div>
+              ${renderToggle("sunrise-automation-enabled", sunAlerts.sunrise_automation.enabled, "Trigger automation at sunrise")}
+              <div class="form-group" style="margin-top: 8px;">
+                <label>Automation</label>
+                ${this._renderEntityAutocomplete("sunrise-automation-entity", sunAlerts.sunrise_automation.entity_id || "", "automation", "Type to search automations...")}
+              </div>
+            </div>
+            
+            <div class="form-group" style="margin-top: 20px;">
+              <div class="collapsible-title" style="margin-bottom: 8px;">Sunset TTS</div>
+              ${renderToggle("sunset-tts-enabled", sunAlerts.sunset_tts.enabled, "Enable sunset announcements")}
+              <div class="form-group" style="margin-top: 12px;">
+                <label>Minutes before sunset to start</label>
+                <input type="number" id="sunset-minutes-before" min="5" max="60" value="${sunAlerts.sunset_tts.minutes_before}"/>
+              </div>
+              <div class="form-group">
+                <label>Repeat interval (minutes) until sunset</label>
+                <input type="number" id="sunset-interval-minutes" min="1" max="30" value="${sunAlerts.sunset_tts.interval_minutes}"/>
+              </div>
+              ${renderToggle("sunset-automation-enabled", sunAlerts.sunset_automation.enabled, "Trigger automation at sunset")}
+              <div class="form-group" style="margin-top: 8px;">
+                <label>Automation</label>
+                ${this._renderEntityAutocomplete("sunset-automation-entity", sunAlerts.sunset_automation.entity_id || "", "automation", "Type to search automations...")}
+              </div>
             </div>
           `)}
           
@@ -2347,6 +2426,35 @@ class HomeWeatherPanel extends HTMLElement {
       use_ai_rewrite: s.getElementById("use-ai-rewrite")?.checked || false,
       ai_task_entity: s.getElementById("ai-task-entity")?.value || "",
       ai_rewrite_prompt: s.getElementById("ai-rewrite-prompt")?.value || "",
+    };
+  }
+
+  _collectSunAlertsSettings() {
+    const s = this.shadowRoot;
+    if (!s) return { enabled: false, sunrise_tts: { enabled: false, minutes_before: 15, interval_minutes: 5 }, sunset_tts: { enabled: false, minutes_before: 15, interval_minutes: 5 }, sunrise_automation: { enabled: false, entity_id: "" }, sunset_automation: { enabled: false, entity_id: "" } };
+    const getVal = (id, def) => (s.getElementById(id)?.value ?? def);
+    const getNum = (id, def) => parseInt(getVal(id, String(def)), 10) || def;
+    const getChecked = (id) => !!s.getElementById(id)?.checked;
+    return {
+      enabled: getChecked("sun-alerts-enabled"),
+      sunrise_tts: {
+        enabled: getChecked("sunrise-tts-enabled"),
+        minutes_before: Math.min(60, Math.max(5, getNum("sunrise-minutes-before", 15))),
+        interval_minutes: Math.min(30, Math.max(1, getNum("sunrise-interval-minutes", 5))),
+      },
+      sunset_tts: {
+        enabled: getChecked("sunset-tts-enabled"),
+        minutes_before: Math.min(60, Math.max(5, getNum("sunset-minutes-before", 15))),
+        interval_minutes: Math.min(30, Math.max(1, getNum("sunset-interval-minutes", 5))),
+      },
+      sunrise_automation: {
+        enabled: getChecked("sunrise-automation-enabled"),
+        entity_id: (getVal("sunrise-automation-entity", "") || "").trim(),
+      },
+      sunset_automation: {
+        enabled: getChecked("sunset-automation-enabled"),
+        entity_id: (getVal("sunset-automation-entity", "") || "").trim(),
+      },
     };
   }
 }
