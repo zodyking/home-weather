@@ -12,6 +12,7 @@ class HomeWeatherPanel extends HTMLElement {
     this._currentView = "forecast";
     this._forecastView = "7day";
     this._radarView = "map";
+    this._moonCardView = "moon";
     this._useFahrenheit = true;
     this._weatherData = null;
     this._settings = {};
@@ -20,6 +21,7 @@ class HomeWeatherPanel extends HTMLElement {
     this._graphHoverIndex = null;
     this._apexCharts = [];
     this._webhookInfo = {};  // { webhook_id: { url, last_triggered } }
+    this._sunTimesCache = {};
   }
 
   get _isNarrow() {
@@ -518,7 +520,72 @@ class HomeWeatherPanel extends HTMLElement {
     this._settings.tts.webhooks = list;
   }
 
-  _getSunTimes(lat, lon, date) {
+  _getTzid() {
+    try {
+      return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+    } catch {
+      return "UTC";
+    }
+  },
+
+  async _ensureSunTimes(lat, lon, date) {
+    const d = date instanceof Date ? date : new Date(date);
+    const dateStr = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+    const key = `${lat.toFixed(4)}_${lon.toFixed(4)}_${dateStr}`;
+    if (this._sunTimesCache && this._sunTimesCache[key]) return;
+    try {
+      const tzid = this._getTzid();
+      const url = `https://api.sunrise-sunset.org/json?lat=${lat}&lng=${lon}&date=${dateStr}&formatted=0&tzid=${encodeURIComponent(tzid)}`;
+      const res = await fetch(url);
+      const json = await res.json();
+      if (json.status !== "OK" || !json.results) return;
+      const r = json.results;
+      const parse = (s) => s ? new Date(s) : null;
+      this._sunTimesCache = this._sunTimesCache || {};
+      this._sunTimesCache[key] = {
+        sunrise: parse(r.sunrise),
+        sunset: parse(r.sunset),
+        solar_noon: parse(r.solar_noon),
+        day_length: r.day_length,
+        civil_twilight_begin: parse(r.civil_twilight_begin),
+        civil_twilight_end: parse(r.civil_twilight_end),
+      };
+      this._render();
+    } catch (e) {
+      console.warn("Sunrise-Sunset API failed:", e);
+    }
+  },
+
+  async _fetchSunTimes(lat, lon, date) {
+    const d = date instanceof Date ? date : new Date(date);
+    const dateStr = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+    const key = `${lat.toFixed(4)}_${lon.toFixed(4)}_${dateStr}`;
+    if (this._sunTimesCache && this._sunTimesCache[key]) return this._sunTimesCache[key];
+    const tzid = this._getTzid();
+    const url = `https://api.sunrise-sunset.org/json?lat=${lat}&lng=${lon}&date=${dateStr}&formatted=0&tzid=${encodeURIComponent(tzid)}`;
+    try {
+      const res = await fetch(url);
+      const json = await res.json();
+      if (json.status !== "OK" || !json.results) throw new Error(json.status || "Unknown error");
+      const r = json.results;
+      const parse = (s) => s ? new Date(s) : null;
+      const data = {
+        sunrise: parse(r.sunrise),
+        sunset: parse(r.sunset),
+        solar_noon: parse(r.solar_noon),
+        day_length: r.day_length,
+        civil_twilight_begin: parse(r.civil_twilight_begin),
+        civil_twilight_end: parse(r.civil_twilight_end),
+      };
+      this._sunTimesCache = this._sunTimesCache || {};
+      this._sunTimesCache[key] = data;
+      return data;
+    } catch (e) {
+      return this._getSunTimesMath(lat, lon, date);
+    }
+  },
+
+  _getSunTimesMath(lat, lon, date) {
     const d = date instanceof Date ? date : new Date(date);
     const day = d.getDate();
     const month = d.getMonth() + 1;
@@ -531,7 +598,7 @@ class HomeWeatherPanel extends HTMLElement {
     const obliquity = 23.44 - 0.0000004 * n;
     const decRad = Math.asin(Math.sin((obliquity * Math.PI) / 180) * Math.sin((eclipticLon * Math.PI) / 180));
     const cosHourAngle = (Math.sin((-0.83 * Math.PI) / 180) - Math.sin(latRad) * Math.sin(decRad)) / (Math.cos(latRad) * Math.cos(decRad));
-    if (cosHourAngle > 1 || cosHourAngle < -1) return { sunrise: null, sunset: null };
+    if (cosHourAngle > 1 || cosHourAngle < -1) return { sunrise: null, sunset: null, solar_noon: null, day_length: null, civil_twilight_begin: null, civil_twilight_end: null };
     const hourAngle = Math.acos(Math.max(-1, Math.min(1, cosHourAngle))) * (180 / Math.PI);
     const eqTime = 0.0172 + 0.4281 * Math.cos(sunMeanAnomRad) - 7.351 * Math.sin(sunMeanAnomRad) - 3.3495 * Math.cos(2 * sunMeanAnomRad) - 9.3619 * Math.sin(2 * sunMeanAnomRad);
     const sunriseOffset = 12 - (1 / 15) * (hourAngle + eqTime) - lon / 15;
@@ -540,7 +607,15 @@ class HomeWeatherPanel extends HTMLElement {
     sunrise.setHours(Math.floor(sunriseOffset), Math.round((sunriseOffset % 1) * 60), 0, 0);
     const sunset = new Date(year, month - 1, day);
     sunset.setHours(Math.floor(sunsetOffset), Math.round((sunsetOffset % 1) * 60), 0, 0);
-    return { sunrise, sunset };
+    return { sunrise, sunset, solar_noon: null, day_length: null, civil_twilight_begin: null, civil_twilight_end: null };
+  },
+
+  _getSunTimes(lat, lon, date) {
+    const d = date instanceof Date ? date : new Date(date);
+    const dateStr = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+    const key = `${lat.toFixed(4)}_${lon.toFixed(4)}_${dateStr}`;
+    if (this._sunTimesCache && this._sunTimesCache[key]) return this._sunTimesCache[key];
+    return this._getSunTimesMath(lat, lon, date);
   }
 
   _isDayTime(datetime, lat, lon) {
@@ -698,7 +773,7 @@ class HomeWeatherPanel extends HTMLElement {
         .icon-btn:hover { border-color: var(--stroke-2); background: var(--panel-2); }
         .gear { width: 20px; height: 20px; border: 2px solid var(--text); border-radius: 50%; position: relative; opacity: 0.92; }
         .gear::before { content: ""; position: absolute; inset: 5px; border: 2px solid var(--text); border-radius: 50%; }
-        .content { display: grid; grid-template-columns: 1.26fr 0.94fr; grid-template-rows: 1fr 0.92fr; gap: 16px; min-width: 0; min-height: 0; }
+        .content { display: grid; grid-template-columns: 1fr 1.2fr; grid-template-rows: 1fr 0.92fr; gap: 16px; min-width: 0; min-height: 0; }
         .hero { grid-column: 1; grid-row: 1; }
         .highlights { grid-column: 2; grid-row: 1; }
         .forecast { grid-column: 1; grid-row: 2; min-height: 0; }
@@ -708,7 +783,11 @@ class HomeWeatherPanel extends HTMLElement {
         .card-title { font-size: 14px; font-weight: 700; letter-spacing: -0.01em; }
         .card-sub { margin-top: 4px; font-size: 12px; color: var(--muted); }
         .tag { height: 28px; padding: 0 12px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.04); display: inline-flex; align-items: center; color: var(--blue-2); font-size: 11px; white-space: nowrap; }
-        .hero-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 1.06fr 0.94fr; gap: 18px; align-items: center; }
+        .hero-body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 12px; }
+        .hero-body-stack { }
+        .hero-half-circle { height: 0; padding-bottom: 45%; position: relative; overflow: hidden; flex-shrink: 0; }
+        .hero-half-circle .ring-shell { position: absolute; bottom: 0; left: 50%; transform: translateX(-50%); width: min(100%, 360px); aspect-ratio: 1; }
+        .hero-meta-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; min-height: 0; }
         .hero-left { display: flex; flex-direction: column; justify-content: space-between; min-height: 0; }
         .condition-row { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
         .condition-row .weather-icon { width: 80px; height: 80px; flex: 0 0 auto; display: flex; align-items: center; justify-content: center; }
@@ -748,7 +827,7 @@ class HomeWeatherPanel extends HTMLElement {
         .switcher { display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: 999px; padding: 4px; }
         .switcher button { height: 30px; padding: 0 14px; border: 0; border-radius: 999px; background: transparent; color: var(--muted); font-size: 12px; cursor: pointer; transition: 0.16s ease; }
         .switcher button.active { background: rgba(120,166,255,0.2); color: var(--text); }
-        .forecast-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(7, 1fr); gap: 10px; align-items: start; }
+        .forecast-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(7, 1fr); gap: 10px; align-items: stretch; }
         .forecast-card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: 22px; padding: 12px 10px; display: flex; flex-direction: column; align-items: center; justify-content: space-between; min-height: 120px; text-align: center; }
         .forecast-card.active { background: rgba(120,166,255,0.12); border-color: rgba(153,188,255,0.16); }
         .forecast-card .day { font-size: 12px; color: var(--text); font-weight: 600; }
@@ -762,15 +841,29 @@ class HomeWeatherPanel extends HTMLElement {
         .forecast-scroll-24h .forecast-card { min-width: 80px; flex-shrink: 0; }
         .forecast-scroll-24h::-webkit-scrollbar { height: 4px; }
         .forecast-scroll-24h::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 2px; }
-        .bottom-right { display: flex; flex-direction: column; min-height: 0; }
-        .moon-card-fill { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: var(--radius-xl); padding: 16px; }
-        .moon-card-fill .card-head { margin-bottom: 12px; }
+        .bottom-right { display: flex; flex-direction: column; min-height: 0; overflow: hidden; border-radius: var(--radius-xl, 22px); }
+        .moon-card-fill { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: var(--radius-xl, 22px); padding: 16px; overflow: hidden; }
+        .moon-card-fill .card-head { margin-bottom: 12px; flex-shrink: 0; }
         .moon-card { display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; }
-        .moon-card .moon-icon, .moon-card-fill .moon-icon { width: 120px; height: 120px; margin-bottom: 12px; }
+        .moon-icon-wrap { width: 120px; height: 120px; margin-bottom: 8px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; overflow: visible; }
+        .moon-card .moon-icon, .moon-card-fill .moon-icon { width: 120px; height: 120px; margin-bottom: 12px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+        .moon-card-fill .moon-icon-wrapper { width: 120px; height: 120px; display: flex; align-items: center; justify-content: center; overflow: visible; }
+        .moon-card-fill .moon-icon-wrapper img { transform: scale(1.5); width: 120px; height: 120px; }
+        .moon-card-fill .moon-icon-wrap .moon-icon { width: 120px; height: 120px; margin: 0; transform: scale(1.55); }
+        .moon-pane, .sun-pane { display: flex; flex-direction: column; align-items: center; gap: 8px; flex: 1; min-height: 0; }
+        .sun-pane .sun-stat { font-size: 14px; color: var(--text); }
+        .sun-pane .sun-label { color: var(--muted); font-size: 12px; margin-right: 8px; }
+        .sun-pane .sun-attribution { margin-top: 12px; font-size: 10px; color: var(--muted); }
         .moon-card-fill .moon-meta, .moon-card-fill .moon-sun { margin-top: 8px; font-size: 12px; color: var(--muted); }
         .moon-card .moon-icon img, .moon-card-fill .moon-icon img { width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 2px 8px rgba(0,0,0,0.2)); }
         .moon-title, .moon-card-fill .moon-title { font-size: 20px; font-weight: 600; letter-spacing: -0.02em; }
         .moon-sub, .moon-card-fill .moon-sub { margin-top: 6px; color: var(--muted); font-size: 13px; }
+        .moon-pane, .sun-pane { display: flex; flex-direction: column; align-items: center; gap: 8px; width: 100%; }
+        .sun-pane { text-align: left; align-items: stretch; }
+        .sun-stat { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
+        .sun-label { color: var(--muted); }
+        .sun-attribution { margin-top: 8px; font-size: 10px; color: var(--muted); text-decoration: none; }
+        .sun-attribution:hover { color: var(--blue-2); }
         .chart-container { flex: 1; min-height: 200px; width: 100%; }
         .footer-note { position: absolute; right: 22px; bottom: 18px; color: rgba(255,255,255,0.28); font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; pointer-events: none; }
         @media (max-width: 1450px) { .forecast-grid { grid-template-columns: repeat(4, 1fr); } }
@@ -1040,10 +1133,12 @@ class HomeWeatherPanel extends HTMLElement {
     } else if (this._currentView === "forecast") {
       if (this._radarView === "chart") this._initApexChart();
       s.querySelectorAll(".switcher button, .forecast-tab").forEach((btn) => {
-        btn.addEventListener("click", () => {
+          btn.addEventListener("click", () => {
           if (btn.dataset.radarView) {
             this._radarView = btn.dataset.radarView || "map";
-          } else {
+          } else if (btn.dataset.moonView) {
+            this._moonCardView = btn.dataset.moonView || "moon";
+          } else if (btn.dataset.view) {
             this._forecastView = btn.dataset.view || "7day";
           }
           this._render();
@@ -1439,6 +1534,12 @@ class HomeWeatherPanel extends HTMLElement {
     const sunTimes = this._getSunTimes(lat, lon, now);
     const sunriseStr = sunTimes.sunrise ? sunTimes.sunrise.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "—";
     const sunsetStr = sunTimes.sunset ? sunTimes.sunset.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "—";
+    const solarNoonStr = sunTimes.solar_noon ? sunTimes.solar_noon.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "—";
+    const civilBeginStr = sunTimes.civil_twilight_begin ? sunTimes.civil_twilight_begin.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "—";
+    const civilEndStr = sunTimes.civil_twilight_end ? sunTimes.civil_twilight_end.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "—";
+    const dayLengthStr = sunTimes.day_length != null ? `${Math.floor(sunTimes.day_length / 3600)}h ${Math.floor((sunTimes.day_length % 3600) / 60)}m` : "—";
+
+    this._ensureSunTimes(lat, lon, now).catch(() => {});
 
     return `
       <section class="content">
@@ -1450,18 +1551,8 @@ class HomeWeatherPanel extends HTMLElement {
             </div>
             <div class="tag">Now</div>
           </div>
-          <div class="hero-body">
-            <div class="hero-left">
-              <div class="hero-meta">
-                ${hiTemp != null ? `<span>H: ${hiTemp}°</span>` : ""}
-                ${loTemp != null ? `<span>L: ${loTemp}°</span>` : ""}
-                ${feelsLike != null ? `<span>Feels ${feelsLike}°</span>` : ""}
-                ${windSpeed != null ? `<span>Wind ${Math.round(windSpeed)} ${windUnit}</span>` : ""}
-                ${windGusts != null ? `<span>Gusts ${Math.round(windGusts)} ${windUnit}</span>` : ""}
-              </div>
-              <div class="time-block-compact">${timeStr} · ${dateStr}</div>
-            </div>
-            <div class="orbital">
+          <div class="hero-body hero-body-stack">
+            <div class="hero-half-circle">
               <div class="ring-shell">
                 <div class="ring">
                   <div class="ring-center">
@@ -1471,6 +1562,16 @@ class HomeWeatherPanel extends HTMLElement {
                   </div>
                 </div>
               </div>
+            </div>
+            <div class="hero-meta-row">
+              <div class="hero-meta">
+                ${hiTemp != null ? `<span>H: ${hiTemp}°</span>` : ""}
+                ${loTemp != null ? `<span>L: ${loTemp}°</span>` : ""}
+                ${feelsLike != null ? `<span>Feels ${feelsLike}°</span>` : ""}
+                ${windSpeed != null ? `<span>Wind ${Math.round(windSpeed)} ${windUnit}</span>` : ""}
+                ${windGusts != null ? `<span>Gusts ${Math.round(windGusts)} ${windUnit}</span>` : ""}
+              </div>
+              <div class="time-block-compact">${timeStr} · ${dateStr}</div>
             </div>
           </div>
         </article>
@@ -1549,14 +1650,31 @@ class HomeWeatherPanel extends HTMLElement {
                 <div class="card-title">Moon Phase</div>
                 <div class="card-sub">Lunar cycle at your location</div>
               </div>
+              <div class="switcher moon-sun-switcher">
+                <button class="${this._moonCardView === "moon" ? "active" : ""}" data-moon-view="moon">Moon</button>
+                <button class="${this._moonCardView === "sun" ? "active" : ""}" data-moon-view="sun">Sun</button>
+              </div>
             </div>
-            <div class="moon-icon">
-              <img src="/local/home_weather/icons/Moon%20Phase/${moon.icon}.svg" alt="${moon.name}" loading="lazy"/>
-            </div>
-            <div class="moon-title">${moon.name}</div>
-            <div class="moon-sub">${moon.illumination}% illuminated</div>
-            <div class="moon-meta">Day ${moon.daysSinceNew} · Next full in ${moon.daysToFull ?? "—"} days</div>
-            <div class="moon-sun">Sunrise ${sunriseStr} · Sunset ${sunsetStr}</div>
+            ${this._moonCardView === "moon"
+              ? `<div class="moon-pane">
+                  <div class="moon-icon-wrap">
+                    <div class="moon-icon">
+                      <img src="/local/home_weather/icons/Moon%20Phase/${moon.icon}.svg" alt="${moon.name}" loading="lazy"/>
+                    </div>
+                  </div>
+                  <div class="moon-title">${moon.name}</div>
+                  <div class="moon-sub">${moon.illumination}% illuminated</div>
+                  <div class="moon-meta">Day ${moon.daysSinceNew} · Next full in ${moon.daysToFull ?? "—"} days</div>
+                </div>`
+              : `<div class="sun-pane">
+                  <div class="sun-stat"><span class="sun-label">Sunrise</span> ${sunriseStr}</div>
+                  <div class="sun-stat"><span class="sun-label">Sunset</span> ${sunsetStr}</div>
+                  <div class="sun-stat"><span class="sun-label">Solar noon</span> ${solarNoonStr}</div>
+                  <div class="sun-stat"><span class="sun-label">Day length</span> ${dayLengthStr}</div>
+                  <div class="sun-stat"><span class="sun-label">Civil twilight</span> ${civilBeginStr} – ${civilEndStr}</div>
+                  <a href="https://sunrise-sunset.org" target="_blank" rel="noopener noreferrer" class="sun-attribution">Data by sunrise-sunset.org</a>
+                </div>`
+            }
           </div>
         </div>
       </section>
