@@ -526,7 +526,7 @@ class HomeWeatherPanel extends HTMLElement {
     } catch {
       return "UTC";
     }
-  },
+  }
 
   async _ensureSunTimes(lat, lon, date) {
     const d = date instanceof Date ? date : new Date(date);
@@ -554,7 +554,7 @@ class HomeWeatherPanel extends HTMLElement {
     } catch (e) {
       console.warn("Sunrise-Sunset API failed:", e);
     }
-  },
+  }
 
   async _fetchSunTimes(lat, lon, date) {
     const d = date instanceof Date ? date : new Date(date);
@@ -583,7 +583,7 @@ class HomeWeatherPanel extends HTMLElement {
     } catch (e) {
       return this._getSunTimesMath(lat, lon, date);
     }
-  },
+  }
 
   _getSunTimesMath(lat, lon, date) {
     const d = date instanceof Date ? date : new Date(date);
@@ -608,7 +608,7 @@ class HomeWeatherPanel extends HTMLElement {
     const sunset = new Date(year, month - 1, day);
     sunset.setHours(Math.floor(sunsetOffset), Math.round((sunsetOffset % 1) * 60), 0, 0);
     return { sunrise, sunset, solar_noon: null, day_length: null, civil_twilight_begin: null, civil_twilight_end: null };
-  },
+  }
 
   _getSunTimes(lat, lon, date) {
     const d = date instanceof Date ? date : new Date(date);
