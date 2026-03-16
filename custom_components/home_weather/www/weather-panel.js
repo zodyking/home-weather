@@ -805,11 +805,11 @@ class HomeWeatherPanel extends HTMLElement {
         .hero-body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
         .hero-body-stack { }
         .hero-full-circle { position: relative; width: 100%; max-width: min(100%, 280px); aspect-ratio: 1; margin: 0 auto; flex-shrink: 0; }
-        .hero-full-circle .ring-shell { width: 100%; height: 100%; position: relative; display: grid; place-items: center; }
-        .hero-arc-top { position: absolute; inset: 0; pointer-events: none; }
+        .hero-full-circle .ring-shell { width: 100%; height: 100%; position: relative; display: grid; place-items: center; z-index: 1; }
+        .hero-arc-top { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
         .hero-arc-top svg { width: 100%; height: 100%; overflow: visible; }
-        .hero-arc-top text { font-size: 11px; fill: var(--muted); }
-        .hero-arc-bottom { position: absolute; bottom: 0; left: 0; right: 0; height: 36px; pointer-events: none; }
+        .hero-arc-top text { font-size: 10px; fill: var(--muted); }
+        .hero-arc-bottom { position: absolute; bottom: 0; left: 0; right: 0; height: 36px; pointer-events: none; z-index: 2; }
         .hero-arc-bottom svg { width: 100%; height: 100%; overflow: visible; }
         .hero-arc-bottom text { font-size: 12px; fill: var(--muted); }
         .hero-left { display: flex; flex-direction: column; justify-content: space-between; min-height: 0; }
@@ -867,7 +867,7 @@ class HomeWeatherPanel extends HTMLElement {
         .forecast-scroll-24h::-webkit-scrollbar { height: 4px; }
         .forecast-scroll-24h::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 2px; }
         .bottom-right { display: flex; flex-direction: column; min-height: 0; overflow: hidden; border-radius: var(--radius-xl, 22px); }
-        .moon-card-fill { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: var(--radius-xl, 22px); padding: 16px; overflow: hidden; }
+        .moon-card-fill { flex: 1; min-height: 320px; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: var(--radius-xl, 22px); padding: 16px; overflow: hidden; }
         .moon-card-fill .card-head { margin-bottom: 12px; flex-shrink: 0; align-self: stretch; width: 100%; }
         .moon-card-fill .card-head > div:first-child { text-align: left; }
         .moon-card { display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; }
@@ -878,7 +878,7 @@ class HomeWeatherPanel extends HTMLElement {
         .moon-card-fill .moon-icon-wrap .moon-icon { width: 120px; height: 120px; margin: 0; transform: scale(1.55); }
         .sun-icon-wrap { width: 120px; height: 120px; margin-bottom: 12px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; overflow: visible; }
         .sun-icon-wrap img { width: 120px; height: 120px; object-fit: contain; transform: scale(1.2); filter: drop-shadow(0 2px 8px rgba(0,0,0,0.2)); }
-        .moon-pane, .sun-pane { display: flex; flex-direction: column; align-items: center; gap: 8px; flex: 1; min-height: 0; }
+        .moon-pane, .sun-pane { display: flex; flex-direction: column; align-items: center; gap: 8px; flex: 1; min-height: 0; overflow-y: auto; }
         .sun-pane .sun-title { font-size: 20px; font-weight: 600; letter-spacing: -0.02em; margin-bottom: 4px; }
         .sun-pane .sun-stat { font-size: 13px; color: var(--text); }
         .sun-pane .sun-label { color: var(--muted); font-size: 12px; margin-right: 8px; }
@@ -1603,7 +1603,7 @@ class HomeWeatherPanel extends HTMLElement {
                 <svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet">
                   <defs><path id="hero-arc-top-path" d="M 10 40 Q 50 5 90 40" fill="none" stroke="none"/></defs>
                   ${metaItems.map((m, i) => {
-                    const pct = metaItems.length > 1 ? (15 + (70 * i / (metaItems.length - 1))) : 50;
+                    const pct = metaItems.length > 1 ? (8 + (84 * i / (metaItems.length - 1))) : 50;
                     const escaped = String(m).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
                     return `<text text-anchor="middle" fill="var(--muted)" font-size="10"><textPath href="#hero-arc-top-path" startOffset="${pct}%">${escaped}</textPath></text>`;
                   }).join("")}
