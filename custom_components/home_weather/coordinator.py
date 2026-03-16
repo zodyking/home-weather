@@ -54,7 +54,16 @@ class WeatherCoordinator(DataUpdateCoordinator):
             # Get weather entity state
             state = self.hass.states.get(weather_entity)
             if not state:
-                raise UpdateFailed(f"Weather entity {weather_entity} not found")
+                _LOGGER.warning(
+                    "Weather entity %s not found. Please select a valid entity in Settings.",
+                    weather_entity,
+                )
+                return {
+                    "current": None,
+                    "hourly_forecast": [],
+                    "daily_forecast": [],
+                    "configured": False,
+                }
 
             # Get current conditions (use string keys - weather attr names vary by HA version)
             # Some entities expose native_* when using custom unit systems
