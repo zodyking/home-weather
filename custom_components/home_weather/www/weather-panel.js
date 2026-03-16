@@ -1112,6 +1112,24 @@ class HomeWeatherPanel extends HTMLElement {
       });
     });
     
+    // Test Forecast button
+    const testForecastBtn = s.getElementById("test-forecast-btn");
+    if (testForecastBtn) {
+      testForecastBtn.addEventListener("click", async () => {
+        testForecastBtn.textContent = "Playing...";
+        testForecastBtn.disabled = true;
+        try {
+          await this._hass.callWS({ type: "home_weather/test_forecast" });
+        } catch (e) {
+          console.error("Test forecast failed:", e);
+          alert("Test forecast failed: " + e.message);
+        } finally {
+          testForecastBtn.textContent = "Test Forecast";
+          testForecastBtn.disabled = false;
+        }
+      });
+    }
+    
     // Add media player
     const addMediaBtn = s.getElementById("add-media-btn");
     const addMediaSelect = s.getElementById("media-player-add");
@@ -1688,6 +1706,11 @@ class HomeWeatherPanel extends HTMLElement {
                   </label>
                 `).join("")}
               </div>
+            </div>
+            
+            <div class="form-group" style="margin-top: 16px;">
+              <button type="button" class="test-tts-btn" id="test-forecast-btn">Test Forecast</button>
+              <p class="form-hint" style="margin-top: 8px;">Play the full scheduled forecast on all configured media players.</p>
             </div>
           `)}
           

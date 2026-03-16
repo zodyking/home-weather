@@ -57,9 +57,12 @@ class WeatherCoordinator(DataUpdateCoordinator):
                 raise UpdateFailed(f"Weather entity {weather_entity} not found")
 
             # Get current conditions (use string keys - weather attr names vary by HA version)
+            # Some entities expose native_* when using custom unit systems
             current = {
-                "temperature": state.attributes.get("temperature"),
-                "apparent_temperature": state.attributes.get("apparent_temperature"),
+                "temperature": state.attributes.get("temperature")
+                or state.attributes.get("native_temperature"),
+                "apparent_temperature": state.attributes.get("apparent_temperature")
+                or state.attributes.get("native_apparent_temperature"),
                 "condition": state.attributes.get("condition"),
                 "state": state.state,
                 "humidity": state.attributes.get("humidity"),
@@ -104,16 +107,19 @@ class WeatherCoordinator(DataUpdateCoordinator):
                             forecast_time = dt_util.parse_datetime(forecast_time)
                         entry = {
                             "datetime": forecast_time.isoformat() if isinstance(forecast_time, datetime) else str(forecast_time) if forecast_time else "",
-                            "temperature": item.get("temperature"),
+                            "temperature": item.get("temperature") or item.get("native_temperature"),
                             "condition": item.get("condition"),
-                            "precipitation": item.get("precipitation", 0),
-                            "precipitation_probability": item.get("precipitation_probability", 0),
+                            "precipitation": item.get("precipitation", 0) or item.get("native_precipitation", 0),
+                            "precipitation_probability": item.get("precipitation_probability", 0)
+                            or item.get("native_precipitation_probability", 0),
                             "precipitation_kind": item.get("precipitation_kind"),
-                            "wind_speed": item.get("wind_speed"),
-                            "apparent_temperature": item.get("apparent_temperature"),
-                            "dew_point": item.get("dew_point"),
-                            "pressure": item.get("pressure"),
-                            "wind_gust_speed": item.get("wind_gust_speed"),
+                            "wind_speed": item.get("wind_speed") or item.get("native_wind_speed"),
+                            "apparent_temperature": item.get("apparent_temperature")
+                            or item.get("native_apparent_temperature"),
+                            "dew_point": item.get("dew_point") or item.get("native_dew_point"),
+                            "pressure": item.get("pressure") or item.get("native_pressure"),
+                            "wind_gust_speed": item.get("wind_gust_speed")
+                            or item.get("native_wind_gust_speed"),
                             "cloud_coverage": item.get("cloud_coverage"),
                             "uv_index": item.get("uv_index"),
                             "humidity": item.get("humidity"),
@@ -141,13 +147,14 @@ class WeatherCoordinator(DataUpdateCoordinator):
                             forecast_time = dt_util.parse_datetime(forecast_time)
                         daily_forecast.append({
                             "datetime": forecast_time.isoformat() if isinstance(forecast_time, datetime) else str(forecast_time) if forecast_time else "",
-                            "temperature": item.get("temperature"),
-                            "templow": item.get("templow"),
+                            "temperature": item.get("temperature") or item.get("native_temperature"),
+                            "templow": item.get("templow") or item.get("native_templow"),
                             "condition": item.get("condition"),
-                            "precipitation": item.get("precipitation", 0),
-                            "precipitation_probability": item.get("precipitation_probability", 0),
+                            "precipitation": item.get("precipitation", 0) or item.get("native_precipitation", 0),
+                            "precipitation_probability": item.get("precipitation_probability", 0)
+                            or item.get("native_precipitation_probability", 0),
                             "precipitation_kind": item.get("precipitation_kind"),
-                            "wind_speed": item.get("wind_speed"),
+                            "wind_speed": item.get("wind_speed") or item.get("native_wind_speed"),
                         })
 
             except Exception as e:

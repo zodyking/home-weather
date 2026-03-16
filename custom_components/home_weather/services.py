@@ -10,6 +10,7 @@ from homeassistant.components.webhook import async_generate_url
 from homeassistant.core import HomeAssistant, callback
 
 from .const import DOMAIN, WEBHOOK_LAST_TRIGGERED_KEY
+from .tts_notifications import build_scheduled_forecast, send_tts_with_ai_rewrite
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -240,6 +241,61 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
 
     @websocket_api.websocket_command(
         {
+            "type": "home_weather/test_forecast",
+        }
+    )
+    @websocket_api.async_response
+    async def handle_test_forecast(
+        hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+    ) -> None:
+        """Handle test_forecast WebSocket command.
+
+        Builds a full scheduled forecast message and sends it to all configured
+        media players. Useful for testing TTS without waiting for a scheduled trigger.
+        """
+        if DOMAIN not in hass.data:
+            connection.send_error(msg["id"], "not_loaded", "Integration not loaded")
+            return
+
+        storage = None
+        coordinator = None
+        if DOMAIN in hass.data:
+            for entry_id, data in hass.data[DOMAIN].items():
+                if isinstance(data, dict):
+                    storage = data.get("storage")
+                    coordinator = data.get("coordinator")
+                    if storage and coordinator:
+                        break
+
+        if not storage or not coordinator:
+            connection.send_error(msg["id"], "unavailable", "Storage or coordinator not available")
+            return
+
+        try:
+            config = await storage.async_get()
+            await coordinator.async_request_refresh()
+            weather_data = coordinator.data or {}
+
+            if not weather_data or weather_data.get("configured") is False:
+                connection.send_error(msg["id"], "not_configured", "Weather not configured")
+                return
+
+            media_players = config.get("media_players", [])
+            tts_config = config.get("tts", {})
+
+            if not media_players:
+                connection.send_error(msg["id"], "no_media_players", "No media players configured")
+                return
+
+            message = build_scheduled_forecast(weather_data, config)
+            await send_tts_with_ai_rewrite(hass, media_players, tts_config, message)
+            connection.send_result(msg["id"], {"success": True})
+        except Exception as e:
+            _LOGGER.error("Test forecast failed: %s", e)
+            connection.send_error(msg["id"], "forecast_failed", str(e))
+
+    @websocket_api.websocket_command(
+        {
             "type": "home_weather/get_automations",
         }
     )
@@ -334,6 +390,7 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, handle_get_weather)
     websocket_api.async_register_command(hass, handle_get_tts_entities)
     websocket_api.async_register_command(hass, handle_test_tts)
+    websocket_api.async_register_command(hass, handle_test_forecast)
     websocket_api.async_register_command(hass, handle_get_automations)
     websocket_api.async_register_command(hass, handle_get_webhook_info)
 

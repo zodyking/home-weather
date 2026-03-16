@@ -220,7 +220,7 @@ def _get_upcoming_high_winds(hourly: list[dict], speed_threshold: int = 15, gust
             continue
         
         wind_speed = h.get("wind_speed", 0) or 0
-        wind_gust = h.get("wind_gust", 0) or 0
+        wind_gust = h.get("wind_gust_speed", 0) or h.get("wind_gust", 0) or 0
         
         if wind_speed >= speed_threshold or wind_gust >= gust_threshold:
             upcoming.append({
@@ -242,7 +242,7 @@ def build_scheduled_forecast(
     
     Format: Greeting with time + intro + current + today's outlook + notable events
     """
-    current = weather_data.get("current", {})
+    current = weather_data.get("current") or {}
     hourly = weather_data.get("hourly_forecast", [])
     daily = weather_data.get("daily_forecast", [])
     tts_config = config.get("tts", {})
@@ -311,7 +311,19 @@ def build_scheduled_forecast(
         if tom_hi is not None:
             parts.append(f"Tomorrow looks like {tom_cond} with a high near {_format_temperature(tom_hi)}.")
     
-    return " ".join(parts)
+    # Fallback when no weather content was added (e.g. empty/missing data)
+    if len(parts) <= 1:
+        parts.append("Weather data is temporarily unavailable.")
+    
+    msg = " ".join(parts)
+    _LOGGER.debug(
+        "build_scheduled_forecast: %d parts, current=%s, hourly=%d, daily=%d",
+        len(parts),
+        "empty" if not current else "ok",
+        len(hourly),
+        len(daily),
+    )
+    return msg
 
 
 def build_webhook_message(
@@ -325,7 +337,7 @@ def build_webhook_message(
     Focus on TODAY only - current conditions and what to expect for the day.
     Keep it brief and actionable.
     """
-    current = weather_data.get("current", {})
+    current = weather_data.get("current") or {}
     hourly = weather_data.get("hourly_forecast", [])
     daily = weather_data.get("daily_forecast", [])
     tts_config = config.get("tts", {})
@@ -378,6 +390,10 @@ def build_webhook_message(
         time_desc = _get_time_description(wind_event["time"])
         parts.append(f"Gusty winds {time_desc}.")
     
+    # Fallback when no weather content was added (e.g. empty/missing data)
+    if len(parts) <= 1:
+        parts.append("Weather data is temporarily unavailable.")
+    
     return " ".join(parts)
 
 
@@ -390,7 +406,7 @@ def build_current_change_message(
     old_cond = _normalize_condition(old_condition)
     new_cond = _normalize_condition(new_condition)
     
-    current = weather_data.get("current", {})
+    current = weather_data.get("current") or {}
     temp = current.get("temperature")
     
     greeting_time = _get_greeting_with_time()

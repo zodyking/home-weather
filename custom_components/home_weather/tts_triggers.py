@@ -440,6 +440,10 @@ class TTSTriggerManager:
             _LOGGER.debug("No media players configured, skipping TTS")
             return
         
+        if not weather_data or weather_data.get("configured") is False:
+            _LOGGER.warning("Weather not configured or data unavailable, skipping scheduled TTS")
+            return
+        
         # Filter to specific media player if specified
         if target_media_player:
             media_players = [mp for mp in media_players if mp.get("entity_id") == target_media_player]
@@ -448,6 +452,11 @@ class TTSTriggerManager:
                 return
         
         message = build_scheduled_forecast(weather_data, config)
+        _LOGGER.debug(
+            "Scheduled forecast TTS: len=%d, preview=%s",
+            len(message),
+            (message[:100] + "...") if len(message) > 100 else message,
+        )
         await send_tts_with_ai_rewrite(
             self.hass,
             media_players,
@@ -465,6 +474,10 @@ class TTSTriggerManager:
         volume = None  # Volume controlled per media player
         
         if not media_players:
+            return
+        
+        if not weather_data or weather_data.get("configured") is False:
+            _LOGGER.warning("Weather not configured or data unavailable, skipping current change TTS")
             return
         
         message = build_current_change_message(old_condition, new_condition, weather_data)
@@ -487,8 +500,11 @@ class TTSTriggerManager:
         if not media_players:
             return
         
+        if not weather_data or weather_data.get("configured") is False:
+            return
+        
         hourly = weather_data.get("hourly_forecast", [])
-        current = weather_data.get("current", {})
+        current = weather_data.get("current") or {}
         
         # Don't alert if it's already precipitating
         current_condition = (current.get("condition") or current.get("state", "")).lower()
@@ -503,14 +519,16 @@ class TTSTriggerManager:
             if precip_prob < threshold:
                 continue
             
-            h_time_str = h.get("datetime")
-            if not h_time_str:
+            h_time_val = h.get("datetime")
+            if not h_time_val:
                 continue
             
-            try:
-                h_time = datetime.fromisoformat(h_time_str.replace("Z", "+00:00"))
-            except:
+            h_time = dt_util.parse_datetime(str(h_time_val).replace("Z", "+00:00")) if isinstance(h_time_val, str) else h_time_val
+            if h_time is None:
                 continue
+            # Ensure timezone-aware for comparison with now/alert_window
+            if h_time.tzinfo is None:
+                h_time = dt_util.as_local(h_time)
             
             # Check if within alert window
             if now < h_time <= alert_window:
@@ -538,12 +556,9 @@ class TTSTriggerManager:
                 _LOGGER.info("Upcoming precip TTS sent: %s in %d minutes", precip_kind, minutes_until)
                 break  # Only alert for the first upcoming precip
         
-        # Clean up old alerts (older than 2 hours)
-        two_hours_ago = now - timedelta(hours=2)
-        self._upcoming_alert_fired = {
-            k for k in self._upcoming_alert_fired
-            if datetime.strptime(k, "%Y-%m-%d-%H") > two_hours_ago
-        }
+        # Clean up old alerts (older than 2 hours); use string comparison to avoid naive/aware datetime mismatch
+        cutoff_key = (now - timedelta(hours=2)).strftime("%Y-%m-%d-%H")
+        self._upcoming_alert_fired = {k for k in self._upcoming_alert_fired if k > cutoff_key}
 
     async def _fire_webhook_forecast(self, name: str, volume: float | None, target_media_player: str = "") -> None:
         """Fire a webhook-triggered forecast.
@@ -568,15 +583,16 @@ class TTSTriggerManager:
             _LOGGER.warning("No media players configured, cannot send TTS")
             return
         
+        if not weather_data or weather_data.get("configured") is False:
+            _LOGGER.warning("Weather not configured or data unavailable, skipping webhook TTS")
+            return
+        
         # Filter to specific media player if specified
         if target_media_player:
             media_players = [mp for mp in media_players if mp.get("entity_id") == target_media_player]
             if not media_players:
                 _LOGGER.warning("Target media player %s not found in config", target_media_player)
                 return
-        
-        if not weather_data or not weather_data.get("configured"):
-            _LOGGER.warning("Weather data not available or not configured")
         
         message = build_webhook_message(name, weather_data, config)
         _LOGGER.debug("Built TTS message: %s", message[:100] if message else "empty")
