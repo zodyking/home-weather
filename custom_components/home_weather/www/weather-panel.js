@@ -1586,9 +1586,6 @@ class HomeWeatherPanel extends HTMLElement {
         ${metaItems.map((text, i) => `<text fill="var(--muted)" font-size="10" text-anchor="middle"><textPath href="#hero-arc-top-path" startOffset="${arcTopOffsets[i]}%">${escapeSvg(text)}</textPath></text>`).join("")}
       </svg>` : "";
     const arcBottomText = `${timeStr} · ${dateStr}`.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-    const arcTopOffsets = n > 1 ? metaItems.map((_, i) => 15 + (70 * i / (n - 1))) : [50];
-    const arcTopTexts = metaItems.map((m) => m.text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"));
-    const arcTopSvg = metaItems.length > 0 ? `<svg class="hero-arc-top-svg" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet"><defs><path id="hero-arc-top-path" d="M 10 40 Q 50 2 90 40" fill="none" stroke="none"/></defs>${metaItems.map((_, i) => `<text><textPath href="#hero-arc-top-path" startOffset="${arcTopOffsets[i]}%" text-anchor="middle">${arcTopTexts[i]}</textPath></text>`).join("")}</svg>` : "";
 
     return `
       <section class="content">
@@ -1606,9 +1603,9 @@ class HomeWeatherPanel extends HTMLElement {
                 <svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet">
                   <defs><path id="hero-arc-top-path" d="M 10 40 Q 50 5 90 40" fill="none" stroke="none"/></defs>
                   ${metaItems.map((m, i) => {
-                    const pct = n > 1 ? (15 + (70 * i / (n - 1))) : 50;
-                    const escaped = (m.text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-                    return `<text text-anchor="middle"><textPath href="#hero-arc-top-path" startOffset="${pct}%">${escaped}</textPath></text>`;
+                    const pct = metaItems.length > 1 ? (15 + (70 * i / (metaItems.length - 1))) : 50;
+                    const escaped = String(m).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+                    return `<text text-anchor="middle" fill="var(--muted)" font-size="10"><textPath href="#hero-arc-top-path" startOffset="${pct}%">${escaped}</textPath></text>`;
                   }).join("")}
                 </svg>
               </div>
