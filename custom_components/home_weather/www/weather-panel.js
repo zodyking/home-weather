@@ -627,9 +627,16 @@ class HomeWeatherPanel extends HTMLElement {
     return t >= sunrise.getTime() && t <= sunset.getTime();
   }
 
+  _getHomeCoordinates() {
+    const h = this._hass;
+    if (!h) return { lat: 40.441, lon: -73.938 };
+    const lat = h.config?.latitude ?? h.states?.["zone.home"]?.attributes?.latitude ?? 40.441;
+    const lon = h.config?.longitude ?? h.states?.["zone.home"]?.attributes?.longitude ?? -73.938;
+    return { lat, lon };
+  }
+
   _isNightTime(datetime) {
-    const lat = this._hass?.config?.latitude ?? 40.441;
-    const lon = this._hass?.config?.longitude ?? -73.938;
+    const { lat, lon } = this._getHomeCoordinates();
     return !this._isDayTime(datetime, lat, lon);
   }
 
@@ -783,11 +790,15 @@ class HomeWeatherPanel extends HTMLElement {
         .card-title { font-size: 14px; font-weight: 700; letter-spacing: -0.01em; }
         .card-sub { margin-top: 4px; font-size: 12px; color: var(--muted); }
         .tag { height: 28px; padding: 0 12px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.04); display: inline-flex; align-items: center; color: var(--blue-2); font-size: 11px; white-space: nowrap; }
-        .hero-body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 12px; }
+        .hero-body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
         .hero-body-stack { }
-        .hero-half-circle { height: 0; padding-bottom: 45%; position: relative; overflow: hidden; flex-shrink: 0; }
-        .hero-half-circle .ring-shell { position: absolute; bottom: 0; left: 50%; transform: translateX(-50%); width: min(100%, 360px); aspect-ratio: 1; }
-        .hero-meta-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; min-height: 0; }
+        .hero-full-circle { position: relative; width: 100%; max-width: min(100%, 280px); aspect-ratio: 1; margin: 0 auto; flex-shrink: 0; }
+        .hero-full-circle .ring-shell { width: 100%; height: 100%; position: relative; display: grid; place-items: center; }
+        .hero-arc-top { position: absolute; inset: 0; pointer-events: none; }
+        .hero-chip { position: absolute; padding: 4px 10px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.04); font-size: 11px; color: var(--muted); white-space: nowrap; transform: translate(-50%, -50%); }
+        .hero-arc-bottom { position: absolute; bottom: 0; left: 0; right: 0; height: 36px; pointer-events: none; }
+        .hero-arc-bottom svg { width: 100%; height: 100%; overflow: visible; }
+        .hero-arc-bottom text { font-size: 12px; fill: var(--muted); }
         .hero-left { display: flex; flex-direction: column; justify-content: space-between; min-height: 0; }
         .condition-row { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
         .condition-row .weather-icon { width: 80px; height: 80px; flex: 0 0 auto; display: flex; align-items: center; justify-content: center; }
@@ -843,7 +854,8 @@ class HomeWeatherPanel extends HTMLElement {
         .forecast-scroll-24h::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 2px; }
         .bottom-right { display: flex; flex-direction: column; min-height: 0; overflow: hidden; border-radius: var(--radius-xl, 22px); }
         .moon-card-fill { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: var(--radius-xl, 22px); padding: 16px; overflow: hidden; }
-        .moon-card-fill .card-head { margin-bottom: 12px; flex-shrink: 0; }
+        .moon-card-fill .card-head { margin-bottom: 12px; flex-shrink: 0; align-self: stretch; width: 100%; }
+        .moon-card-fill .card-head > div:first-child { text-align: left; }
         .moon-card { display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; }
         .moon-icon-wrap { width: 120px; height: 120px; margin-bottom: 8px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; overflow: visible; }
         .moon-card .moon-icon, .moon-card-fill .moon-icon { width: 120px; height: 120px; margin-bottom: 12px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
@@ -1527,8 +1539,7 @@ class HomeWeatherPanel extends HTMLElement {
     const timeStr = now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
     const dateStr = now.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" });
 
-    const lat = (this._hass?.config?.latitude != null ? this._hass.config.latitude : 40.441);
-    const lon = (this._hass?.config?.longitude != null ? this._hass.config.longitude : -73.938);
+    const { lat, lon } = this._getHomeCoordinates();
     const windyUrl = `https://embed.windy.com/embed.html?type=map&location=coordinates&metricRain=in&metricTemp=°F&metricWind=mph&zoom=8&overlay=radar&product=radar&level=surface&lat=${lat}&lon=${lon}&pressure=true&message=true&play=1`;
 
     const sunTimes = this._getSunTimes(lat, lon, now);
@@ -1541,6 +1552,22 @@ class HomeWeatherPanel extends HTMLElement {
 
     this._ensureSunTimes(lat, lon, now).catch(() => {});
 
+    const metaItems = [];
+    const slotAngles = [-72, -36, 0, 36, 72];
+    let ai = 0;
+    if (hiTemp != null) metaItems.push({ text: `H: ${hiTemp}°`, angle: slotAngles[ai++] });
+    if (loTemp != null) metaItems.push({ text: `L: ${loTemp}°`, angle: slotAngles[ai++] });
+    if (feelsLike != null) metaItems.push({ text: `Feels ${feelsLike}°`, angle: slotAngles[ai++] });
+    if (windSpeed != null) metaItems.push({ text: `Wind ${Math.round(windSpeed)} ${windUnit}`, angle: slotAngles[ai++] });
+    if (windGusts != null) metaItems.push({ text: `Gusts ${Math.round(windGusts)} ${windUnit}`, angle: slotAngles[ai++] });
+    const n = metaItems.length;
+    if (n > 1) {
+      for (let i = 0; i < n; i++) metaItems[i].angle = -72 + (144 * i / (n - 1));
+    } else if (n === 1) {
+      metaItems[0].angle = 0;
+    }
+    const arcBottomText = `${timeStr} · ${dateStr}`.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
     return `
       <section class="content">
         <article class="glass card hero">
@@ -1552,7 +1579,16 @@ class HomeWeatherPanel extends HTMLElement {
             <div class="tag">Now</div>
           </div>
           <div class="hero-body hero-body-stack">
-            <div class="hero-half-circle">
+            <div class="hero-full-circle">
+              <div class="hero-arc-top">
+                ${metaItems.map((m) => {
+                  const rad = (m.angle * Math.PI) / 180;
+                  const r = 42;
+                  const left = 50 + r * Math.sin(rad);
+                  const top = 50 - r * Math.cos(rad);
+                  return `<span class="hero-chip" style="left:${left}%;top:${top}%;transform:translate(-50%,-50%) rotate(${m.angle}deg);">${m.text}</span>`;
+                }).join("")}
+              </div>
               <div class="ring-shell">
                 <div class="ring">
                   <div class="ring-center">
@@ -1562,16 +1598,10 @@ class HomeWeatherPanel extends HTMLElement {
                   </div>
                 </div>
               </div>
-            </div>
-            <div class="hero-meta-row">
-              <div class="hero-meta">
-                ${hiTemp != null ? `<span>H: ${hiTemp}°</span>` : ""}
-                ${loTemp != null ? `<span>L: ${loTemp}°</span>` : ""}
-                ${feelsLike != null ? `<span>Feels ${feelsLike}°</span>` : ""}
-                ${windSpeed != null ? `<span>Wind ${Math.round(windSpeed)} ${windUnit}</span>` : ""}
-                ${windGusts != null ? `<span>Gusts ${Math.round(windGusts)} ${windUnit}</span>` : ""}
-              </div>
-              <div class="time-block-compact">${timeStr} · ${dateStr}</div>
+              <svg class="hero-arc-bottom" viewBox="0 0 200 36" preserveAspectRatio="xMidYMax meet">
+                <defs><path id="hero-arc-path" d="M 15 28 Q 100 36 185 28" fill="none" stroke="none"/></defs>
+                <text fill="var(--muted)" font-size="11" font-weight="600" text-anchor="middle"><textPath href="#hero-arc-path" startOffset="50%">${arcBottomText}</textPath></text>
+              </svg>
             </div>
           </div>
         </article>
@@ -1647,8 +1677,8 @@ class HomeWeatherPanel extends HTMLElement {
           <div class="moon-card moon-card-fill">
             <div class="card-head">
               <div>
-                <div class="card-title">Moon Phase</div>
-                <div class="card-sub">Lunar cycle at your location</div>
+                <div class="card-title">${this._moonCardView === "sun" ? "Sun Details" : "Moon Phase"}</div>
+                <div class="card-sub">${this._moonCardView === "sun" ? "Solar times at your location" : "Lunar cycle at your location"}</div>
               </div>
               <div class="switcher moon-sun-switcher">
                 <button class="${this._moonCardView === "moon" ? "active" : ""}" data-moon-view="moon">Moon</button>
