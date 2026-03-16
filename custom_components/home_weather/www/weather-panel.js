@@ -321,7 +321,8 @@ class HomeWeatherPanel extends HTMLElement {
       { name: "Waning Crescent", icon: "moon-waning-crescent" },
     ];
     const idx = Math.min(7, Math.floor(phaseRatio * 8));
-    return { ...phases[idx], illumination, daysSinceNew: ageDays.toFixed(1) };
+    const daysToFull = (14.765 - ageDays + LUNAR_CYCLE) % LUNAR_CYCLE;
+    return { ...phases[idx], illumination, daysSinceNew: ageDays.toFixed(1), daysToFull: Math.round(daysToFull * 10) / 10 };
   }
 
   _formatDateTimeWithTime(d) {
@@ -517,12 +518,44 @@ class HomeWeatherPanel extends HTMLElement {
     this._settings.tts.webhooks = list;
   }
 
-  _isNightTime(datetime) {
-    if (!datetime) return false;
+  _getSunTimes(lat, lon, date) {
+    const d = date instanceof Date ? date : new Date(date);
+    const day = d.getDate();
+    const month = d.getMonth() + 1;
+    const year = d.getFullYear();
+    const latRad = (lat * Math.PI) / 180;
+    const n = Math.floor(365.25 * (year - 2000)) + Math.floor(30.6001 * (month + 1)) + day - 63.5;
+    const sunMeanAnom = (357.5281 + 0.9856 * n) % 360;
+    const sunMeanAnomRad = (sunMeanAnom * Math.PI) / 180;
+    const eclipticLon = 280.46 + 0.9856474 * n + 1.915 * Math.sin(sunMeanAnomRad) + 0.02 * Math.sin(2 * sunMeanAnomRad);
+    const obliquity = 23.44 - 0.0000004 * n;
+    const decRad = Math.asin(Math.sin((obliquity * Math.PI) / 180) * Math.sin((eclipticLon * Math.PI) / 180));
+    const cosHourAngle = (Math.sin((-0.83 * Math.PI) / 180) - Math.sin(latRad) * Math.sin(decRad)) / (Math.cos(latRad) * Math.cos(decRad));
+    if (cosHourAngle > 1 || cosHourAngle < -1) return { sunrise: null, sunset: null };
+    const hourAngle = Math.acos(Math.max(-1, Math.min(1, cosHourAngle))) * (180 / Math.PI);
+    const eqTime = 0.0172 + 0.4281 * Math.cos(sunMeanAnomRad) - 7.351 * Math.sin(sunMeanAnomRad) - 3.3495 * Math.cos(2 * sunMeanAnomRad) - 9.3619 * Math.sin(2 * sunMeanAnomRad);
+    const sunriseOffset = 12 - (1 / 15) * (hourAngle + eqTime) - lon / 15;
+    const sunsetOffset = 12 + (1 / 15) * (hourAngle - eqTime) - lon / 15;
+    const sunrise = new Date(year, month - 1, day);
+    sunrise.setHours(Math.floor(sunriseOffset), Math.round((sunriseOffset % 1) * 60), 0, 0);
+    const sunset = new Date(year, month - 1, day);
+    sunset.setHours(Math.floor(sunsetOffset), Math.round((sunsetOffset % 1) * 60), 0, 0);
+    return { sunrise, sunset };
+  }
+
+  _isDayTime(datetime, lat, lon) {
+    if (datetime == null || lat == null || lon == null) return true;
     const d = datetime instanceof Date ? datetime : new Date(datetime);
-    const hour = d.getHours();
-    // Day: 7am–6:59pm (7–18). Night: 7pm–6:59am (19–6).
-    return hour >= 19 || hour < 7;
+    const { sunrise, sunset } = this._getSunTimes(lat, lon, d);
+    if (!sunrise || !sunset) return d.getHours() >= 7 && d.getHours() < 19;
+    const t = d.getTime();
+    return t >= sunrise.getTime() && t <= sunset.getTime();
+  }
+
+  _isNightTime(datetime) {
+    const lat = this._hass?.config?.latitude ?? 40.441;
+    const lon = this._hass?.config?.longitude ?? -73.938;
+    return !this._isDayTime(datetime, lat, lon);
   }
 
   _getConditionLabel(condition, datetime) {
@@ -651,6 +684,7 @@ class HomeWeatherPanel extends HTMLElement {
         .weather-app { padding: 18px; display: grid; grid-template-rows: 78px 1fr; gap: 16px; height: 100%; min-height: 0; min-width: 0; }
         .glass { background: var(--panel); border: 1px solid var(--stroke); border-radius: var(--radius-xl); box-shadow: var(--shadow); backdrop-filter: var(--glass); -webkit-backdrop-filter: var(--glass); }
         .topbar { display: grid; grid-template-columns: 1fr auto 56px; gap: 14px; align-items: stretch; min-width: 0; }
+        .topbar .icon-btn { height: 100%; width: 56px; min-width: 56px; }
         .title-card, .status-card { display: flex; align-items: center; min-width: 0; padding: 0 22px; }
         .title-card { justify-content: space-between; gap: 16px; }
         .title-wrap { min-width: 0; }
@@ -695,6 +729,9 @@ class HomeWeatherPanel extends HTMLElement {
         .ring-center .small { font-size: 10px; text-transform: uppercase; letter-spacing: 0.16em; color: var(--muted); }
         .ring-center .big { margin-top: 8px; font-size: clamp(44px, 4vw, 60px); font-weight: 700; letter-spacing: -0.06em; }
         .ring-center .state { margin-top: 6px; font-size: 12px; color: var(--blue-2); letter-spacing: 0.08em; white-space: nowrap; }
+        .ring-center-icon { display: flex; align-items: center; justify-content: center; margin-bottom: 4px; }
+        .ring-center-icon img { width: 120px; height: 96px; object-fit: contain; }
+        .time-block-compact { margin-top: 12px; font-size: 18px; font-weight: 600; letter-spacing: -0.02em; color: var(--muted); }
         .highlights-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
         .windy-map-container { flex: 1; min-height: 0; position: relative; aspect-ratio: 1; max-height: 100%; border-radius: 12px; overflow: hidden; }
         .windy-map-container iframe { width: 100%; height: 100%; border: none; display: block; }
@@ -712,7 +749,7 @@ class HomeWeatherPanel extends HTMLElement {
         .switcher button { height: 30px; padding: 0 14px; border: 0; border-radius: 999px; background: transparent; color: var(--muted); font-size: 12px; cursor: pointer; transition: 0.16s ease; }
         .switcher button.active { background: rgba(120,166,255,0.2); color: var(--text); }
         .forecast-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(7, 1fr); gap: 10px; align-items: start; }
-        .forecast-card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: 22px; padding: 12px 10px; display: flex; flex-direction: column; align-items: center; justify-content: space-between; min-height: 110px; text-align: center; }
+        .forecast-card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: 22px; padding: 12px 10px; display: flex; flex-direction: column; align-items: center; justify-content: space-between; min-height: 120px; text-align: center; }
         .forecast-card.active { background: rgba(120,166,255,0.12); border-color: rgba(153,188,255,0.16); }
         .forecast-card .day { font-size: 12px; color: var(--text); font-weight: 600; }
         .forecast-card .icon { margin: 10px 0 8px; display: flex; align-items: center; justify-content: center; }
@@ -722,12 +759,15 @@ class HomeWeatherPanel extends HTMLElement {
         .forecast-card .low { color: var(--muted); font-size: 16px; }
         .forecast-card .rain { margin-top: 8px; color: var(--blue-2); font-size: 12px; font-weight: 600; }
         .forecast-scroll-24h { flex: 1; min-height: 0; display: flex; gap: 10px; overflow-x: auto; padding-bottom: 8px; scrollbar-width: thin; }
+        .forecast-scroll-24h .forecast-card { min-width: 80px; flex-shrink: 0; }
         .forecast-scroll-24h::-webkit-scrollbar { height: 4px; }
         .forecast-scroll-24h::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 2px; }
         .bottom-right { display: flex; flex-direction: column; min-height: 0; }
-        .moon-card-fill { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: 24px; padding: 16px; }
+        .moon-card-fill { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: var(--radius-xl); padding: 16px; }
+        .moon-card-fill .card-head { margin-bottom: 12px; }
         .moon-card { display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; }
-        .moon-card .moon-icon, .moon-card-fill .moon-icon { width: 84px; height: 84px; margin-bottom: 18px; }
+        .moon-card .moon-icon, .moon-card-fill .moon-icon { width: 120px; height: 120px; margin-bottom: 12px; }
+        .moon-card-fill .moon-meta, .moon-card-fill .moon-sun { margin-top: 8px; font-size: 12px; color: var(--muted); }
         .moon-card .moon-icon img, .moon-card-fill .moon-icon img { width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 2px 8px rgba(0,0,0,0.2)); }
         .moon-title, .moon-card-fill .moon-title { font-size: 20px; font-weight: 600; letter-spacing: -0.02em; }
         .moon-sub, .moon-card-fill .moon-sub { margin-top: 6px; color: var(--muted); font-size: 13px; }
@@ -943,7 +983,7 @@ class HomeWeatherPanel extends HTMLElement {
                   <div class="title-wrap">
                     <div class="eyebrow">WEATHER DASHBOARD</div>
                     <div class="title">Home Weather</div>
-                    <div class="subtitle">A cleaner high fidelity weather HUD for wall display or tablet</div>
+                    <div class="subtitle">Your weather command center for live updates, forecast, and alerts</div>
                   </div>
                 </section>
                 <section class="glass status-card">
@@ -1394,7 +1434,11 @@ class HomeWeatherPanel extends HTMLElement {
 
     const lat = (this._hass?.config?.latitude != null ? this._hass.config.latitude : 40.441);
     const lon = (this._hass?.config?.longitude != null ? this._hass.config.longitude : -73.938);
-    const windyUrl = `https://embed.windy.com/embed.html?type=map&location=coordinates&metricRain=in&metricTemp=°F&metricWind=mph&zoom=10&overlay=radar&product=radar&level=surface&lat=${lat}&lon=${lon}&pressure=true&message=true&play=1`;
+    const windyUrl = `https://embed.windy.com/embed.html?type=map&location=coordinates&metricRain=in&metricTemp=°F&metricWind=mph&zoom=8&overlay=radar&product=radar&level=surface&lat=${lat}&lon=${lon}&pressure=true&message=true&play=1`;
+
+    const sunTimes = this._getSunTimes(lat, lon, now);
+    const sunriseStr = sunTimes.sunrise ? sunTimes.sunrise.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "—";
+    const sunsetStr = sunTimes.sunset ? sunTimes.sunset.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "—";
 
     return `
       <section class="content">
@@ -1408,35 +1452,22 @@ class HomeWeatherPanel extends HTMLElement {
           </div>
           <div class="hero-body">
             <div class="hero-left">
-              <div>
-                <div class="condition-row">
-                  <div class="weather-icon">${this._getConditionIcon(condition, "large", now)}</div>
-                </div>
-                <div class="temp-row">
-                  <div class="value">${temp}</div>
-                  <div class="unit">°</div>
-                </div>
-                <div class="hero-meta">
-                  ${hiTemp != null ? `<span>H: ${hiTemp}°</span>` : ""}
-                  ${loTemp != null ? `<span>L: ${loTemp}°</span>` : ""}
-                  ${windSpeed != null ? `<span>Wind ${Math.round(windSpeed)} ${windUnit}</span>` : ""}
-                  ${windGusts != null ? `<span>Gusts ${Math.round(windGusts)} ${windUnit}</span>` : ""}
-                </div>
-                <div class="time-block">
-                  <div class="time">${timeStr}</div>
-                  <div class="date">${dateStr}</div>
-                  <div class="condition">${this._getConditionLabel(condition, now)}</div>
-                  <div class="hero-note">Local conditions with live data</div>
-                </div>
+              <div class="hero-meta">
+                ${hiTemp != null ? `<span>H: ${hiTemp}°</span>` : ""}
+                ${loTemp != null ? `<span>L: ${loTemp}°</span>` : ""}
+                ${feelsLike != null ? `<span>Feels ${feelsLike}°</span>` : ""}
+                ${windSpeed != null ? `<span>Wind ${Math.round(windSpeed)} ${windUnit}</span>` : ""}
+                ${windGusts != null ? `<span>Gusts ${Math.round(windGusts)} ${windUnit}</span>` : ""}
               </div>
+              <div class="time-block-compact">${timeStr} · ${dateStr}</div>
             </div>
             <div class="orbital">
               <div class="ring-shell">
                 <div class="ring">
                   <div class="ring-center">
-                    <div class="small">Feels Like</div>
-                    <div class="big">${feelsLike != null ? feelsLike + "°" : "—"}</div>
-                    <div class="state">Humidity ${humidity != null ? humidity + "%" : "—"}</div>
+                    <div class="ring-center-icon">${this._getConditionIcon(condition, "large", now)}</div>
+                    <div class="big">${temp}°</div>
+                    <div class="state">${this._getConditionLabel(condition, now)}</div>
                   </div>
                 </div>
               </div>
@@ -1513,11 +1544,19 @@ class HomeWeatherPanel extends HTMLElement {
 
         <div class="bottom-right">
           <div class="moon-card moon-card-fill">
+            <div class="card-head">
+              <div>
+                <div class="card-title">Moon Phase</div>
+                <div class="card-sub">Lunar cycle at your location</div>
+              </div>
+            </div>
             <div class="moon-icon">
               <img src="/local/home_weather/icons/Moon%20Phase/${moon.icon}.svg" alt="${moon.name}" loading="lazy"/>
             </div>
             <div class="moon-title">${moon.name}</div>
             <div class="moon-sub">${moon.illumination}% illuminated</div>
+            <div class="moon-meta">Day ${moon.daysSinceNew} · Next full in ${moon.daysToFull ?? "—"} days</div>
+            <div class="moon-sun">Sunrise ${sunriseStr} · Sunset ${sunsetStr}</div>
           </div>
         </div>
       </section>
@@ -1682,6 +1721,8 @@ class HomeWeatherPanel extends HTMLElement {
       };
       const ch = new ApexCharts(container, opts);
       await ch.render();
+      const toHide = ["Feels Like", "Dew Point", "Precip Chance", "Humidity", "Wind Gusts", "Pressure", "Cloud Cover", "UV Index"];
+      toHide.forEach((name) => ch.toggleSeries(name));
       this._apexCharts.push(ch);
     } catch (e) {
       console.error("ApexCharts init failed:", e);
