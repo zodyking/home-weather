@@ -688,17 +688,15 @@ class HomeWeatherPanel extends HTMLElement {
         .time-block .condition { margin-top: 14px; font-size: 22px; font-weight: 600; letter-spacing: -0.02em; }
         .hero-note { margin-top: 8px; color: var(--muted); font-size: 13px; line-height: 1.45; max-width: 90%; }
         .orbital { position: relative; display: flex; align-items: center; justify-content: center; min-height: 0; height: 100%; }
-        .orbital::before, .orbital::after { content: ""; position: absolute; background: rgba(255,255,255,0.05); pointer-events: none; }
-        .orbital::before { left: 10%; right: 10%; top: 50%; height: 1px; }
-        .orbital::after { top: 10%; bottom: 10%; left: 50%; width: 1px; }
         .ring-shell { width: min(100%, 360px); aspect-ratio: 1; position: relative; display: grid; place-items: center; border-radius: 50%; background: radial-gradient(circle at center, transparent 58%, rgba(255,255,255,0.08) 58%, rgba(255,255,255,0.08) 60%, transparent 60%), radial-gradient(circle at center, transparent 72%, rgba(255,255,255,0.06) 72%, rgba(255,255,255,0.06) 73%, transparent 73%); }
         .ring { width: 72%; aspect-ratio: 1; border-radius: 50%; border: 12px solid var(--blue); background: rgba(255,255,255,0.03); box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06); display: grid; place-items: center; position: relative; }
-        .ring::before { content: ""; position: absolute; top: -8px; left: 50%; transform: translateX(-50%); width: 16px; height: 16px; border-radius: 50%; background: var(--cyan); }
         .ring-center { text-align: center; }
         .ring-center .small { font-size: 10px; text-transform: uppercase; letter-spacing: 0.16em; color: var(--muted); }
         .ring-center .big { margin-top: 8px; font-size: clamp(44px, 4vw, 60px); font-weight: 700; letter-spacing: -0.06em; }
         .ring-center .state { margin-top: 6px; font-size: 12px; color: var(--blue-2); letter-spacing: 0.08em; white-space: nowrap; }
         .highlights-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .windy-map-container { flex: 1; min-height: 0; position: relative; aspect-ratio: 1; max-height: 100%; border-radius: 12px; overflow: hidden; }
+        .windy-map-container iframe { width: 100%; height: 100%; border: none; display: block; }
         .highlight { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: 22px; padding: 16px; min-height: 120px; display: flex; flex-direction: column; justify-content: space-between; }
         .highlight .top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
         .highlight .label { color: var(--muted); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; }
@@ -706,6 +704,8 @@ class HomeWeatherPanel extends HTMLElement {
         .highlight .icon img { width: 24px; height: 24px; object-fit: contain; }
         .highlight .value { font-size: 32px; font-weight: 700; letter-spacing: -0.04em; }
         .highlight .sub { color: var(--muted); font-size: 11px; }
+        .windy-map-container { flex: 1; min-height: 0; position: relative; aspect-ratio: 1; max-height: 100%; border-radius: 12px; overflow: hidden; }
+        .windy-map-container iframe { width: 100%; height: 100%; border: none; display: block; }
         .forecast-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
         .switcher { display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: 999px; padding: 4px; }
         .switcher button { height: 30px; padding: 0 14px; border: 0; border-radius: 999px; background: transparent; color: var(--muted); font-size: 12px; cursor: pointer; transition: 0.16s ease; }
@@ -1388,15 +1388,9 @@ class HomeWeatherPanel extends HTMLElement {
     const timeStr = now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
     const dateStr = now.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" });
 
-    const tempUnit = this._useFahrenheit ? "°F" : "°C";
-    const highlightsWithSub = [
-      { icon: "thermometer-warmer.svg", label: "Feels Like", value: feelsLike != null ? `${feelsLike}°` : "—", sub: "Cold wind effect" },
-      { icon: "humidity.svg", label: "Humidity", value: humidity != null ? `${humidity}%` : "—", sub: "Moderate moisture" },
-      { icon: "wind.svg", label: "Wind", value: windSpeed != null ? `${Math.round(windSpeed)} ${windUnit}` : "—", sub: "Breezy" },
-      { icon: "raindrop.svg", label: "Precip", value: `${Math.round(precipChance)}%`, sub: "Chance today" },
-      { icon: "uv-index.svg", label: "UV Index", value: uvIndex != null ? String(uvIndex) : "—", sub: uvIndex != null && uvIndex > 5 ? "High exposure" : "Moderate" },
-      { icon: "barometer.svg", label: "Pressure", value: pressure != null ? `${pressure} ${pressureUnit}` : "—", sub: "Steady" },
-    ];
+    const lat = (this._hass?.config?.latitude != null ? this._hass.config.latitude : 40.441);
+    const lon = (this._hass?.config?.longitude != null ? this._hass.config.longitude : -73.938);
+    const windyUrl = `https://embed.windy.com/embed.html?type=map&location=coordinates&metricRain=in&metricTemp=°F&metricWind=mph&zoom=10&overlay=radar&product=radar&level=surface&lat=${lat}&lon=${lon}&pressure=true&message=true`;
 
     return `
       <section class="content">
@@ -1449,21 +1443,12 @@ class HomeWeatherPanel extends HTMLElement {
         <article class="glass card highlights">
           <div class="card-head">
             <div>
-              <div class="card-title">Today's Highlights</div>
-              <div class="card-sub">Key metrics at a glance</div>
+              <div class="card-title">Windy Map</div>
+              <div class="card-sub">Live radar and weather at your location</div>
             </div>
           </div>
-          <div class="highlights-grid">
-            ${highlightsWithSub.map((h) => `
-              <div class="highlight">
-                <div class="top">
-                  <span class="label">${h.label}</span>
-                  <span class="icon"><img src="/local/home_weather/icons/${h.icon}" alt="" loading="lazy"/></span>
-                </div>
-                <div class="value">${h.value}</div>
-                <div class="sub">${h.sub}</div>
-              </div>
-            `).join("")}
+          <div class="windy-map-container">
+            <iframe src="${windyUrl}" frameborder="0" title="Windy weather map" width="100%" height="100%" loading="lazy"></iframe>
           </div>
         </article>
 
