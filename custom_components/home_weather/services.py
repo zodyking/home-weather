@@ -385,6 +385,18 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
         
         connection.send_result(msg["id"], {"webhooks": result})
 
+    @websocket_api.websocket_command({"type": "home_weather/get_version"})
+    @websocket_api.async_response
+    async def handle_get_version(
+        hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+    ) -> None:
+        """Return integration version from manifest.json."""
+        from pathlib import Path
+        import json
+        manifest_path = Path(__file__).parent / "manifest.json"
+        manifest = json.loads(manifest_path.read_text())
+        connection.send_result(msg["id"], {"version": manifest.get("version", "0.0")})
+
     websocket_api.async_register_command(hass, handle_get_config)
     websocket_api.async_register_command(hass, handle_set_config)
     websocket_api.async_register_command(hass, handle_get_weather)
@@ -393,4 +405,5 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, handle_test_forecast)
     websocket_api.async_register_command(hass, handle_get_automations)
     websocket_api.async_register_command(hass, handle_get_webhook_info)
+    websocket_api.async_register_command(hass, handle_get_version)
 

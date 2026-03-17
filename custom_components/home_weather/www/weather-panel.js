@@ -22,6 +22,9 @@ class HomeWeatherPanel extends HTMLElement {
     this._apexCharts = [];
     this._webhookInfo = {};  // { webhook_id: { url, last_triggered } }
     this._sunTimesCache = {};
+    this._version = null;
+    this._updateStatus = "latest";  // "latest" | "available" | "checking"
+    this._updateCheckInterval = null;
   }
 
   get _isNarrow() {
@@ -58,11 +61,13 @@ class HomeWeatherPanel extends HTMLElement {
     if (this._hass && !this._config) {
       this._loadConfig();
     }
+    this._startUpdateCheckPoll();
     // Subscribe to webhook triggered events for real-time status updates
     this._subscribeToWebhookEvents();
   }
 
   disconnectedCallback() {
+    this._stopUpdateCheckPoll();
     if (this._mediaQuery && this._onMediaChange) {
       this._mediaQuery.removeEventListener("change", this._onMediaChange);
     }
@@ -155,6 +160,7 @@ class HomeWeatherPanel extends HTMLElement {
         this._currentView = "settings";
       }
       await this._loadWeatherData();
+      await this._fetchVersion();
       // Refresh every 5 min
       if (this._refreshInterval) clearInterval(this._refreshInterval);
       this._refreshInterval = setInterval(() => this._loadWeatherData(), 5 * 60 * 1000);
@@ -164,6 +170,78 @@ class HomeWeatherPanel extends HTMLElement {
     } finally {
       this._loading = false;
       this._render();
+    }
+  }
+
+  async _fetchVersion() {
+    if (!this._hass) return;
+    try {
+      const r = await this._hass.callWS({ type: "home_weather/get_version" });
+      this._version = r.version != null ? String(r.version) : null;
+      this._render();
+    } catch (e) {
+      console.error("Failed to fetch version:", e);
+      this._version = null;
+      this._render();
+    }
+  }
+
+  _parseSemver(v) {
+    const s = String(v || "0").replace(/^v/i, "").trim();
+    const parts = s.split(".").map((n) => parseInt(n, 10) || 0);
+    return { major: parts[0] || 0, minor: parts[1] || 0, patch: parts[2] || 0 };
+  }
+
+  _compareVersions(current, latest) {
+    const c = this._parseSemver(current);
+    const l = this._parseSemver(latest);
+    if (l.major > c.major) return 1;
+    if (l.major < c.major) return -1;
+    if (l.minor > c.minor) return 1;
+    if (l.minor < c.minor) return -1;
+    if (l.patch > c.patch) return 1;
+    if (l.patch < c.patch) return -1;
+    return 0;
+  }
+
+  async _checkForUpdate() {
+    const current = this._version;
+    if (!current) return;
+    try {
+      const res = await fetch("https://api.github.com/repos/zodyking/home-weather/releases/latest");
+      if (res.status === 404) {
+        this._updateStatus = "latest";
+      } else if (!res.ok) {
+        this._updateStatus = this._updateStatus === "available" ? "available" : "latest";
+        return;
+      } else {
+        const data = await res.json();
+        const tag = (data.tag_name || "").replace(/^v/i, "").trim();
+        if (!tag) {
+          this._updateStatus = "latest";
+        } else if (this._compareVersions(current, tag) > 0) {
+          this._updateStatus = "available";
+        } else {
+          this._updateStatus = "latest";
+        }
+      }
+      const pill = this.shadowRoot?.getElementById("update-status-pill");
+      if (pill) pill.textContent = this._updateStatus === "available" ? "Update available" : "Latest version";
+    } catch (e) {
+      this._updateStatus = this._updateStatus === "available" ? "available" : "latest";
+    }
+  }
+
+  _startUpdateCheckPoll() {
+    this._stopUpdateCheckPoll();
+    this._checkForUpdate();
+    this._updateCheckInterval = setInterval(() => this._checkForUpdate(), 60000);
+  }
+
+  _stopUpdateCheckPoll() {
+    if (this._updateCheckInterval) {
+      clearInterval(this._updateCheckInterval);
+      this._updateCheckInterval = null;
     }
   }
 
@@ -774,18 +852,17 @@ class HomeWeatherPanel extends HTMLElement {
         .hud-wrapper { position: relative; min-height: 100%; overflow: auto; }
         .hud-wrapper::before { content: ""; position: absolute; inset: 0; background: linear-gradient(rgba(255,255,255,0.018) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.018) 1px, transparent 1px); background-size: 48px 48px; opacity: 0.22; mask-image: radial-gradient(circle at center, black 42%, transparent 100%); pointer-events: none; }
         .hud-wrapper::after { content: ""; position: absolute; inset: 14px; border: 1px solid rgba(126,166,255,0.08); border-radius: 26px; pointer-events: none; }
-        .weather-app { padding: clamp(12px, 2vw, 18px); display: grid; grid-template-rows: 78px 1fr; gap: clamp(12px, 1.5vw, 16px); height: 100%; min-height: 0; min-width: 0; }
+        .weather-app { padding: clamp(12px, 2vw, 18px); display: grid; grid-template-rows: clamp(56px, 7vw, 78px) 1fr; gap: clamp(12px, 1.5vw, 16px); height: 100%; min-height: 0; min-width: 0; }
         .glass { background: var(--panel); border: 1px solid var(--stroke); border-radius: var(--radius-xl); box-shadow: var(--shadow); backdrop-filter: var(--glass); -webkit-backdrop-filter: var(--glass); }
-        .topbar { display: grid; grid-template-columns: 1fr auto 56px; gap: 14px; align-items: stretch; min-width: 0; }
-        .topbar .icon-btn { height: 100%; width: 56px; min-width: 56px; }
-        .title-card, .status-card { display: flex; align-items: center; min-width: 0; padding: 0 22px; }
-        .title-card { justify-content: space-between; gap: 16px; }
-        .title-wrap { min-width: 0; }
-        .eyebrow { color: var(--muted); font-size: clamp(9px, 1vw, 10px); letter-spacing: 0.2em; text-transform: uppercase; margin-bottom: 5px; }
-        .title { font-size: clamp(24px, 4vw, 34px); line-height: 1; font-weight: 700; letter-spacing: -0.04em; }
-        .subtitle { margin-top: 6px; color: var(--muted); font-size: clamp(11px, 1.5vw, 13px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .pill { height: 34px; padding: 0 14px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.035); display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; white-space: nowrap; }
-        .status-card { gap: 10px; justify-content: center; padding: 0 14px; }
+        .topbar { display: flex; flex-wrap: nowrap; align-items: stretch; gap: clamp(8px, 1vw, 14px); min-width: 0; }
+        .topbar .icon-btn { flex-shrink: 0; width: clamp(44px, 5vw, 56px); min-width: 44px; height: 100%; }
+        .title-card { flex: 1; min-width: 0; display: flex; align-items: center; padding: 0 clamp(12px, 1.5vw, 22px); }
+        .title-wrap { min-width: 0; flex: 1; overflow: hidden; }
+        .eyebrow { color: var(--muted); font-size: clamp(8px, 0.9vw, 10px); letter-spacing: 0.2em; text-transform: uppercase; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .title { font-size: clamp(18px, 2.5vw, 34px); line-height: 1; font-weight: 700; letter-spacing: -0.04em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .subtitle { margin-top: 2px; color: var(--muted); font-size: clamp(10px, 1.2vw, 13px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .status-card { display: flex; gap: clamp(6px, 0.8vw, 10px); justify-content: center; padding: 0 clamp(8px, 1vw, 14px); flex-shrink: 0; }
+        .pill { height: clamp(28px, 3vw, 34px); padding: 0 clamp(8px, 1vw, 14px); border-radius: 999px; border: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.035); display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: clamp(10px, 1vw, 12px); white-space: nowrap; flex-shrink: 0; }
         .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 12px rgba(99,215,160,0.42); }
         .icon-btn { border: 1px solid var(--stroke); background: var(--panel); border-radius: 18px; box-shadow: var(--shadow); display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--text); transition: 0.16s ease; backdrop-filter: var(--glass); width: 56px; height: 56px; }
         .icon-btn:hover { border-color: var(--stroke-2); background: var(--panel-2); }
@@ -876,27 +953,29 @@ class HomeWeatherPanel extends HTMLElement {
         .moon-card-fill .moon-icon-wrapper { width: 120px; height: 120px; display: flex; align-items: center; justify-content: center; overflow: visible; }
         .moon-card-fill .moon-icon-wrapper img { transform: scale(1.5); width: 120px; height: 120px; }
         .moon-card-fill .moon-icon-wrap .moon-icon { width: 120px; height: 120px; margin: 0; transform: scale(1.55); }
-        .sun-icon-wrap { width: 120px; height: 120px; margin-bottom: 12px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; overflow: visible; }
-        .sun-icon-wrap img { width: 120px; height: 120px; object-fit: contain; transform: scale(1.2); filter: drop-shadow(0 2px 8px rgba(0,0,0,0.2)); }
         .moon-pane, .sun-pane { display: flex; flex-direction: column; align-items: center; gap: 8px; flex: 1; min-height: 0; overflow-y: auto; }
-        .sun-pane .sun-title { font-size: 20px; font-weight: 600; letter-spacing: -0.02em; margin-bottom: 4px; }
-        .sun-pane .sun-stat { font-size: 13px; color: var(--text); white-space: nowrap; }
-        .sun-pane .sun-label { color: var(--muted); font-size: 12px; margin-right: 8px; }
+        .sun-pane .sun-stat { font-size: 13px; color: var(--text); white-space: nowrap; display: flex; justify-content: center; align-items: center; gap: 8px; }
+        .sun-pane .sun-label { color: var(--muted); font-size: 12px; }
         .sun-pane .sun-attribution { margin-top: 12px; font-size: 10px; color: var(--muted); }
         .moon-card-fill .moon-meta, .moon-card-fill .moon-sun { margin-top: 8px; font-size: 12px; color: var(--muted); }
         .moon-card .moon-icon img, .moon-card-fill .moon-icon img { width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 2px 8px rgba(0,0,0,0.2)); }
         .moon-title, .moon-card-fill .moon-title { font-size: 20px; font-weight: 600; letter-spacing: -0.02em; }
         .moon-sub, .moon-card-fill .moon-sub { margin-top: 6px; color: var(--muted); font-size: 13px; }
         .moon-pane, .sun-pane { display: flex; flex-direction: column; align-items: center; gap: 8px; width: 100%; }
-        .sun-pane { text-align: left; align-items: stretch; }
-        .sun-stat { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
+        .sun-pane { text-align: center; }
         .sun-label { color: var(--muted); }
         .sun-attribution { margin-top: 8px; font-size: 10px; color: var(--muted); text-decoration: none; }
         .sun-attribution:hover { color: var(--blue-2); }
         .chart-container { flex: 1; min-height: 200px; width: 100%; }
+        .radar-view { display: none; flex: 1; min-height: 0; flex-direction: column; }
+        .radar-view.active { display: flex; }
+        .moon-pane-wrap, .sun-pane-wrap { display: none; flex: 1; min-height: 0; flex-direction: column; }
+        .moon-pane-wrap.active, .sun-pane-wrap.active { display: flex; }
+        .forecast-7day-wrap, .forecast-24h-wrap { display: none; flex: 1; min-height: 0; flex-direction: column; }
+        .forecast-7day-wrap.active, .forecast-24h-wrap.active { display: flex; }
         .footer-note { position: absolute; right: 22px; bottom: 18px; color: rgba(255,255,255,0.28); font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; pointer-events: none; }
         @media (min-width: 1181px) { .hud-wrapper { height: 100vh; overflow: hidden; } }
-        @media (max-width: 1180px) { .weather-app { min-height: 1600px; } .content { grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); grid-template-rows: auto auto; } .bottom-row { grid-template-columns: 1fr; } .topbar { grid-template-columns: 1fr auto; } .status-card { display: none; } }
+        @media (max-width: 1180px) { .weather-app { min-height: 1600px; } .content { grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); grid-template-rows: auto auto; } .bottom-row { grid-template-columns: 1fr; } .hero .card, .highlights .card { aspect-ratio: 1; width: 100%; max-width: 100%; } }
         @media (max-width: 900px) { .weather-app { padding: clamp(10px, 2vw, 14px); gap: clamp(10px, 1.5vw, 14px); } .hero-full-circle { max-width: min(100%, 240px); } }
         @media (max-width: 768px) { .weather-app { padding: 10px; } .topbar .icon-btn { width: 48px; min-width: 48px; } }
         .loading, .error { text-align: center; padding: 48px 16px; color: var(--secondary-text-color); }
@@ -1112,8 +1191,8 @@ class HomeWeatherPanel extends HTMLElement {
                 </section>
                 <section class="glass status-card">
                   <div class="pill"><span class="status-dot"></span>Live</div>
-                  <div class="pill">${this._forecastView === "7day" ? "7 Day" : "24 Hour"}</div>
-                  <div class="pill">Updated Now</div>
+                  <div class="pill">v${this._version ?? "—"}</div>
+                  <div class="pill" id="update-status-pill">${this._updateStatus === "available" ? "Update available" : "Latest version"}</div>
                 </section>
                 <button class="icon-btn" id="gear-btn" aria-label="Settings">
                   <div class="gear"></div>
@@ -1164,7 +1243,7 @@ class HomeWeatherPanel extends HTMLElement {
     } else if (this._currentView === "forecast") {
       if (this._radarView === "chart") this._initApexChart();
       s.querySelectorAll(".switcher button, .forecast-tab").forEach((btn) => {
-          btn.addEventListener("click", () => {
+        btn.addEventListener("click", () => {
           if (btn.dataset.radarView) {
             this._radarView = btn.dataset.radarView || "map";
           } else if (btn.dataset.moonView) {
@@ -1172,10 +1251,29 @@ class HomeWeatherPanel extends HTMLElement {
           } else if (btn.dataset.view) {
             this._forecastView = btn.dataset.view || "7day";
           }
-          this._render();
+          this._updateToggleView();
         });
       });
     }
+  }
+
+  _updateToggleView() {
+    const s = this.shadowRoot;
+    if (!s) return;
+    s.querySelectorAll(".radar-view").forEach((el) => el.classList.toggle("active", el.dataset.radarView === this._radarView));
+    s.querySelectorAll(".moon-pane-wrap, .sun-pane-wrap").forEach((el) => el.classList.toggle("active", el.dataset.moonView === this._moonCardView));
+    s.querySelectorAll(".forecast-7day-wrap, .forecast-24h-wrap").forEach((el) => el.classList.toggle("active", el.dataset.forecastView === this._forecastView));
+    s.querySelectorAll(".switcher button").forEach((btn) => {
+      const active = (btn.dataset.radarView && btn.dataset.radarView === this._radarView) ||
+        (btn.dataset.moonView && btn.dataset.moonView === this._moonCardView) ||
+        (btn.dataset.view && btn.dataset.view === this._forecastView);
+      btn.classList.toggle("active", !!active);
+    });
+    const titleEl = s.getElementById("moon-card-title");
+    const subEl = s.getElementById("moon-card-sub");
+    if (titleEl) titleEl.textContent = this._moonCardView === "sun" ? "Sun Details" : "Moon Phase";
+    if (subEl) subEl.textContent = this._moonCardView === "sun" ? "Solar times at your location" : "Lunar cycle at your location";
+    if (this._radarView === "chart") this._initApexChart();
   }
 
   _attachSettingsHandlers() {
@@ -1620,12 +1718,14 @@ class HomeWeatherPanel extends HTMLElement {
               <button class="${this._radarView === "chart" ? "active" : ""}" data-radar-view="chart">Chart</button>
             </div>
           </div>
-          ${this._radarView === "map"
-            ? `<div class="windy-map-container">
-                <iframe src="${windyUrl}" frameborder="0" title="Windy weather map" width="100%" height="100%" loading="lazy"></iframe>
-              </div>`
-            : `<div class="chart-container" id="apex-chart-combined"></div>`
-          }
+          <div class="radar-view ${this._radarView === "map" ? "active" : ""}" data-radar-view="map">
+            <div class="windy-map-container">
+              <iframe src="${windyUrl}" frameborder="0" title="Windy weather map" width="100%" height="100%" loading="lazy"></iframe>
+            </div>
+          </div>
+          <div class="radar-view ${this._radarView === "chart" ? "active" : ""}" data-radar-view="chart">
+            <div class="chart-container" id="apex-chart-combined"></div>
+          </div>
         </article>
 
         <div class="bottom-row">
@@ -1637,28 +1737,30 @@ class HomeWeatherPanel extends HTMLElement {
               <button class="${this._forecastView === "24h" ? "active" : ""}" data-view="24h">24 Hour</button>
             </div>
           </div>
-          ${this._forecastView === "7day"
-            ? `<div class="forecast-grid">
-                ${daily.map((d, i) => {
-                  const dHi = d.temperature != null ? Math.round(d.temperature) : "—";
-                  const dLo = d.templow != null ? Math.round(d.templow) : "—";
-                  const precipVal = this._formatPrecip(d.precipitation_probability);
-                  const dayLabel = this._formatDayLabel(d.datetime);
-                  return `
-                    <div class="forecast-card ${i === 0 ? "active" : ""}">
-                      <div class="day">${dayLabel}</div>
-                      <div class="icon">${this._getConditionIcon(d.condition, null, null, true)}</div>
-                      <div class="condition">${this._formatConditionText(d.condition)}</div>
-                      <div class="temps">
-                        <div class="high">${dHi}°</div>
-                        <div class="low">${dLo}°</div>
-                      </div>
-                      <div class="rain">${precipVal}</div>
+          <div class="forecast-7day-wrap ${this._forecastView === "7day" ? "active" : ""}" data-forecast-view="7day">
+            <div class="forecast-grid">
+              ${daily.map((d, i) => {
+                const dHi = d.temperature != null ? Math.round(d.temperature) : "—";
+                const dLo = d.templow != null ? Math.round(d.templow) : "—";
+                const precipVal = this._formatPrecip(d.precipitation_probability);
+                const dayLabel = this._formatDayLabel(d.datetime);
+                return `
+                  <div class="forecast-card ${i === 0 ? "active" : ""}">
+                    <div class="day">${dayLabel}</div>
+                    <div class="icon">${this._getConditionIcon(d.condition, null, null, true)}</div>
+                    <div class="condition">${this._formatConditionText(d.condition)}</div>
+                    <div class="temps">
+                      <div class="high">${dHi}°</div>
+                      <div class="low">${dLo}°</div>
                     </div>
-                  `;
-                }).join("")}
-              </div>`
-            : `<div class="forecast-scroll-24h">
+                    <div class="rain">${precipVal}</div>
+                  </div>
+                `;
+              }).join("")}
+            </div>
+          </div>
+          <div class="forecast-24h-wrap ${this._forecastView === "24h" ? "active" : ""}" data-forecast-view="24h">
+            <div class="forecast-scroll-24h">
               ${hourly.slice(0, 24).map((h, i) => {
                 const hTemp = h.temperature != null ? Math.round(h.temperature) : "—";
                 const precipVal = this._formatPrecip(h.precipitation_probability);
@@ -1675,46 +1777,44 @@ class HomeWeatherPanel extends HTMLElement {
                   </div>
                 `;
               }).join("")}
-            </div>`
-          }
+            </div>
+          </div>
         </article>
 
         <div class="bottom-right">
           <div class="moon-card moon-card-fill">
             <div class="card-head">
               <div>
-                <div class="card-title">${this._moonCardView === "sun" ? "Sun Details" : "Moon Phase"}</div>
-                <div class="card-sub">${this._moonCardView === "sun" ? "Solar times at your location" : "Lunar cycle at your location"}</div>
+                <div class="card-title" id="moon-card-title">${this._moonCardView === "sun" ? "Sun Details" : "Moon Phase"}</div>
+                <div class="card-sub" id="moon-card-sub">${this._moonCardView === "sun" ? "Solar times at your location" : "Lunar cycle at your location"}</div>
               </div>
               <div class="switcher moon-sun-switcher">
                 <button class="${this._moonCardView === "moon" ? "active" : ""}" data-moon-view="moon">Moon</button>
                 <button class="${this._moonCardView === "sun" ? "active" : ""}" data-moon-view="sun">Sun</button>
               </div>
             </div>
-            ${this._moonCardView === "moon"
-              ? `<div class="moon-pane">
-                  <div class="moon-icon-wrap">
-                    <div class="moon-icon">
-                      <img src="/local/home_weather/icons/Moon%20Phase/${moon.icon}.svg" alt="${moon.name}" loading="lazy"/>
-                    </div>
+            <div class="moon-pane-wrap ${this._moonCardView === "moon" ? "active" : ""}" data-moon-view="moon">
+              <div class="moon-pane">
+                <div class="moon-icon-wrap">
+                  <div class="moon-icon">
+                    <img src="/local/home_weather/icons/Moon%20Phase/${moon.icon}.svg" alt="${moon.name}" loading="lazy"/>
                   </div>
-                  <div class="moon-title">${moon.name}</div>
-                  <div class="moon-sub">${moon.illumination}% illuminated</div>
-                  <div class="moon-meta">Day ${moon.daysSinceNew} · Next full in ${moon.daysToFull ?? "—"} days</div>
-                </div>`
-              : `<div class="sun-pane">
-                  <div class="sun-icon-wrap">
-                    <img src="/local/home_weather/icons/day/clear-day.svg" alt="Sun" loading="lazy"/>
-                  </div>
-                  <div class="sun-title">Solar Times</div>
-                  <div class="sun-stat"><span class="sun-label">Sunrise</span> ${sunriseStr}</div>
-                  <div class="sun-stat"><span class="sun-label">Sunset</span> ${sunsetStr}</div>
-                  <div class="sun-stat"><span class="sun-label">Solar noon</span> ${solarNoonStr}</div>
-                  <div class="sun-stat"><span class="sun-label">Day length</span> ${dayLengthStr}</div>
-                  <div class="sun-stat"><span class="sun-label">Civil twilight</span> ${civilBeginStr} – ${civilEndStr}</div>
-                  <a href="https://sunrise-sunset.org" target="_blank" rel="noopener noreferrer" class="sun-attribution">Data by sunrise-sunset.org</a>
-                </div>`
-            }
+                </div>
+                <div class="moon-title">${moon.name}</div>
+                <div class="moon-sub">${moon.illumination}% illuminated</div>
+                <div class="moon-meta">Day ${moon.daysSinceNew} · Next full in ${moon.daysToFull ?? "—"} days</div>
+              </div>
+            </div>
+            <div class="sun-pane-wrap ${this._moonCardView === "sun" ? "active" : ""}" data-moon-view="sun">
+              <div class="sun-pane">
+                <div class="sun-stat"><span class="sun-label">Sunrise</span> ${sunriseStr}</div>
+                <div class="sun-stat"><span class="sun-label">Sunset</span> ${sunsetStr}</div>
+                <div class="sun-stat"><span class="sun-label">Solar noon</span> ${solarNoonStr}</div>
+                <div class="sun-stat"><span class="sun-label">Day length</span> ${dayLengthStr}</div>
+                <div class="sun-stat"><span class="sun-label">Civil twilight</span> ${civilBeginStr} – ${civilEndStr}</div>
+                <a href="https://sunrise-sunset.org" target="_blank" rel="noopener noreferrer" class="sun-attribution">Data by sunrise-sunset.org</a>
+              </div>
+            </div>
           </div>
         </div>
         </div>
