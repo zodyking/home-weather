@@ -925,7 +925,7 @@ class HomeWeatherPanel extends HTMLElement {
         .switcher { display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: 999px; padding: 4px; }
         .switcher button { height: 30px; padding: 0 14px; border: 0; border-radius: 999px; background: transparent; color: var(--muted); font-size: 12px; cursor: pointer; transition: 0.16s ease; }
         .switcher button.active { background: rgba(120,166,255,0.2); color: var(--text); }
-        .forecast-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: clamp(6px, 1vw, 10px); align-items: stretch; min-width: 0; }
+        .forecast-grid { flex: 1; min-height: 0; display: grid; gap: clamp(6px, 1vw, 10px); align-items: stretch; min-width: 0; }
         .forecast-card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: clamp(14px, 2vw, 22px); padding: clamp(4px, 0.6vw, 12px) clamp(4px, 0.6vw, 10px); display: flex; flex-direction: column; align-items: center; justify-content: space-between; min-height: clamp(80px, 12vw, 120px); text-align: center; min-width: 0; }
         .forecast-card.active { background: rgba(120,166,255,0.12); border-color: rgba(153,188,255,0.16); }
         .forecast-card .day { font-size: clamp(9px, 1vw, 12px); color: var(--text); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
@@ -971,7 +971,7 @@ class HomeWeatherPanel extends HTMLElement {
         .forecast-7day-wrap.active, .forecast-24h-wrap.active { display: flex; }
         .footer-note { position: absolute; right: 22px; bottom: 18px; color: rgba(255,255,255,0.28); font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; pointer-events: none; }
         @media (min-width: 1181px) { .hud-wrapper { height: 100vh; overflow: hidden; } }
-        @media (max-width: 1180px) { .weather-app { min-height: 1600px; } .content { grid-template-columns: 1fr 1fr; grid-template-rows: auto auto; } .bottom-row { grid-template-columns: 1fr; } .hero, .highlights { display: flex; justify-content: center; align-items: center; align-self: start; } .hero .card, .highlights .card { aspect-ratio: 1; width: 100%; max-width: min(100%, 50vw); flex-shrink: 0; } }
+        @media (max-width: 1180px) { .weather-app { min-height: 1600px; } .content { grid-template-columns: 1fr 1fr; grid-template-rows: auto auto; align-content: start; } .bottom-row { grid-template-columns: 1fr; } .hero, .highlights { display: flex; justify-content: center; align-items: center; align-self: start; aspect-ratio: 1; width: 100%; max-width: min(100%, 50vw); flex-shrink: 0; } }
         @media (max-width: 900px) { .weather-app { padding: clamp(10px, 2vw, 14px); gap: clamp(10px, 1.5vw, 14px); } .hero-full-circle { max-width: min(100%, 240px); } }
         @media (max-width: 768px) { .weather-app { padding: 10px; } .topbar .icon-btn { width: 48px; min-width: 48px; } }
         .loading, .error { text-align: center; padding: 48px 16px; color: var(--secondary-text-color); }
@@ -1726,7 +1726,7 @@ class HomeWeatherPanel extends HTMLElement {
           <div class="forecast-top">
             <div class="card-title">Forecast</div>
             <div class="switcher">
-              <button class="${this._forecastView === "7day" ? "active" : ""}" data-view="7day">7 Day</button>
+              <button class="${this._forecastView === "7day" ? "active" : ""}" data-view="7day">${daily.length} Day</button>
               <button class="${this._forecastView === "24h" ? "active" : ""}" data-view="24h">24 Hour</button>
             </div>
           </div>
