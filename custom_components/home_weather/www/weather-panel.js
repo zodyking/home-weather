@@ -940,7 +940,7 @@ class HomeWeatherPanel extends HTMLElement {
         .forecast-scroll-24h::-webkit-scrollbar { display: none; }
         .forecast-scroll-24h .forecast-card { min-width: clamp(64px, 8vw, 80px); flex-shrink: 0; }
         .bottom-right { display: flex; flex-direction: column; min-height: 0; overflow: hidden; border-radius: var(--radius-xl, 22px); }
-        .moon-card-fill { flex: 1; min-height: 320px; max-height: 360px; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: var(--radius-xl, 22px); padding: 16px; overflow: hidden; }
+        .moon-card-fill { flex: 0 0 320px; height: 320px; display: flex; flex-direction: column; align-items: center; text-align: center; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: var(--radius-xl, 22px); padding: 16px; overflow: hidden; }
         .moon-card-fill .card-head { margin-bottom: 12px; flex-shrink: 0; align-self: stretch; width: 100%; }
         .moon-card-fill .card-head > div:first-child { text-align: left; }
         .moon-card { display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; }
@@ -971,7 +971,7 @@ class HomeWeatherPanel extends HTMLElement {
         .forecast-7day-wrap.active, .forecast-24h-wrap.active { display: flex; }
         .footer-note { position: absolute; right: 22px; bottom: 18px; color: rgba(255,255,255,0.28); font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; pointer-events: none; }
         @media (min-width: 1181px) { .hud-wrapper { height: 100vh; overflow: hidden; } }
-        @media (max-width: 1180px) { .weather-app { min-height: 1600px; } .content { grid-template-columns: 1fr 1fr; grid-template-rows: auto auto; } .bottom-row { grid-template-columns: 1fr; } .hero, .highlights { display: flex; justify-content: center; } .hero .card, .highlights .card { aspect-ratio: 1; width: 100%; max-width: min(100%, 50vw); } }
+        @media (max-width: 1180px) { .weather-app { min-height: 1600px; } .content { grid-template-columns: 1fr 1fr; grid-template-rows: auto auto; } .bottom-row { grid-template-columns: 1fr; } .hero, .highlights { display: flex; justify-content: center; align-items: center; align-self: start; } .hero .card, .highlights .card { aspect-ratio: 1; width: 100%; max-width: min(100%, 50vw); flex-shrink: 0; } }
         @media (max-width: 900px) { .weather-app { padding: clamp(10px, 2vw, 14px); gap: clamp(10px, 1.5vw, 14px); } .hero-full-circle { max-width: min(100%, 240px); } }
         @media (max-width: 768px) { .weather-app { padding: 10px; } .topbar .icon-btn { width: 48px; min-width: 48px; } }
         .loading, .error { text-align: center; padding: 48px 16px; color: var(--secondary-text-color); }
@@ -1731,7 +1731,7 @@ class HomeWeatherPanel extends HTMLElement {
             </div>
           </div>
           <div class="forecast-7day-wrap ${this._forecastView === "7day" ? "active" : ""}" data-forecast-view="7day">
-            <div class="forecast-grid">
+            <div class="forecast-grid" style="grid-template-columns: repeat(${Math.max(1, daily.length)}, minmax(0, 1fr));">
               ${daily.map((d, i) => {
                 const dHi = d.temperature != null ? Math.round(d.temperature) : "—";
                 const dLo = d.templow != null ? Math.round(d.templow) : "—";
