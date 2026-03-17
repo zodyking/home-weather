@@ -35,6 +35,7 @@ from .tts_notifications import (
     build_sunset_final_message,
     send_tts,
     send_tts_with_ai_rewrite,
+    play_nws_alert_notification,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -66,6 +67,7 @@ class TTSTriggerManager:
         self._sun_alerts_last_upcoming: dict[str, datetime] = {}  # event_key -> last announce
         self._sun_alerts_final_fired: set[str] = set()  # event_key for sunrise/sunset final
         self._sun_alert_state: dict[str, Any] = {}  # Track sun alert announcements
+        self._nws_known_alert_ids: set[str] = set()  # Track NWS alert IDs to detect new alerts
 
     async def async_setup(self) -> None:
         """Set up all enabled triggers based on config."""
@@ -104,6 +106,11 @@ class TTSTriggerManager:
         sun_alerts = config.get("sun_alerts", {})
         if sun_alerts.get("enabled", False):
             await self._setup_sun_alerts_trigger(config)
+        
+        # NWS weather alerts (sound + TTS when new alert appears)
+        nws_alerts = config.get("nws_alerts", {})
+        if nws_alerts.get("enabled", False):
+            await self._setup_nws_alerts_trigger(config)
         
         _LOGGER.info("TTS triggers set up successfully")
 
@@ -585,6 +592,86 @@ class TTSTriggerManager:
             k: v for k, v in self._sun_alerts_last_upcoming.items()
             if v.strftime("%Y-%m-%d %H:%M") >= cutoff_up[:10]
         }
+
+    async def _setup_nws_alerts_trigger(self, config: dict[str, Any]) -> None:
+        """Poll NWS API every 5 minutes; play sound + TTS when new active alert appears."""
+        media_players = config.get("media_players", [])
+        if not media_players:
+            _LOGGER.warning("NWS alerts enabled but no media players configured")
+            return
+
+        lat = self.hass.config.latitude
+        lon = self.hass.config.longitude
+        if lat is None or lon is None:
+            _LOGGER.warning("Home coordinates not configured, cannot poll NWS alerts")
+            return
+
+        if not hasattr(self, "_nws_known_alert_ids"):
+            self._nws_known_alert_ids: set[str] = set()
+
+        def _poll(now: datetime) -> None:
+            self.hass.async_create_task(self._check_nws_alerts_async(config))
+
+        unsub = async_track_time_interval(self.hass, _poll, timedelta(minutes=5))
+        self._unsub_callbacks.append(unsub)
+        await self._check_nws_alerts_async(config)
+        _LOGGER.info("NWS alerts trigger set up (polling every 5 min)")
+
+    async def _check_nws_alerts_async(self, config: dict[str, Any]) -> None:
+        """Fetch NWS alerts and fire notification for newly seen active alerts."""
+        nws = config.get("nws_alerts", {})
+        media_players = config.get("media_players", [])
+        if not nws.get("enabled") or not media_players:
+            return
+
+        lat = self.hass.config.latitude
+        lon = self.hass.config.longitude
+        if lat is None or lon is None:
+            return
+
+        url = f"https://api.weather.gov/alerts/active?point={lat},{lon}"
+        known = getattr(self, "_nws_known_alert_ids", set())
+
+        try:
+            session = self.hass.helpers.aiohttp_client.async_get_clientsession(self.hass)
+            async with session.get(url) as resp:
+                if resp.status != 200:
+                    _LOGGER.warning("NWS API returned %s", resp.status)
+                    return
+                data = await resp.json()
+        except Exception as e:
+            _LOGGER.warning("NWS alerts fetch failed: %s", e)
+            return
+
+        features = data.get("features") or []
+        now = dt_util.now()
+        active_ids: set[str] = set()
+
+        for feat in features:
+            props = feat.get("properties") or {}
+            aid = props.get("id")
+            if not aid:
+                continue
+            exp = props.get("expires") or props.get("ends")
+            if exp:
+                try:
+                    exp_dt = dt_util.parse_datetime(str(exp).replace("Z", "+00:00"))
+                    if exp_dt and now > exp_dt:
+                        continue
+                except Exception:
+                    pass
+            active_ids.add(aid)
+            if aid not in known:
+                known.add(aid)
+                await play_nws_alert_notification(
+                    self.hass,
+                    config,
+                    props,
+                    media_players,
+                )
+                _LOGGER.info("NWS alert fired: %s", props.get("event", aid))
+
+        self._nws_known_alert_ids = {x for x in known if x in active_ids}
 
     async def _fire_scheduled_forecast(self, target_media_player: str = "") -> None:
         """Fire a scheduled forecast TTS.

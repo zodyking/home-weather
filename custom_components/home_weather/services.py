@@ -397,6 +397,24 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
         manifest = json.loads(manifest_path.read_text())
         connection.send_result(msg["id"], {"version": manifest.get("version", "0.0")})
 
+    @websocket_api.websocket_command({"type": "home_weather/list_www_sounds"})
+    @websocket_api.async_response
+    async def handle_list_www_sounds(
+        hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+    ) -> None:
+        """List audio files (mp3, wav, ogg) in www/sounds/ directory."""
+        from pathlib import Path
+        comp_path = Path(__file__).parent
+        sounds_dir = comp_path / "www" / "sounds"
+        sounds_dir.mkdir(parents=True, exist_ok=True)
+        allowed = frozenset({".mp3", ".wav", ".ogg"})
+        sounds = [
+            f.name for f in sounds_dir.iterdir()
+            if f.is_file() and f.suffix.lower() in allowed
+        ]
+        sounds.sort()
+        connection.send_result(msg["id"], {"sounds": sounds})
+
     websocket_api.async_register_command(hass, handle_get_config)
     websocket_api.async_register_command(hass, handle_set_config)
     websocket_api.async_register_command(hass, handle_get_weather)
@@ -406,4 +424,5 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, handle_get_automations)
     websocket_api.async_register_command(hass, handle_get_webhook_info)
     websocket_api.async_register_command(hass, handle_get_version)
+    websocket_api.async_register_command(hass, handle_list_www_sounds)
 

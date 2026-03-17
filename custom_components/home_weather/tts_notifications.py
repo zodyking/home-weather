@@ -647,3 +647,56 @@ async def send_tts_with_ai_rewrite(
             _LOGGER.warning("AI rewrite failed, using original message: %s", e)
     
     await send_tts(hass, media_players_config, final_message, volume_override)
+
+
+async def play_nws_alert_notification(
+    hass: HomeAssistant,
+    config: dict[str, Any],
+    alert_properties: dict[str, Any],
+    media_players_config: list[dict[str, Any]],
+) -> None:
+    """Play siren sound (if configured) then TTS for an NWS weather alert."""
+    nws = config.get("nws_alerts", {})
+    sound_file = (nws.get("sound_file") or "").strip()
+    sound_vol = max(0, min(1, float(nws.get("sound_volume", 0.8))))
+    tts_vol = max(0, min(1, float(nws.get("tts_volume", 0.9))))
+    desc = (alert_properties.get("description") or "").strip()
+    msg = f"Weather Alert from National Weather Service! {desc}" if desc else "Weather Alert from National Weather Service!"
+    if len(msg) > 500:
+        msg = msg[:497] + "..."
+    if not media_players_config:
+        return
+    base_url = ""
+    try:
+        base_url = (hass.config.api.base_url or "").rstrip("/")
+    except Exception:
+        pass
+    for mp in media_players_config:
+        eid = mp.get("entity_id")
+        if not eid:
+            continue
+        try:
+            await hass.services.async_call(
+                "media_player", "volume_set",
+                {"entity_id": eid, "volume_level": sound_vol},
+                blocking=True,
+            )
+            if sound_file and base_url:
+                await hass.services.async_call(
+                    "media_player", "play_media",
+                    {
+                        "entity_id": eid,
+                        "media_content_type": "music",
+                        "media_content_id": f"{base_url}/local/home_weather/sounds/{sound_file}",
+                    },
+                    blocking=True,
+                )
+                await asyncio.sleep(5)
+            await hass.services.async_call(
+                "media_player", "volume_set",
+                {"entity_id": eid, "volume_level": tts_vol},
+                blocking=True,
+            )
+        except Exception as exc:
+            _LOGGER.warning("NWS alert playback failed for %s: %s", eid, exc)
+    await send_tts(hass, media_players_config, msg, volume_override=tts_vol)

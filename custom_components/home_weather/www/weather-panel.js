@@ -22,6 +22,9 @@ class HomeWeatherPanel extends HTMLElement {
     this._apexCharts = [];
     this._webhookInfo = {};  // { webhook_id: { url, last_triggered } }
     this._sunTimesCache = {};
+    this._wwwSounds = [];  // Audio files in www/sounds/ for NWS alert picker
+    this._alertsData = null;
+    this._alertsLoading = false;
     this._version = null;
     this._updateStatus = "latest";  // "latest" | "available" | "checking"
     this._updateCheckInterval = null;
@@ -245,6 +248,17 @@ class HomeWeatherPanel extends HTMLElement {
     }
   }
 
+  async _loadWwwSounds() {
+    if (!this._hass) return;
+    try {
+      const r = await this._hass.callWS({ type: "home_weather/list_www_sounds" });
+      this._wwwSounds = r.sounds || [];
+    } catch (e) {
+      console.warn("Failed to load www sounds:", e);
+      this._wwwSounds = [];
+    }
+  }
+
   async _loadWebhookInfo() {
     if (!this._hass) return;
     try {
@@ -291,6 +305,9 @@ class HomeWeatherPanel extends HTMLElement {
       // Collect sun alerts
       this._settings.sun_alerts = this._collectSunAlertsSettings();
       
+      // Collect NWS alerts
+      this._settings.nws_alerts = this._collectNwsAlertsSettings();
+      
       // Collect message prefix
       const messagePrefix = s.getElementById("message-prefix");
       if (messagePrefix) this._settings.message_prefix = messagePrefix.value || "Weather update";
@@ -302,6 +319,7 @@ class HomeWeatherPanel extends HTMLElement {
           const entitySel = card.querySelector(".media-player-select");
           const ttsSel = card.querySelector(".media-player-tts-entity");
           const volumeSlider = card.querySelector(".media-player-volume");
+          const prerollInput = card.querySelector(".media-player-preroll");
           const cacheChk = card.querySelector(".media-player-cache");
           const langInput = card.querySelector(".media-player-language");
           const optionsInput = card.querySelector(".media-player-options");
@@ -313,6 +331,7 @@ class HomeWeatherPanel extends HTMLElement {
             entity_id: entitySel?.value || "",
             tts_entity_id: ttsSel?.value || "",
             volume: parseFloat(volumeSlider?.value || 0.6),
+            preroll_ms: parseInt(prerollInput?.value || 150, 10),
             cache: !!cacheChk?.checked,
             language: (langInput?.value || "").trim(),
             options,
@@ -874,18 +893,18 @@ class HomeWeatherPanel extends HTMLElement {
         .bottom-row { grid-column: 1 / -1; grid-row: 2; display: grid; grid-template-columns: minmax(0, 2.33fr) minmax(0, 1fr); gap: clamp(12px, 1.5vw, 16px); min-height: 0; min-width: 0; }
         .forecast { min-height: 0; min-width: 0; }
         .bottom-right { min-height: 0; min-width: 0; }
-        .card { min-width: 0; min-height: 0; padding: clamp(12px, 2vw, 20px); display: flex; flex-direction: column; }
+        .card { min-width: 0; min-height: 0; padding: clamp(12px, 2vw, 20px); display: flex; flex-direction: column; overflow: hidden; }
         .card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: clamp(8px, 1vw, 12px); margin-bottom: clamp(12px, 1.5vw, 16px); }
         .card-title { font-size: clamp(12px, 1.5vw, 14px); font-weight: 700; letter-spacing: -0.01em; }
         .card-sub { margin-top: 4px; font-size: clamp(11px, 1.2vw, 12px); color: var(--muted); }
         .tag { height: 28px; padding: 0 12px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.04); display: inline-flex; align-items: center; color: var(--blue-2); font-size: 11px; white-space: nowrap; }
-        .hero-body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+        .hero-body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; overflow: hidden; }
         .hero-body-stack { }
         .hero-full-circle { position: relative; width: 100%; max-width: min(100%, 280px); aspect-ratio: 1; margin: 0 auto; flex-shrink: 0; }
         .hero-full-circle .ring-shell { width: 100%; height: 100%; position: relative; display: grid; place-items: center; z-index: 1; }
-        .hero-meta-block { margin-top: 12px; text-align: center; }
+        .hero-meta-block { margin-top: 12px; text-align: center; min-width: 0; overflow: hidden; }
         .hero-datetime-line { font-size: clamp(12px, 1.5vw, 14px); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .hero-meta-line { margin-top: 6px; font-size: clamp(11px, 1.2vw, 13px); color: var(--muted); display: flex; flex-wrap: wrap; justify-content: center; gap: clamp(6px, 1vw, 12px); }
+        .hero-meta-line { margin-top: 6px; font-size: clamp(11px, 1.2vw, 13px); color: var(--muted); display: flex; flex-wrap: wrap; justify-content: center; gap: clamp(6px, 1vw, 12px); min-width: 0; }
         .hero-left { display: flex; flex-direction: column; justify-content: space-between; min-height: 0; }
         .condition-row { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
         .condition-row .weather-icon { width: 80px; height: 80px; flex: 0 0 auto; display: flex; align-items: center; justify-content: center; }
@@ -905,12 +924,12 @@ class HomeWeatherPanel extends HTMLElement {
         .ring-center { text-align: center; }
         .ring-center .small { font-size: 10px; text-transform: uppercase; letter-spacing: 0.16em; color: var(--muted); }
         .ring-center .big { margin-top: 8px; font-size: clamp(36px, 3.5vw, 60px); font-weight: 700; letter-spacing: -0.06em; }
-        .ring-center .state { margin-top: 6px; font-size: clamp(10px, 1.2vw, 12px); color: var(--blue-2); letter-spacing: 0.08em; white-space: nowrap; }
+        .ring-center .state { margin-top: 6px; font-size: clamp(10px, 1.2vw, 12px); color: var(--blue-2); letter-spacing: 0.08em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
         .ring-center-icon { display: flex; align-items: center; justify-content: center; margin-bottom: 4px; }
         .ring-center-icon img { width: clamp(56px, 10vw, 120px); height: clamp(48px, 8vw, 96px); object-fit: contain; }
         .time-block-compact { margin-top: 12px; font-size: 18px; font-weight: 600; letter-spacing: -0.02em; color: var(--muted); }
         .highlights-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-        .windy-map-container { flex: 1; min-height: clamp(120px, 25vw, 400px); min-width: 0; position: relative; aspect-ratio: 1; max-height: 100%; border-radius: 12px; overflow: hidden; }
+        .windy-map-container { flex: 1; min-height: clamp(100px, 20vw, 320px); min-width: 0; position: relative; aspect-ratio: 1; max-height: 100%; border-radius: 12px; overflow: hidden; }
         .windy-map-container iframe { width: 100%; height: 100%; border: none; display: block; }
         .highlight { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: 22px; padding: 16px; min-height: 120px; display: flex; flex-direction: column; justify-content: space-between; }
         .highlight .top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
@@ -919,19 +938,19 @@ class HomeWeatherPanel extends HTMLElement {
         .highlight .icon img { width: 24px; height: 24px; object-fit: contain; }
         .highlight .value { font-size: 32px; font-weight: 700; letter-spacing: -0.04em; }
         .highlight .sub { color: var(--muted); font-size: 11px; }
-        .windy-map-container { flex: 1; min-height: clamp(120px, 25vw, 400px); min-width: 0; position: relative; aspect-ratio: 1; max-height: 100%; border-radius: 12px; overflow: hidden; }
+        .windy-map-container { flex: 1; min-height: clamp(100px, 20vw, 320px); min-width: 0; position: relative; aspect-ratio: 1; max-height: 100%; border-radius: 12px; overflow: hidden; }
         .windy-map-container iframe { width: 100%; height: 100%; border: none; display: block; }
         .forecast-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
         .switcher { display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: 999px; padding: 4px; }
         .switcher button { height: clamp(26px, 3vw, 30px); padding: 0 clamp(8px, 1.2vw, 14px); border: 0; border-radius: 999px; background: transparent; color: var(--muted); font-size: clamp(10px, 1.2vw, 12px); cursor: pointer; transition: 0.16s ease; }
         .switcher button.active { background: rgba(120,166,255,0.2); color: var(--text); }
         .forecast-grid { flex: 1; min-height: 0; display: grid; gap: clamp(6px, 1vw, 10px); align-items: stretch; min-width: 0; }
-        .forecast-card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: clamp(14px, 2vw, 22px); padding: clamp(4px, 0.6vw, 12px) clamp(4px, 0.6vw, 10px); display: flex; flex-direction: column; align-items: center; justify-content: space-between; min-height: clamp(80px, 12vw, 120px); text-align: center; min-width: 0; }
+        .forecast-card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: clamp(14px, 2vw, 22px); padding: clamp(4px, 0.6vw, 12px) clamp(4px, 0.6vw, 10px); display: flex; flex-direction: column; align-items: center; justify-content: space-between; min-height: clamp(72px, 12vw, 120px); text-align: center; min-width: 0; }
         .forecast-card.active { background: rgba(120,166,255,0.12); border-color: rgba(153,188,255,0.16); }
-        .forecast-card .day { font-size: clamp(9px, 1vw, 12px); color: var(--text); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+        .forecast-card .day { font-size: clamp(10px, 1vw, 12px); color: var(--text); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
         .forecast-card .icon { margin: clamp(4px, 0.8vw, 10px) 0 clamp(2px, 0.4vw, 4px); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
         .forecast-card .icon img { width: clamp(28px, 4vw, 48px); height: clamp(24px, 3.5vw, 40px); object-fit: contain; }
-        .forecast-card .condition { font-size: clamp(8px, 0.9vw, 11px); color: var(--muted); margin-bottom: clamp(2px, 0.4vw, 6px); text-align: center; line-height: 1.2; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .forecast-card .condition { font-size: clamp(10px, 0.9vw, 11px); color: var(--muted); margin-bottom: clamp(2px, 0.4vw, 6px); text-align: center; line-height: 1.2; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .forecast-card .temps { line-height: 1.25; }
         .forecast-card .high { font-size: clamp(18px, 2.5vw, 28px); font-weight: 700; letter-spacing: -0.04em; }
         .forecast-card .low { color: var(--muted); font-size: clamp(11px, 1.2vw, 16px); }
@@ -940,13 +959,13 @@ class HomeWeatherPanel extends HTMLElement {
         .forecast-scroll-24h::-webkit-scrollbar { display: none; }
         .forecast-scroll-24h .forecast-card { min-width: clamp(64px, 8vw, 80px); flex-shrink: 0; }
         .bottom-right { display: flex; flex-direction: column; min-height: 0; overflow: hidden; border-radius: var(--radius-xl, 22px); }
-        .moon-card-fill { flex: 0 0 320px; height: 320px; display: flex; flex-direction: column; align-items: center; text-align: center; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: var(--radius-xl, 22px); padding: 16px; overflow: hidden; }
+        .moon-card-fill { flex: 0 0 auto; min-height: 280px; max-height: 360px; display: flex; flex-direction: column; align-items: center; text-align: center; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: var(--radius-xl, 22px); padding: 16px; overflow: hidden; }
         .moon-card-fill .card-head { margin-bottom: 12px; flex-shrink: 0; align-self: stretch; width: 100%; }
         .moon-card-fill .card-head > div:first-child { text-align: left; }
         .moon-card { display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; }
-        .moon-icon-wrap { width: clamp(64px, 12vw, 120px); height: clamp(64px, 12vw, 120px); margin-bottom: 8px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; overflow: visible; }
-        .moon-card .moon-icon, .moon-card-fill .moon-icon { width: clamp(64px, 12vw, 120px); height: clamp(64px, 12vw, 120px); margin-bottom: 12px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-        .moon-card-fill .moon-icon-wrapper { width: clamp(64px, 12vw, 120px); height: clamp(64px, 12vw, 120px); display: flex; align-items: center; justify-content: center; overflow: visible; }
+        .moon-icon-wrap { width: clamp(56px, 10vw, 120px); height: clamp(56px, 10vw, 120px); margin-bottom: 8px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; overflow: visible; }
+        .moon-card .moon-icon, .moon-card-fill .moon-icon { width: clamp(56px, 10vw, 120px); height: clamp(56px, 10vw, 120px); margin-bottom: 12px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+        .moon-card-fill .moon-icon-wrapper { width: clamp(56px, 10vw, 120px); height: clamp(56px, 10vw, 120px); display: flex; align-items: center; justify-content: center; overflow: visible; }
         .moon-card-fill .moon-icon-wrapper img { transform: scale(1.5); width: 100%; height: 100%; object-fit: contain; }
         .moon-card-fill .moon-icon-wrap .moon-icon { width: 100%; height: 100%; margin: 0; transform: scale(1.55); }
         .moon-pane, .sun-pane { display: flex; flex-direction: column; align-items: center; gap: clamp(4px, 0.8vw, 8px); flex: 1; min-height: 0; overflow: hidden; }
@@ -969,7 +988,7 @@ class HomeWeatherPanel extends HTMLElement {
         .moon-pane-wrap.active, .sun-pane-wrap.active { display: flex; overflow: hidden; }
         .forecast-7day-wrap, .forecast-24h-wrap { display: none; flex: 1; min-height: 0; flex-direction: column; }
         .forecast-7day-wrap.active, .forecast-24h-wrap.active { display: flex; }
-        .footer-note { position: absolute; right: 22px; bottom: 18px; color: rgba(255,255,255,0.28); font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; pointer-events: none; }
+        .footer-note { position: absolute; right: 22px; bottom: 18px; max-width: calc(100% - 44px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: rgba(255,255,255,0.28); font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; pointer-events: none; }
         @media (min-width: 1181px) { .hud-wrapper { height: 100vh; overflow: hidden; } }
         @media (max-width: 1180px) { .weather-app { min-height: 1600px; } .content { grid-template-columns: 1fr 1fr; grid-template-rows: auto auto; align-content: start; } .bottom-row { grid-template-columns: 1fr; } .hero, .highlights { display: flex; justify-content: center; align-items: center; align-self: start; aspect-ratio: 1; width: 100%; max-width: min(100%, 50vw); flex-shrink: 0; } }
         @media (max-width: 900px) { .weather-app { padding: clamp(10px, 2vw, 14px); gap: clamp(10px, 1.5vw, 14px); } .hero-full-circle { max-width: min(100%, 240px); } }
@@ -1013,18 +1032,42 @@ class HomeWeatherPanel extends HTMLElement {
         .day-high { font-size: 20px; font-weight: 500; }
         .day-low { font-size: 16px; color: var(--secondary-text-color); }
         .day-precip { font-size: 14px; color: var(--info-color); margin-left: auto; }
-        .settings-form { display: grid; gap: 24px; }
+        /* Settings design tokens */
+        .settings-form {
+          --form-gap: 16px;
+          --form-gap-sm: 12px;
+          --form-gap-lg: 24px;
+          --form-label-size: 13px;
+          --form-label-weight: 500;
+          --form-hint-size: 12px;
+          --form-input-height: 40px;
+          --section-padding: 20px;
+          display: grid;
+          gap: var(--form-gap-lg);
+        }
         .settings-tabs { display: flex; gap: 0; margin-bottom: 24px; border-bottom: 2px solid var(--divider-color); }
         .settings-tab { padding: 12px 24px; background: transparent; border: none; border-bottom: 3px solid transparent; margin-bottom: -2px; color: var(--secondary-text-color); cursor: pointer; font-size: 15px; font-weight: 500; }
         .settings-tab:hover { color: var(--primary-text-color); }
         .settings-tab.active { color: var(--accent-color); border-bottom-color: var(--accent-color); }
         .settings-section { display: none; }
         .settings-section.active { display: block; }
-        .form-group { display: flex; flex-direction: column; gap: 8px; }
-        .form-group label { font-size: 14px; font-weight: 500; color: var(--primary-text-color); }
-        .form-group input, .form-group select { padding: 12px 16px; border: 1px solid var(--divider-color); border-radius: 8px; background: var(--card-background-color); color: var(--primary-text-color); font-size: 14px; }
-        .form-group input[type="checkbox"] { width: auto; padding: 0; }
-        .form-row { display: flex; align-items: center; gap: 12px; }
+        .form-group { display: flex; flex-direction: column; gap: 6px; margin-bottom: var(--form-gap); }
+        .form-group label { font-size: var(--form-label-size); font-weight: var(--form-label-weight); color: var(--primary-text-color); }
+        .form-group input, .form-group select { padding: 10px 14px; height: var(--form-input-height); border: 1px solid var(--divider-color); border-radius: 8px; background: var(--card-background-color); color: var(--primary-text-color); font-size: 14px; box-sizing: border-box; }
+        .form-group input[type="checkbox"] { width: auto; padding: 0; height: auto; }
+        .form-row { display: flex; align-items: center; gap: var(--form-gap-sm); }
+        .form-row-inline { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: var(--form-gap-sm); align-items: end; margin-bottom: var(--form-gap); }
+        .form-row-inline .form-group { margin-bottom: 0; }
+        @media (max-width: 480px) { .form-row-inline { grid-template-columns: 1fr; } }
+        .settings-toggle-row { display: flex; align-items: center; justify-content: space-between; gap: var(--form-gap-sm); padding: 12px 0; }
+        .settings-toggle-row .inline-toggle-label { margin: 0; }
+        .form-group.settings-toggle-row { flex-direction: row; flex-wrap: nowrap; }
+        .days-of-week-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--form-gap-sm); margin-bottom: var(--form-gap); }
+        .day-toggle-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: var(--secondary-background-color); border-radius: 8px; }
+        .day-toggle-row .day-label { font-size: var(--form-label-size); font-weight: var(--form-label-weight); color: var(--primary-text-color); }
+        @media (max-width: 480px) { .days-of-week-grid { grid-template-columns: repeat(2, 1fr); } }
+        .form-group.settings-toggle-row { flex-direction: row; flex-wrap: nowrap; align-items: center; }
+        .form-group.settings-toggle-row label:first-of-type { margin-bottom: 0; flex: 1; }
         .form-row .btn-icon { padding: 8px 12px; min-width: auto; }
         .media-player-list { display: flex; flex-direction: column; gap: 16px; }
         .media-player-item { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: var(--card-background-color); border: 1px solid var(--divider-color); border-radius: 8px; }
@@ -1050,8 +1093,10 @@ class HomeWeatherPanel extends HTMLElement {
         .collapsible-subtitle { font-size: 12px; color: var(--secondary-text-color); margin-top: 2px; }
         .collapsible-chevron { width: 20px; height: 20px; color: var(--secondary-text-color); transition: transform 0.2s; }
         .collapsible-section.open .collapsible-chevron { transform: rotate(180deg); }
-        .collapsible-content { padding: 0 20px 20px; display: none; }
-        .collapsible-section.open .collapsible-content { display: block; }
+        .collapsible-content { padding: var(--section-padding); display: none; flex-direction: column; gap: var(--form-gap); }
+        .collapsible-section.open .collapsible-content { display: flex; }
+        .subsection-block { display: flex; flex-direction: column; gap: var(--form-gap-sm); }
+        .subsection-title { font-size: 14px; font-weight: 600; color: var(--primary-text-color); margin-bottom: 4px; }
         .range-slider { display: flex; align-items: center; gap: 12px; width: 100%; }
         .range-slider input[type="range"] { flex: 1; height: 6px; border-radius: 3px; background: var(--secondary-background-color); appearance: none; -webkit-appearance: none; cursor: pointer; }
         .range-slider input[type="range"]::-webkit-slider-thumb { appearance: none; -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%; background: var(--accent-color); cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
@@ -1173,8 +1218,26 @@ class HomeWeatherPanel extends HTMLElement {
         .chart-title { font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--secondary-text-color); margin-bottom: 16px; }
         .chart-container { min-height: 280px; }
       </style>
-      ${this._currentView === "forecast"
-        ? `<div class="hud-wrapper">
+      ${this._currentView === "forecast" || this._currentView === "alerts"
+        ? this._currentView === "alerts"
+          ? `<div class="settings-view ${this._isNarrow ? "narrow" : ""}">
+            <div class="header">
+              <div class="header-left">
+                <button class="hamburger" id="hamburger-btn" aria-label="Open Home Assistant sidebar">
+                  <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></svg>
+                </button>
+                <h1>NWS Alerts</h1>
+              </div>
+              <div class="header-right">
+                <button class="header-btn" id="back-btn" aria-label="Back to dashboard" data-view="forecast">
+                  <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+                  <span style="margin-left:6px;font-size:14px">Back to dashboard</span>
+                </button>
+              </div>
+            </div>
+            ${this._renderContent()}
+          </div>`
+          : `<div class="hud-wrapper">
             <div class="weather-app">
               <header class="topbar">
                 ${this._isNarrow ? `<button class="hamburger icon-btn" id="hamburger-btn" aria-label="Open sidebar" style="width:48px;height:48px;"><svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></svg></button>` : ""}
@@ -1190,6 +1253,10 @@ class HomeWeatherPanel extends HTMLElement {
                   <div class="pill">v${this._version ?? "—"}</div>
                   <div class="pill" id="update-status-pill">${this._updateStatus === "available" ? "Update available" : "Latest version"}</div>
                 </section>
+                <button class="icon-btn" id="alerts-btn" aria-label="Alerts" style="display:flex;align-items:center;gap:6px;">
+                  <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>
+                  <span style="font-size:13px;font-weight:500;">Alerts</span>
+                </button>
                 <button class="icon-btn" id="gear-btn" aria-label="Settings">
                   <div class="gear"></div>
                 </button>
@@ -1222,14 +1289,22 @@ class HomeWeatherPanel extends HTMLElement {
     });
     const settingsBtn = s.getElementById("settings-btn");
     const gearBtn = s.getElementById("gear-btn");
+    const alertsBtn = s.getElementById("alerts-btn");
     const backBtn = s.getElementById("back-btn");
+    if (alertsBtn) alertsBtn.addEventListener("click", () => {
+      this._currentView = "alerts";
+      this._alertsData = null;
+      this._alertsLoading = false;
+      this._render();
+    });
     if (settingsBtn) settingsBtn.addEventListener("click", () => {
       this._currentView = "settings";
       this._render();
       this._loadWebhookInfo();
     });
-    if (gearBtn) gearBtn.addEventListener("click", () => {
+    if (gearBtn) gearBtn.addEventListener("click", async () => {
       this._currentView = "settings";
+      await this._loadWwwSounds();
       this._render();
       this._loadWebhookInfo();
     });
@@ -1320,15 +1395,7 @@ class HomeWeatherPanel extends HTMLElement {
       });
     });
     
-    // Days of week checkboxes - prevent double toggle from label behavior
-    s.querySelectorAll("#days-of-week .checkbox-item").forEach((item) => {
-      item.addEventListener("click", (e) => {
-        e.preventDefault();
-        item.classList.toggle("checked");
-        const checkbox = item.querySelector("input");
-        if (checkbox) checkbox.checked = item.classList.contains("checked");
-      });
-    });
+    // Days of week: toggle switches in day-toggle-row (native checkbox handles toggle)
     
     // Multi-select items (presence sensors) - prevent double toggle from label behavior
     s.querySelectorAll(".multi-select-item").forEach((item) => {
@@ -1585,7 +1652,9 @@ class HomeWeatherPanel extends HTMLElement {
         ? `<section class="content"><article class="glass card" style="grid-column:1/-1;padding:48px;text-align:center"><div class="error">${String(this._error)}</div></article></section>`
         : `<div class="error">${String(this._error)}</div>`;
     }
-    return this._currentView === "forecast" ? this._renderForecast() : this._renderSettings();
+    if (this._currentView === "forecast") return this._renderForecast();
+    if (this._currentView === "alerts") return this._renderAlerts();
+    return this._renderSettings();
   }
 
   _renderForecast() {
@@ -1981,6 +2050,71 @@ class HomeWeatherPanel extends HTMLElement {
     }
   }
 
+  _renderAlerts() {
+    if (!this._alertsData && !this._alertsLoading) {
+      this._alertsLoading = true;
+      this._fetchNwsAlerts();
+      return `<div class="settings-form" style="padding:24px;"><div class="loading" style="padding:48px;text-align:center">Loading alerts...</div></div>`;
+    }
+    if (this._alertsLoading || !this._alertsData) {
+      return `<div class="settings-form" style="padding:24px;"><div class="loading" style="padding:48px;text-align:center">Loading alerts...</div></div>`;
+    }
+    const alerts = this._alertsData.alerts || [];
+    if (this._alertsData.error) {
+      return `<div class="settings-form" style="padding:24px;"><div class="glass card" style="padding:32px;text-align:center"><p class="error">Failed to load alerts: ${String(this._alertsData.error).replace(/</g, "&lt;")}</p></div></div>`;
+    }
+    if (alerts.length === 0) {
+      return `<div class="settings-form" style="padding:24px;"><div class="glass card" style="padding:32px;text-align:center;border-radius:var(--card-radius);border:1px solid var(--divider-color);"><p style="color:var(--primary-text-color);">No active alerts.</p></div></div>`;
+    }
+    const rows = alerts.map((a) => {
+      const event = String(a.event || "Alert").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      const descRaw = a.description || "";
+      const desc = (descRaw.length > 300 ? descRaw.substring(0, 300) + "..." : descRaw).replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>");
+      const effective = a.effective ? new Date(a.effective).toLocaleString() : "";
+      const expires = a.expires ? new Date(a.expires).toLocaleString() : "";
+      return `<div class="glass card" style="margin-bottom:16px;padding:20px;border-radius:var(--card-radius);border:1px solid var(--divider-color);">
+        <div style="font-size:16px;font-weight:600;color:var(--primary-text-color);margin-bottom:8px;">${event}</div>
+        <div style="font-size:14px;color:var(--secondary-text-color);margin-bottom:12px;line-height:1.5;">${desc}</div>
+        <div style="font-size:12px;color:var(--secondary-text-color);">Effective: ${effective} | Expires: ${expires}</div>
+      </div>`;
+    }).join("");
+    return `<div class="settings-form" style="padding:24px;"><h2 style="font-size:18px;margin-bottom:16px;color:var(--primary-text-color);">Active Weather Alerts</h2>${rows}</div>`;
+  }
+
+  _fetchNwsAlerts() {
+    const { lat, lon } = this._getHomeCoordinates();
+    fetch(`https://api.weather.gov/alerts/active?point=${lat},${lon}`)
+      .then((r) => r.json())
+      .then((data) => {
+        const features = data.features || [];
+        const now = new Date();
+        const alerts = features
+          .map((f) => f.properties || {})
+          .filter((p) => {
+            const exp = p.expires || p.ends;
+            if (!exp) return true;
+            return new Date(exp) > now;
+          })
+          .map((p) => ({
+            id: p.id,
+            event: p.event,
+            description: p.description,
+            headline: p.headline,
+            effective: p.effective,
+            expires: p.expires || p.ends,
+          }));
+        this._alertsData = { alerts };
+        this._alertsLoading = false;
+        this._render();
+      })
+      .catch((e) => {
+        console.error("NWS alerts fetch failed:", e);
+        this._alertsData = { alerts: [], error: String(e.message || e) };
+        this._alertsLoading = false;
+        this._render();
+      });
+  }
+
   _renderSettings() {
     const entities = Object.keys((this._hass && this._hass.states) || {});
     const weatherEntities = entities.filter((e) => e.startsWith("weather."));
@@ -2015,6 +2149,8 @@ class HomeWeatherPanel extends HTMLElement {
     const messagePrefix = this._settings.message_prefix || "Weather update";
     const defaultSunAlerts = { enabled: false, sunrise_tts: { enabled: false, minutes_before: 15, interval_minutes: 5 }, sunset_tts: { enabled: false, minutes_before: 15, interval_minutes: 5 }, sunrise_automation: { enabled: false, entity_id: "" }, sunset_automation: { enabled: false, entity_id: "" } };
     const sunAlerts = { ...defaultSunAlerts, ...(this._settings.sun_alerts || {}) };
+    const defaultNwsAlerts = { enabled: false, sound_file: "", sound_volume: 0.8, tts_volume: 0.9 };
+    const nwsAlerts = { ...defaultNwsAlerts, ...(this._settings.nws_alerts || {}) };
     if (!sunAlerts.sunrise_tts) sunAlerts.sunrise_tts = defaultSunAlerts.sunrise_tts;
     if (!sunAlerts.sunset_tts) sunAlerts.sunset_tts = defaultSunAlerts.sunset_tts;
     if (!sunAlerts.sunrise_automation) sunAlerts.sunrise_automation = defaultSunAlerts.sunrise_automation;
@@ -2091,7 +2227,7 @@ class HomeWeatherPanel extends HTMLElement {
           <div class="collapsible-section open" data-section-id="tts-master">
             <div class="collapsible-content" style="display: block; padding-top: 20px;">
               ${renderToggle("tts-enabled", tts.enabled, "Enable TTS Announcements")}
-              <div class="form-group" style="margin-top: 16px;">
+              <div class="form-group" style="margin-top: var(--form-gap);">
                 <label>Message Intro</label>
                 <input type="text" id="message-prefix" placeholder="Here's your weather forecast" value="${messagePrefix}"/>
                 <p class="form-hint" style="margin-top: 6px;">Time is announced automatically: "The time is seven oh five AM. [Your intro]. Right now it's..."</p>
@@ -2121,31 +2257,35 @@ class HomeWeatherPanel extends HTMLElement {
                       ${ttsEntities.map((e) => `<option value="${e}" ${e === m.tts_entity_id ? "selected" : ""}>${e}</option>`).join("")}
                     </select>
                   </div>
-                  <div class="media-player-row">
-                    <label class="media-player-label">Volume</label>
-                    <div class="range-slider" style="flex:1">
-                      <input type="range" class="media-player-volume" data-field="volume" min="0" max="1" step="0.05" value="${m.volume || 0.6}"/>
-                      <span class="range-value">${Math.round((m.volume || 0.6) * 100)}%</span>
+                  <div class="form-row-inline">
+                    <div class="form-group">
+                      <label>Volume</label>
+                      <div class="range-slider">
+                        <input type="range" class="media-player-volume" data-field="volume" min="0" max="1" step="0.05" value="${m.volume || 0.6}"/>
+                        <span class="range-value">${Math.round((m.volume || 0.6) * 100)}%</span>
+                      </div>
+                    </div>
+                    <div class="form-group" style="min-width: 100px;">
+                      <label>Preroll (ms)</label>
+                      <input type="number" class="media-player-preroll" data-field="preroll_ms" min="0" max="2000" step="50" value="${m.preroll_ms ?? 150}"/>
+                    </div>
+                    <div class="form-group settings-toggle-row" style="min-width: 140px;">
+                      <label>Cache TTS</label>
+                      <label class="toggle-switch">
+                        <input type="checkbox" class="media-player-cache" data-field="cache" ${m.cache ? "checked" : ""}/>
+                        <span class="toggle-slider"></span>
+                      </label>
                     </div>
                   </div>
-                  <div class="media-player-row">
-                    <label class="media-player-label">Preroll (ms)</label>
-                    <input type="number" class="media-player-preroll" data-field="preroll_ms" min="0" max="2000" step="50" value="${m.preroll_ms ?? 150}" style="width: 100px;"/>
-                  </div>
-                  <div class="media-player-row">
-                    <label class="media-player-label">Cache TTS</label>
-                    <label class="toggle-switch">
-                      <input type="checkbox" class="media-player-cache" data-field="cache" ${m.cache ? "checked" : ""}/>
-                      <span class="toggle-slider"></span>
-                    </label>
-                  </div>
-                  <div class="media-player-row">
-                    <label class="media-player-label">Language</label>
-                    <input type="text" class="media-player-language" data-field="language" placeholder="e.g. en, en-US" value="${m.language || ""}"/>
-                  </div>
-                  <div class="media-player-row">
-                    <label class="media-player-label">Options (JSON)</label>
-                    <input type="text" class="media-player-options" data-field="options" placeholder='{"key": "value"}' value='${JSON.stringify(m.options || {}).replace(/'/g, "&#39;")}'/>
+                  <div class="form-row-inline">
+                    <div class="form-group" style="flex: 1; min-width: 120px;">
+                      <label>Language</label>
+                      <input type="text" class="media-player-language" data-field="language" placeholder="e.g. en, en-US" value="${m.language || ""}"/>
+                    </div>
+                    <div class="form-group" style="flex: 2; min-width: 180px;">
+                      <label>Options (JSON)</label>
+                      <input type="text" class="media-player-options" data-field="options" placeholder='{"key": "value"}' value='${JSON.stringify(m.options || {}).replace(/'/g, "&#39;")}'/>
+                    </div>
                   </div>
                   <div class="media-player-row">
                     <button type="button" class="test-tts-btn" data-test-media="${i}">Test TTS</button>
@@ -2166,21 +2306,22 @@ class HomeWeatherPanel extends HTMLElement {
           ${renderCollapsible("time-based", "Time-Based Forecasts", "Scheduled announcements", `
             ${renderToggle("enable-time-based", tts.enable_time_based, "Enable Scheduled Forecasts")}
             
-            <div class="form-group" style="margin-top: 16px;">
-              <label>Announce Every</label>
-              <select id="hour-pattern">
-                <option value="1" ${tts.hour_pattern === 1 ? "selected" : ""}>1 hour</option>
-                <option value="2" ${tts.hour_pattern === 2 ? "selected" : ""}>2 hours</option>
-                <option value="3" ${tts.hour_pattern === 3 ? "selected" : ""}>3 hours</option>
-                <option value="4" ${tts.hour_pattern === 4 ? "selected" : ""}>4 hours</option>
-                <option value="6" ${tts.hour_pattern === 6 ? "selected" : ""}>6 hours</option>
-                <option value="12" ${tts.hour_pattern === 12 ? "selected" : ""}>12 hours</option>
-              </select>
-            </div>
-            
-            <div class="form-group">
-              <label>Minute Offset (0-59)</label>
-              <input type="number" id="minute-offset" min="0" max="59" value="${tts.minute_offset}"/>
+            <div class="form-row-inline" style="margin-top: var(--form-gap);">
+              <div class="form-group">
+                <label>Announce Every</label>
+                <select id="hour-pattern">
+                  <option value="1" ${tts.hour_pattern === 1 ? "selected" : ""}>1 hour</option>
+                  <option value="2" ${tts.hour_pattern === 2 ? "selected" : ""}>2 hours</option>
+                  <option value="3" ${tts.hour_pattern === 3 ? "selected" : ""}>3 hours</option>
+                  <option value="4" ${tts.hour_pattern === 4 ? "selected" : ""}>4 hours</option>
+                  <option value="6" ${tts.hour_pattern === 6 ? "selected" : ""}>6 hours</option>
+                  <option value="12" ${tts.hour_pattern === 12 ? "selected" : ""}>12 hours</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Minute Offset (0-59)</label>
+                <input type="number" id="minute-offset" min="0" max="59" value="${tts.minute_offset}"/>
+              </div>
             </div>
             
             <div class="form-group">
@@ -2194,19 +2335,22 @@ class HomeWeatherPanel extends HTMLElement {
             
             <div class="form-group">
               <label>Active Days</label>
-              <div class="checkbox-group" id="days-of-week">
+              <div class="days-of-week-grid" id="days-of-week">
                 ${daysOfWeek.map((d) => `
-                  <label class="checkbox-item ${tts.days_of_week.includes(d) ? "checked" : ""}" data-day="${d}">
-                    <input type="checkbox" ${tts.days_of_week.includes(d) ? "checked" : ""}/>
-                    ${dayLabels[d]}
-                  </label>
+                  <div class="day-toggle-row">
+                    <span class="day-label">${dayLabels[d]}</span>
+                    <label class="toggle-switch">
+                      <input type="checkbox" data-day="${d}" ${tts.days_of_week.includes(d) ? "checked" : ""}/>
+                      <span class="toggle-slider"></span>
+                    </label>
+                  </div>
                 `).join("")}
               </div>
             </div>
             
-            <div class="form-group" style="margin-top: 16px;">
+            <div class="form-group" style="margin-top: var(--form-gap);">
               <button type="button" class="test-tts-btn" id="test-forecast-btn">Test Forecast</button>
-              <p class="form-hint" style="margin-top: 8px;">Play the full scheduled forecast on all configured media players.</p>
+              <p class="form-hint">Play the full scheduled forecast on all configured media players.</p>
             </div>
           `)}
           
@@ -2220,7 +2364,7 @@ class HomeWeatherPanel extends HTMLElement {
           ${renderCollapsible("upcoming-change", "Upcoming Change Alerts", "Alert before precipitation", `
             ${renderToggle("enable-upcoming-change", tts.enable_upcoming_change, "Enable Upcoming Change Alerts")}
             
-            <div class="form-group" style="margin-top: 16px;">
+            <div class="form-group" style="margin-top: var(--form-gap);">
               <label>Minutes Before to Announce</label>
               <select id="minutes-before-announce">
                 <option value="15" ${tts.minutes_before_announce === 15 ? "selected" : ""}>15 minutes</option>
@@ -2235,39 +2379,66 @@ class HomeWeatherPanel extends HTMLElement {
           ${renderCollapsible("sun-alerts", "Sunrise & Sunset Alerts", "TTS and automations at sunrise/sunset", `
             ${renderToggle("sun-alerts-enabled", sunAlerts.enabled, "Enable Sunrise/Sunset Alerts")}
             
-            <div class="form-group" style="margin-top: 16px;">
-              <div class="collapsible-title" style="margin-bottom: 8px;">Sunrise TTS</div>
+            <div class="subsection-block" style="margin-top: var(--form-gap);">
+              <div class="subsection-title">Sunrise TTS</div>
               ${renderToggle("sunrise-tts-enabled", sunAlerts.sunrise_tts.enabled, "Enable sunrise announcements")}
-              <div class="form-group" style="margin-top: 12px;">
-                <label>Minutes before sunrise to start</label>
-                <input type="number" id="sunrise-minutes-before" min="5" max="60" value="${sunAlerts.sunrise_tts.minutes_before}"/>
-              </div>
-              <div class="form-group">
-                <label>Repeat interval (minutes) until sunrise</label>
-                <input type="number" id="sunrise-interval-minutes" min="1" max="30" value="${sunAlerts.sunrise_tts.interval_minutes}"/>
+              <div class="form-row-inline" style="margin-top: var(--form-gap-sm);">
+                <div class="form-group">
+                  <label>Minutes before sunrise</label>
+                  <input type="number" id="sunrise-minutes-before" min="5" max="60" value="${sunAlerts.sunrise_tts.minutes_before}"/>
+                </div>
+                <div class="form-group">
+                  <label>Repeat interval (min)</label>
+                  <input type="number" id="sunrise-interval-minutes" min="1" max="30" value="${sunAlerts.sunrise_tts.interval_minutes}"/>
+                </div>
               </div>
               ${renderToggle("sunrise-automation-enabled", sunAlerts.sunrise_automation.enabled, "Trigger automation at sunrise")}
-              <div class="form-group" style="margin-top: 8px;">
+              <div class="form-group" style="margin-top: var(--form-gap-sm);">
                 <label>Automation</label>
                 ${this._renderEntityAutocomplete("sunrise-automation-entity", sunAlerts.sunrise_automation.entity_id || "", "automation", "Type to search automations...")}
               </div>
             </div>
             
-            <div class="form-group" style="margin-top: 20px;">
-              <div class="collapsible-title" style="margin-bottom: 8px;">Sunset TTS</div>
+            <div class="subsection-block" style="margin-top: var(--form-gap);">
+              <div class="subsection-title">Sunset TTS</div>
               ${renderToggle("sunset-tts-enabled", sunAlerts.sunset_tts.enabled, "Enable sunset announcements")}
-              <div class="form-group" style="margin-top: 12px;">
-                <label>Minutes before sunset to start</label>
-                <input type="number" id="sunset-minutes-before" min="5" max="60" value="${sunAlerts.sunset_tts.minutes_before}"/>
-              </div>
-              <div class="form-group">
-                <label>Repeat interval (minutes) until sunset</label>
-                <input type="number" id="sunset-interval-minutes" min="1" max="30" value="${sunAlerts.sunset_tts.interval_minutes}"/>
+              <div class="form-row-inline" style="margin-top: var(--form-gap-sm);">
+                <div class="form-group">
+                  <label>Minutes before sunset</label>
+                  <input type="number" id="sunset-minutes-before" min="5" max="60" value="${sunAlerts.sunset_tts.minutes_before}"/>
+                </div>
+                <div class="form-group">
+                  <label>Repeat interval (min)</label>
+                  <input type="number" id="sunset-interval-minutes" min="1" max="30" value="${sunAlerts.sunset_tts.interval_minutes}"/>
+                </div>
               </div>
               ${renderToggle("sunset-automation-enabled", sunAlerts.sunset_automation.enabled, "Trigger automation at sunset")}
-              <div class="form-group" style="margin-top: 8px;">
+              <div class="form-group" style="margin-top: var(--form-gap-sm);">
                 <label>Automation</label>
                 ${this._renderEntityAutocomplete("sunset-automation-entity", sunAlerts.sunset_automation.entity_id || "", "automation", "Type to search automations...")}
+              </div>
+            </div>
+          `)}
+          
+          <!-- NWS Alerts -->
+          ${renderCollapsible("nws-alerts", "NWS Weather Alerts", "TTS and siren when National Weather Service issues alerts", `
+            ${renderToggle("nws-alerts-enabled", nwsAlerts.enabled, "Enable NWS Alerts")}
+            <div class="form-group" style="margin-top: var(--form-gap);">
+              <label>Alert sound (plays before TTS)</label>
+              <select id="nws-alerts-sound-file">
+                <option value="">None</option>
+                ${(this._wwwSounds || []).map((f) => `<option value="${f}" ${nwsAlerts.sound_file === f ? "selected" : ""}>${f}</option>`).join("")}
+              </select>
+              <p class="form-hint">Place .mp3, .wav, or .ogg files in custom_components/home_weather/www/sounds/</p>
+            </div>
+            <div class="form-row-inline">
+              <div class="form-group">
+                <label>Siren volume</label>
+                ${renderSlider("nws-alerts-sound-volume", nwsAlerts.sound_volume, 0, 1, 0.05, "%")}
+              </div>
+              <div class="form-group">
+                <label>TTS volume</label>
+                ${renderSlider("nws-alerts-tts-volume", nwsAlerts.tts_volume, 0, 1, 0.05, "%")}
               </div>
             </div>
           `)}
@@ -2276,28 +2447,28 @@ class HomeWeatherPanel extends HTMLElement {
           ${renderCollapsible("sensor-triggered", "Sensor Triggered", "Announce when entity state changes", `
             ${renderToggle("enable-sensor-triggered", tts.enable_sensor_triggered, "Enable Sensor-Triggered Forecasts")}
             
-            <div class="form-group" style="margin-top: 16px;">
+            <div class="form-group" style="margin-top: var(--form-gap);">
               <label>Sensor Triggers</label>
               <p class="form-hint">Add entities and define the state that triggers a TTS announcement.</p>
               <div id="sensor-triggers-list" class="media-player-list">
                 ${tts.sensor_triggers.map((st, i) => `
                   <div class="media-player-card sensor-trigger-card" data-sensor-idx="${i}">
-                    <div class="media-player-row">
-                      <span class="media-player-label">Entity</span>
-                      ${this._renderEntityAutocomplete(`sensor-trigger-entity-${i}`, st.entity_id || "", "all", "Type to search any entity...", "sensor-trigger-entity")}
-                    </div>
-                    <div class="media-player-row">
-                      <span class="media-player-label">Trigger State</span>
-                      <input type="text" class="sensor-trigger-state media-player-tts-entity" data-idx="${i}" placeholder="e.g. on, home, open" value="${st.trigger_state || ""}"/>
+                    <div class="form-row-inline">
+                      <div class="form-group" style="flex: 2; min-width: 180px;">
+                        <label>Entity</label>
+                        ${this._renderEntityAutocomplete(`sensor-trigger-entity-${i}`, st.entity_id || "", "all", "Type to search any entity...", "sensor-trigger-entity")}
+                      </div>
+                      <div class="form-group" style="flex: 1; min-width: 120px;">
+                        <label>Trigger State</label>
+                        <input type="text" class="sensor-trigger-state media-player-tts-entity" data-idx="${i}" placeholder="e.g. on, home, open" value="${st.trigger_state || ""}"/>
+                      </div>
                     </div>
                     <div class="media-player-row">
                       <span class="media-player-label">Media Player</span>
-                      <select class="sensor-trigger-media-player" data-idx="${i}">
+                      <select class="sensor-trigger-media-player" data-idx="${i}" style="flex: 1;">
                         <option value="">-- All Media Players --</option>
                         ${mediaPlayers.map(mp => `<option value="${mp.entity_id}" ${st.media_player === mp.entity_id ? "selected" : ""}>${mp.entity_id}</option>`).join("")}
                       </select>
-                    </div>
-                    <div class="media-player-row" style="justify-content: flex-end;">
                       <button class="btn btn-secondary" data-remove-sensor="${i}">Remove</button>
                     </div>
                   </div>
@@ -2311,7 +2482,7 @@ class HomeWeatherPanel extends HTMLElement {
           ${renderCollapsible("webhook", "Webhook Triggers", `${tts.webhooks.length} configured`, `
             ${renderToggle("enable-webhook", tts.enable_webhook, "Enable Webhook Triggers")}
             
-            <div class="form-group" style="margin-top: 16px;">
+            <div class="form-group" style="margin-top: var(--form-gap);">
               <label>Webhook Configurations</label>
               <p class="form-hint">Create multiple webhooks with unique IDs for different users or scenarios.</p>
               <div id="webhooks-list" class="media-player-list">
@@ -2360,19 +2531,21 @@ class HomeWeatherPanel extends HTMLElement {
                     </div>
                     ` : ""}
                     ` : ""}
-                    <div class="media-player-row">
-                      <span class="media-player-label">Personal Name</span>
-                      <input type="text" class="webhook-name media-player-tts-entity" data-idx="${i}" placeholder="e.g. John" value="${wh.personal_name || ""}"/>
+                    <div class="form-row-inline">
+                      <div class="form-group" style="flex: 1; min-width: 120px;">
+                        <label>Personal Name</label>
+                        <input type="text" class="webhook-name media-player-tts-entity" data-idx="${i}" placeholder="e.g. John" value="${wh.personal_name || ""}"/>
+                      </div>
+                      <div class="form-group" style="flex: 1; min-width: 140px;">
+                        <label>Media Player</label>
+                        <select class="webhook-media-player" data-idx="${i}">
+                          <option value="">-- All Media Players --</option>
+                          ${mediaPlayers.map(mp => `<option value="${mp.entity_id}" ${wh.media_player === mp.entity_id ? "selected" : ""}>${mp.entity_id}</option>`).join("")}
+                        </select>
+                      </div>
                     </div>
-                    <div class="media-player-row">
-                      <span class="media-player-label">Media Player</span>
-                      <select class="webhook-media-player" data-idx="${i}">
-                        <option value="">-- All Media Players --</option>
-                        ${mediaPlayers.map(mp => `<option value="${mp.entity_id}" ${wh.media_player === mp.entity_id ? "selected" : ""}>${mp.entity_id}</option>`).join("")}
-                      </select>
-                    </div>
-                    <div class="media-player-row">
-                      <span class="media-player-label">Enabled</span>
+                    <div class="settings-toggle-row">
+                      <span class="inline-toggle-label">Enabled</span>
                       <label class="toggle-switch">
                         <input type="checkbox" class="webhook-enabled" data-idx="${i}" ${wh.enabled !== false ? "checked" : ""}/>
                         <span class="toggle-slider"></span>
@@ -2393,7 +2566,7 @@ class HomeWeatherPanel extends HTMLElement {
           ${renderCollapsible("voice-satellite", "Voice Satellite", "Conversation commands", `
             ${renderToggle("enable-voice-satellite", tts.enable_voice_satellite, "Enable Voice Commands")}
             
-            <div class="form-group" style="margin-top: 16px;">
+            <div class="form-group" style="margin-top: var(--form-gap);">
               <label>Conversation Commands (one per line)</label>
               <textarea class="textarea-field" id="conversation-commands" placeholder="What is the weather&#10;Whats the weather">${tts.conversation_commands}</textarea>
             </div>
@@ -2436,7 +2609,7 @@ class HomeWeatherPanel extends HTMLElement {
           ${renderCollapsible("ai-rewrite", "AI Rewrite", "Optionally rewrite messages with AI", `
             ${renderToggle("use-ai-rewrite", tts.use_ai_rewrite, "Enable AI Message Rewriting")}
             
-            <div class="form-group" style="margin-top: 16px;">
+            <div class="form-group" style="margin-top: var(--form-gap);">
               <label>AI Task Entity</label>
               ${this._renderEntityAutocomplete("ai-task-entity", tts.ai_task_entity || "", "ai_task", "Type to search AI task entities...")}
             </div>
@@ -2461,9 +2634,9 @@ class HomeWeatherPanel extends HTMLElement {
     const s = this.shadowRoot;
     if (!s) return {};
     
-    // Collect days of week
+    // Collect days of week (toggle switches in day-toggle-row)
     const daysOfWeek = [];
-    s.querySelectorAll("#days-of-week .checkbox-item.checked").forEach((el) => {
+    s.querySelectorAll("#days-of-week input[type='checkbox'][data-day]:checked").forEach((el) => {
       const day = el.dataset.day;
       if (day) daysOfWeek.push(day);
     });
@@ -2528,6 +2701,21 @@ class HomeWeatherPanel extends HTMLElement {
         enabled: getChecked("sunset-automation-enabled"),
         entity_id: (getVal("sunset-automation-entity", "") || "").trim(),
       },
+    };
+  }
+
+  _collectNwsAlertsSettings() {
+    const s = this.shadowRoot;
+    if (!s) return { enabled: false, sound_file: "", sound_volume: 0.8, tts_volume: 0.9 };
+    const getVal = (id, def) => (s.getElementById(id)?.value ?? def);
+    const getChecked = (id) => !!s.getElementById(id)?.checked;
+    const soundVol = Math.min(1, Math.max(0, parseFloat(getVal("nws-alerts-sound-volume", "0.8"))));
+    const ttsVol = Math.min(1, Math.max(0, parseFloat(getVal("nws-alerts-tts-volume", "0.9"))));
+    return {
+      enabled: getChecked("nws-alerts-enabled"),
+      sound_file: (getVal("nws-alerts-sound-file", "") || "").trim(),
+      sound_volume: soundVol,
+      tts_volume: ttsVol,
     };
   }
 }

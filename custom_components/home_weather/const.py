@@ -48,6 +48,12 @@ DEFAULT_CONFIG: Final = {
         "sunrise_automation": {"enabled": False, "entity_id": ""},
         "sunset_automation": {"enabled": False, "entity_id": ""},
     },
+    "nws_alerts": {
+        "enabled": False,
+        "sound_file": "",
+        "sound_volume": 0.8,
+        "tts_volume": 0.9,
+    },
 }
 
 # Update interval for weather coordinator (5 minutes)
