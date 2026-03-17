@@ -901,16 +901,16 @@ class HomeWeatherPanel extends HTMLElement {
         .hero-note { margin-top: 8px; color: var(--muted); font-size: 13px; line-height: 1.45; max-width: 90%; }
         .orbital { position: relative; display: flex; align-items: center; justify-content: center; min-height: 0; height: 100%; }
         .ring-shell { width: min(100%, 360px); aspect-ratio: 1; position: relative; display: grid; place-items: center; border-radius: 50%; }
-        .ring { width: 72%; aspect-ratio: 1; border-radius: 50%; border: 12px solid var(--blue); background: rgba(255,255,255,0.03); box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06); display: grid; place-items: center; position: relative; }
+        .ring { width: 72%; aspect-ratio: 1; border-radius: 50%; border: clamp(8px, 1vw, 12px) solid var(--blue); background: rgba(255,255,255,0.03); box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06); display: grid; place-items: center; position: relative; }
         .ring-center { text-align: center; }
         .ring-center .small { font-size: 10px; text-transform: uppercase; letter-spacing: 0.16em; color: var(--muted); }
-        .ring-center .big { margin-top: 8px; font-size: clamp(44px, 4vw, 60px); font-weight: 700; letter-spacing: -0.06em; }
-        .ring-center .state { margin-top: 6px; font-size: 12px; color: var(--blue-2); letter-spacing: 0.08em; white-space: nowrap; }
+        .ring-center .big { margin-top: 8px; font-size: clamp(36px, 3.5vw, 60px); font-weight: 700; letter-spacing: -0.06em; }
+        .ring-center .state { margin-top: 6px; font-size: clamp(10px, 1.2vw, 12px); color: var(--blue-2); letter-spacing: 0.08em; white-space: nowrap; }
         .ring-center-icon { display: flex; align-items: center; justify-content: center; margin-bottom: 4px; }
-        .ring-center-icon img { width: 120px; height: 96px; object-fit: contain; }
+        .ring-center-icon img { width: clamp(56px, 10vw, 120px); height: clamp(48px, 8vw, 96px); object-fit: contain; }
         .time-block-compact { margin-top: 12px; font-size: 18px; font-weight: 600; letter-spacing: -0.02em; color: var(--muted); }
         .highlights-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-        .windy-map-container { flex: 1; min-height: 0; position: relative; aspect-ratio: 1; max-height: 100%; border-radius: 12px; overflow: hidden; }
+        .windy-map-container { flex: 1; min-height: clamp(120px, 25vw, 400px); min-width: 0; position: relative; aspect-ratio: 1; max-height: 100%; border-radius: 12px; overflow: hidden; }
         .windy-map-container iframe { width: 100%; height: 100%; border: none; display: block; }
         .highlight { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: 22px; padding: 16px; min-height: 120px; display: flex; flex-direction: column; justify-content: space-between; }
         .highlight .top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
@@ -919,11 +919,11 @@ class HomeWeatherPanel extends HTMLElement {
         .highlight .icon img { width: 24px; height: 24px; object-fit: contain; }
         .highlight .value { font-size: 32px; font-weight: 700; letter-spacing: -0.04em; }
         .highlight .sub { color: var(--muted); font-size: 11px; }
-        .windy-map-container { flex: 1; min-height: 0; position: relative; aspect-ratio: 1; max-height: 100%; border-radius: 12px; overflow: hidden; }
+        .windy-map-container { flex: 1; min-height: clamp(120px, 25vw, 400px); min-width: 0; position: relative; aspect-ratio: 1; max-height: 100%; border-radius: 12px; overflow: hidden; }
         .windy-map-container iframe { width: 100%; height: 100%; border: none; display: block; }
         .forecast-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
         .switcher { display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: 999px; padding: 4px; }
-        .switcher button { height: 30px; padding: 0 14px; border: 0; border-radius: 999px; background: transparent; color: var(--muted); font-size: 12px; cursor: pointer; transition: 0.16s ease; }
+        .switcher button { height: clamp(26px, 3vw, 30px); padding: 0 clamp(8px, 1.2vw, 14px); border: 0; border-radius: 999px; background: transparent; color: var(--muted); font-size: clamp(10px, 1.2vw, 12px); cursor: pointer; transition: 0.16s ease; }
         .switcher button.active { background: rgba(120,166,255,0.2); color: var(--text); }
         .forecast-grid { flex: 1; min-height: 0; display: grid; gap: clamp(6px, 1vw, 10px); align-items: stretch; min-width: 0; }
         .forecast-card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: clamp(14px, 2vw, 22px); padding: clamp(4px, 0.6vw, 12px) clamp(4px, 0.6vw, 10px); display: flex; flex-direction: column; align-items: center; justify-content: space-between; min-height: clamp(80px, 12vw, 120px); text-align: center; min-width: 0; }
@@ -944,29 +944,29 @@ class HomeWeatherPanel extends HTMLElement {
         .moon-card-fill .card-head { margin-bottom: 12px; flex-shrink: 0; align-self: stretch; width: 100%; }
         .moon-card-fill .card-head > div:first-child { text-align: left; }
         .moon-card { display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; }
-        .moon-icon-wrap { width: 120px; height: 120px; margin-bottom: 8px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; overflow: visible; }
-        .moon-card .moon-icon, .moon-card-fill .moon-icon { width: 120px; height: 120px; margin-bottom: 12px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-        .moon-card-fill .moon-icon-wrapper { width: 120px; height: 120px; display: flex; align-items: center; justify-content: center; overflow: visible; }
-        .moon-card-fill .moon-icon-wrapper img { transform: scale(1.5); width: 120px; height: 120px; }
-        .moon-card-fill .moon-icon-wrap .moon-icon { width: 120px; height: 120px; margin: 0; transform: scale(1.55); }
-        .moon-pane, .sun-pane { display: flex; flex-direction: column; align-items: center; gap: 8px; flex: 1; min-height: 0; overflow-y: auto; }
-        .sun-pane .sun-stat { font-size: 13px; color: var(--text); white-space: nowrap; display: flex; justify-content: center; align-items: center; gap: 8px; }
-        .sun-pane .sun-label { color: var(--muted); font-size: 12px; }
-        .sun-pane .sun-attribution { margin-top: 12px; font-size: 10px; color: var(--muted); }
-        .moon-card-fill .moon-meta, .moon-card-fill .moon-sun { margin-top: 8px; font-size: 12px; color: var(--muted); }
+        .moon-icon-wrap { width: clamp(64px, 12vw, 120px); height: clamp(64px, 12vw, 120px); margin-bottom: 8px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; overflow: visible; }
+        .moon-card .moon-icon, .moon-card-fill .moon-icon { width: clamp(64px, 12vw, 120px); height: clamp(64px, 12vw, 120px); margin-bottom: 12px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+        .moon-card-fill .moon-icon-wrapper { width: clamp(64px, 12vw, 120px); height: clamp(64px, 12vw, 120px); display: flex; align-items: center; justify-content: center; overflow: visible; }
+        .moon-card-fill .moon-icon-wrapper img { transform: scale(1.5); width: 100%; height: 100%; object-fit: contain; }
+        .moon-card-fill .moon-icon-wrap .moon-icon { width: 100%; height: 100%; margin: 0; transform: scale(1.55); }
+        .moon-pane, .sun-pane { display: flex; flex-direction: column; align-items: center; gap: clamp(4px, 0.8vw, 8px); flex: 1; min-height: 0; overflow: hidden; }
+        .sun-pane .sun-stat { font-size: clamp(11px, 1.2vw, 13px); color: var(--text); white-space: nowrap; display: flex; justify-content: center; align-items: center; gap: 8px; }
+        .sun-pane .sun-label { color: var(--muted); font-size: clamp(10px, 1.1vw, 12px); }
+        .sun-pane .sun-attribution { margin-top: clamp(6px, 1vw, 12px); font-size: clamp(9px, 1vw, 10px); color: var(--muted); }
+        .moon-card-fill .moon-meta, .moon-card-fill .moon-sun { margin-top: 8px; font-size: clamp(10px, 1.1vw, 12px); color: var(--muted); }
         .moon-card .moon-icon img, .moon-card-fill .moon-icon img { width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 2px 8px rgba(0,0,0,0.2)); }
-        .moon-title, .moon-card-fill .moon-title { font-size: 20px; font-weight: 600; letter-spacing: -0.02em; }
-        .moon-sub, .moon-card-fill .moon-sub { margin-top: 6px; color: var(--muted); font-size: 13px; }
-        .moon-pane, .sun-pane { display: flex; flex-direction: column; align-items: center; gap: 8px; width: 100%; }
+        .moon-title, .moon-card-fill .moon-title { font-size: clamp(14px, 2vw, 20px); font-weight: 600; letter-spacing: -0.02em; }
+        .moon-sub, .moon-card-fill .moon-sub { margin-top: 6px; color: var(--muted); font-size: clamp(11px, 1.2vw, 13px); }
+        .moon-pane, .sun-pane { display: flex; flex-direction: column; align-items: center; gap: clamp(4px, 0.8vw, 8px); width: 100%; }
         .sun-pane { text-align: center; }
-        .sun-label { color: var(--muted); }
-        .sun-attribution { margin-top: 8px; font-size: 10px; color: var(--muted); text-decoration: none; }
+        .sun-label { color: var(--muted); font-size: clamp(10px, 1.1vw, 12px); }
+        .sun-attribution { margin-top: clamp(6px, 1vw, 12px); font-size: clamp(9px, 1vw, 10px); color: var(--muted); text-decoration: none; }
         .sun-attribution:hover { color: var(--blue-2); }
-        .chart-container { flex: 1; min-height: 200px; width: 100%; }
+        .chart-container { flex: 1; min-height: clamp(140px, 25vw, 320px); width: 100%; }
         .radar-view { display: none; flex: 1; min-height: 0; flex-direction: column; }
         .radar-view.active { display: flex; }
-        .moon-pane-wrap, .sun-pane-wrap { display: none; flex: 1; min-height: 0; flex-direction: column; }
-        .moon-pane-wrap.active, .sun-pane-wrap.active { display: flex; }
+        .moon-pane-wrap, .sun-pane-wrap { display: none; flex: 1; min-height: 0; flex-direction: column; overflow: hidden; }
+        .moon-pane-wrap.active, .sun-pane-wrap.active { display: flex; overflow: hidden; }
         .forecast-7day-wrap, .forecast-24h-wrap { display: none; flex: 1; min-height: 0; flex-direction: column; }
         .forecast-7day-wrap.active, .forecast-24h-wrap.active { display: flex; }
         .footer-note { position: absolute; right: 22px; bottom: 18px; color: rgba(255,255,255,0.28); font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; pointer-events: none; }
