@@ -865,7 +865,7 @@ class HomeWeatherPanel extends HTMLElement {
           --radius-sm: 14px;
           --glass: saturate(135%) blur(18px);
         }
-        :host { display: block; min-height: 100%; padding: 0; max-width: none; margin: 0; font-family: Inter, SF Pro Display, SF Pro Text, Arial, sans-serif;
+        :host { display: block; width: 100%; min-height: 100%; padding: 0; max-width: none; margin: 0; font-family: Inter, SF Pro Display, SF Pro Text, Arial, sans-serif;
           background: radial-gradient(circle at top left, rgba(120,166,255,0.12), transparent 24%), radial-gradient(circle at 80% 18%, rgba(142,216,255,0.06), transparent 18%), linear-gradient(180deg, #06090d 0%, #0b1017 100%);
           color: var(--text); }
         .hud-wrapper { position: relative; min-height: 100%; overflow: auto; }
@@ -873,15 +873,15 @@ class HomeWeatherPanel extends HTMLElement {
         .hud-wrapper::after { content: ""; position: absolute; inset: 14px; border: 1px solid rgba(126,166,255,0.08); border-radius: 26px; pointer-events: none; }
         .weather-app { padding: clamp(12px, 2vw, 18px); display: grid; grid-template-rows: clamp(56px, 7vw, 78px) 1fr; gap: clamp(12px, 1.5vw, 16px); height: 100%; min-height: 0; min-width: 0; }
         .glass { background: var(--panel); border: 1px solid var(--stroke); border-radius: var(--radius-xl); box-shadow: var(--shadow); backdrop-filter: var(--glass); -webkit-backdrop-filter: var(--glass); }
-        .topbar { display: flex; flex-wrap: nowrap; align-items: stretch; gap: clamp(8px, 1vw, 14px); min-width: 0; }
+        .topbar { display: flex; flex-wrap: wrap; align-items: stretch; gap: clamp(8px, 1vw, 14px); min-width: 0; }
         .topbar .icon-btn { flex-shrink: 0; width: clamp(44px, 5vw, 56px); min-width: 44px; height: 100%; }
         .title-card { flex: 1; min-width: 0; display: flex; align-items: center; padding: 0 clamp(12px, 1.5vw, 22px); }
         .title-wrap { min-width: 0; flex: 1; overflow: hidden; }
         .eyebrow { color: var(--muted); font-size: clamp(8px, 0.9vw, 10px); letter-spacing: 0.2em; text-transform: uppercase; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .title { font-size: clamp(18px, 2.5vw, 34px); line-height: 1; font-weight: 700; letter-spacing: -0.04em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .subtitle { margin-top: 2px; color: var(--muted); font-size: clamp(10px, 1.2vw, 13px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .status-card { display: flex; align-items: center; gap: clamp(6px, 0.8vw, 10px); justify-content: center; padding: 0 clamp(8px, 1vw, 14px); flex-shrink: 0; }
-        .pill { height: clamp(30px, 3.5vw, 38px); padding: 0 clamp(8px, 1vw, 14px); border-radius: 999px; border: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.035); display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: clamp(11px, 1.2vw, 14px); white-space: nowrap; flex-shrink: 0; }
+        .status-card { display: flex; align-items: center; gap: clamp(6px, 0.8vw, 10px); justify-content: center; padding: 0 clamp(8px, 1vw, 14px); flex-shrink: 1; flex-wrap: wrap; min-width: 0; }
+        .pill { height: clamp(30px, 3.5vw, 38px); padding: 0 clamp(8px, 1vw, 14px); border-radius: 999px; border: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.035); display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: clamp(11px, 1.2vw, 14px); white-space: nowrap; flex-shrink: 0; min-width: 0; }
         .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 12px rgba(99,215,160,0.42); }
         .icon-btn { border: 1px solid var(--stroke); background: var(--panel); border-radius: 18px; box-shadow: var(--shadow); display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--text); transition: 0.16s ease; backdrop-filter: var(--glass); width: 56px; height: 56px; }
         .icon-btn:hover { border-color: var(--stroke-2); background: var(--panel-2); }
@@ -898,9 +898,9 @@ class HomeWeatherPanel extends HTMLElement {
         .card-title { font-size: clamp(12px, 1.5vw, 14px); font-weight: 700; letter-spacing: -0.01em; }
         .card-sub { margin-top: 4px; font-size: clamp(11px, 1.2vw, 12px); color: var(--muted); }
         .tag { height: 28px; padding: 0 12px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.04); display: inline-flex; align-items: center; color: var(--blue-2); font-size: 11px; white-space: nowrap; }
-        .hero-body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; overflow: hidden; }
+        .hero-body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; overflow: hidden; min-width: 0; }
         .hero-body-stack { }
-        .hero-full-circle { position: relative; width: 100%; max-width: min(100%, 280px); aspect-ratio: 1; margin: 0 auto; flex-shrink: 0; }
+        .hero-full-circle { position: relative; width: 100%; max-width: min(100%, 280px); aspect-ratio: 1; margin: 0 auto; flex-shrink: 1; min-width: 0; min-height: 0; }
         .hero-full-circle .ring-shell { width: 100%; height: 100%; position: relative; display: grid; place-items: center; z-index: 1; }
         .hero-meta-block { margin-top: 12px; text-align: center; min-width: 0; overflow: hidden; }
         .hero-datetime-line { font-size: clamp(12px, 1.5vw, 14px); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -928,60 +928,60 @@ class HomeWeatherPanel extends HTMLElement {
         .ring-center-icon { display: flex; align-items: center; justify-content: center; margin-bottom: 4px; }
         .ring-center-icon img { width: clamp(56px, 10vw, 120px); height: clamp(48px, 8vw, 96px); object-fit: contain; }
         .time-block-compact { margin-top: 12px; font-size: 18px; font-weight: 600; letter-spacing: -0.02em; color: var(--muted); }
-        .highlights-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-        .windy-map-container { flex: 1; min-height: clamp(100px, 20vw, 320px); min-width: 0; position: relative; aspect-ratio: 1; max-height: 100%; border-radius: 12px; overflow: hidden; }
+        .highlights-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 120px), 1fr)); gap: clamp(8px, 1vw, 10px); min-width: 0; }
+        .windy-map-container { flex: 1; min-height: clamp(80px, 15vw, 320px); min-width: 0; position: relative; aspect-ratio: 1; max-height: 100%; border-radius: 12px; overflow: hidden; }
         .windy-map-container iframe { width: 100%; height: 100%; border: none; display: block; }
-        .highlight { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: 22px; padding: 16px; min-height: 120px; display: flex; flex-direction: column; justify-content: space-between; }
+        .highlight { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: 22px; padding: clamp(12px, 1.5vw, 16px); min-height: min(120px, 25vw); display: flex; flex-direction: column; justify-content: space-between; min-width: 0; }
         .highlight .top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
         .highlight .label { color: var(--muted); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; }
         .highlight .icon { font-size: 16px; opacity: 0.95; }
         .highlight .icon img { width: 24px; height: 24px; object-fit: contain; }
         .highlight .value { font-size: 32px; font-weight: 700; letter-spacing: -0.04em; }
         .highlight .sub { color: var(--muted); font-size: 11px; }
-        .windy-map-container { flex: 1; min-height: clamp(100px, 20vw, 320px); min-width: 0; position: relative; aspect-ratio: 1; max-height: 100%; border-radius: 12px; overflow: hidden; }
+        .windy-map-container { flex: 1; min-height: clamp(80px, 15vw, 320px); min-width: 0; position: relative; aspect-ratio: 1; max-height: 100%; border-radius: 12px; overflow: hidden; }
         .windy-map-container iframe { width: 100%; height: 100%; border: none; display: block; }
         .forecast-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
         .switcher { display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: 999px; padding: 4px; }
         .switcher button { height: clamp(26px, 3vw, 30px); padding: 0 clamp(8px, 1.2vw, 14px); border: 0; border-radius: 999px; background: transparent; color: var(--muted); font-size: clamp(10px, 1.2vw, 12px); cursor: pointer; transition: 0.16s ease; }
         .switcher button.active { background: rgba(120,166,255,0.2); color: var(--text); }
-        .forecast-grid { flex: 1; min-height: 0; display: grid; gap: clamp(6px, 1vw, 10px); align-items: stretch; min-width: 0; }
+        .forecast-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 88px), 1fr)); gap: clamp(6px, 1vw, 10px); align-items: stretch; min-width: 0; }
         .forecast-card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: clamp(14px, 2vw, 22px); padding: clamp(4px, 0.6vw, 12px) clamp(4px, 0.6vw, 10px); display: flex; flex-direction: column; align-items: center; justify-content: space-between; min-height: clamp(72px, 12vw, 120px); text-align: center; min-width: 0; }
         .forecast-card.active { background: rgba(120,166,255,0.12); border-color: rgba(153,188,255,0.16); }
         .forecast-card .day { font-size: clamp(10px, 1vw, 12px); color: var(--text); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
         .forecast-card .icon { margin: clamp(4px, 0.8vw, 10px) 0 clamp(2px, 0.4vw, 4px); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
         .forecast-card .icon img { width: clamp(28px, 4vw, 48px); height: clamp(24px, 3.5vw, 40px); object-fit: contain; }
-        .forecast-card .condition { font-size: clamp(10px, 0.9vw, 11px); color: var(--muted); margin-bottom: clamp(2px, 0.4vw, 6px); text-align: center; line-height: 1.2; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .forecast-card .condition { font-size: clamp(9px, 0.9vw, 11px); color: var(--muted); margin-bottom: clamp(2px, 0.4vw, 6px); text-align: center; line-height: 1.2; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .forecast-card .temps { line-height: 1.25; }
-        .forecast-card .high { font-size: clamp(18px, 2.5vw, 28px); font-weight: 700; letter-spacing: -0.04em; }
+        .forecast-card .high { font-size: clamp(14px, 2.2vw, 28px); font-weight: 700; letter-spacing: -0.04em; }
         .forecast-card .low { color: var(--muted); font-size: clamp(11px, 1.2vw, 16px); }
         .forecast-card .rain { margin-top: clamp(4px, 0.6vw, 8px); color: var(--blue-2); font-size: clamp(10px, 1vw, 12px); font-weight: 600; }
         .forecast-scroll-24h { flex: 1; min-height: 0; display: flex; gap: clamp(6px, 1vw, 10px); overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; -ms-overflow-style: none; }
         .forecast-scroll-24h::-webkit-scrollbar { display: none; }
         .forecast-scroll-24h .forecast-card { min-width: clamp(64px, 8vw, 80px); flex-shrink: 0; }
         .bottom-right { display: flex; flex-direction: column; min-height: 0; overflow: hidden; border-radius: var(--radius-xl, 22px); }
-        .moon-card-fill { flex: 0 0 auto; min-height: 280px; max-height: 360px; display: flex; flex-direction: column; align-items: center; text-align: center; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: var(--radius-xl, 22px); padding: 16px; overflow: hidden; }
+        .moon-card-fill { flex: 1 1 auto; min-height: 0; max-height: none; display: flex; flex-direction: column; align-items: center; text-align: center; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: var(--radius-xl, 22px); padding: clamp(12px, 1.5vw, 16px); overflow: hidden; min-width: 0; }
         .moon-card-fill .card-head { margin-bottom: 12px; flex-shrink: 0; align-self: stretch; width: 100%; }
         .moon-card-fill .card-head > div:first-child { text-align: left; }
         .moon-card { display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; }
-        .moon-icon-wrap { width: clamp(56px, 10vw, 120px); height: clamp(56px, 10vw, 120px); margin-bottom: 8px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; overflow: visible; }
-        .moon-card .moon-icon, .moon-card-fill .moon-icon { width: clamp(56px, 10vw, 120px); height: clamp(56px, 10vw, 120px); margin-bottom: 12px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-        .moon-card-fill .moon-icon-wrapper { width: clamp(56px, 10vw, 120px); height: clamp(56px, 10vw, 120px); display: flex; align-items: center; justify-content: center; overflow: visible; }
-        .moon-card-fill .moon-icon-wrapper img { transform: scale(1.5); width: 100%; height: 100%; object-fit: contain; }
-        .moon-card-fill .moon-icon-wrap .moon-icon { width: 100%; height: 100%; margin: 0; transform: scale(1.55); }
+        .moon-icon-wrap { width: clamp(56px, 10vw, 120px); height: clamp(56px, 10vw, 120px); margin-bottom: 8px; flex-shrink: 1; min-width: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+        .moon-card .moon-icon, .moon-card-fill .moon-icon { width: clamp(56px, 10vw, 120px); height: clamp(56px, 10vw, 120px); margin-bottom: 12px; display: flex; align-items: center; justify-content: center; flex-shrink: 1; min-width: 0; min-height: 0; }
+        .moon-card-fill .moon-icon-wrapper { width: 100%; height: 100%; max-width: 100%; max-height: 100%; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+        .moon-card-fill .moon-icon-wrapper img { width: 100%; height: 100%; max-width: 100%; max-height: 100%; object-fit: contain; }
+        .moon-card-fill .moon-icon-wrap .moon-icon { width: 100%; height: 100%; margin: 0; max-width: 100%; max-height: 100%; display: flex; align-items: center; justify-content: center; }
         .moon-pane, .sun-pane { display: flex; flex-direction: column; align-items: center; gap: clamp(4px, 0.8vw, 8px); flex: 1; min-height: 0; overflow: hidden; }
         .sun-pane .sun-stat { font-size: clamp(11px, 1.2vw, 13px); color: var(--text); white-space: nowrap; display: flex; justify-content: center; align-items: center; gap: 8px; }
         .sun-pane .sun-label { color: var(--muted); font-size: clamp(10px, 1.1vw, 12px); }
         .sun-pane .sun-attribution { margin-top: clamp(6px, 1vw, 12px); font-size: clamp(9px, 1vw, 10px); color: var(--muted); }
-        .moon-card-fill .moon-meta, .moon-card-fill .moon-sun { margin-top: 8px; font-size: clamp(10px, 1.1vw, 12px); color: var(--muted); }
+        .moon-card-fill .moon-meta, .moon-card-fill .moon-sun { margin-top: 8px; font-size: clamp(10px, 1.1vw, 12px); color: var(--muted); overflow-wrap: break-word; word-break: break-word; max-width: 100%; }
         .moon-card .moon-icon img, .moon-card-fill .moon-icon img { width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 2px 8px rgba(0,0,0,0.2)); }
-        .moon-title, .moon-card-fill .moon-title { font-size: clamp(14px, 2vw, 20px); font-weight: 600; letter-spacing: -0.02em; }
-        .moon-sub, .moon-card-fill .moon-sub { margin-top: 6px; color: var(--muted); font-size: clamp(11px, 1.2vw, 13px); }
+        .moon-title, .moon-card-fill .moon-title { font-size: clamp(12px, 2vw, 20px); font-weight: 600; letter-spacing: -0.02em; overflow-wrap: break-word; word-break: break-word; max-width: 100%; }
+        .moon-sub, .moon-card-fill .moon-sub { margin-top: 6px; color: var(--muted); font-size: clamp(10px, 1.2vw, 13px); overflow-wrap: break-word; max-width: 100%; }
         .moon-pane, .sun-pane { display: flex; flex-direction: column; align-items: center; gap: clamp(4px, 0.8vw, 8px); width: 100%; }
         .sun-pane { text-align: center; }
         .sun-label { color: var(--muted); font-size: clamp(10px, 1.1vw, 12px); }
         .sun-attribution { margin-top: clamp(6px, 1vw, 12px); font-size: clamp(9px, 1vw, 10px); color: var(--muted); text-decoration: none; }
         .sun-attribution:hover { color: var(--blue-2); }
-        .chart-container { flex: 1; min-height: clamp(140px, 25vw, 320px); width: 100%; }
+        .chart-container { flex: 1; min-height: clamp(100px, 20vw, 320px); min-width: 0; width: 100%; }
         .radar-view { display: none; flex: 1; min-height: 0; flex-direction: column; }
         .radar-view.active { display: flex; }
         .moon-pane-wrap, .sun-pane-wrap { display: none; flex: 1; min-height: 0; flex-direction: column; overflow: hidden; }
@@ -990,9 +990,10 @@ class HomeWeatherPanel extends HTMLElement {
         .forecast-7day-wrap.active, .forecast-24h-wrap.active { display: flex; }
         .footer-note { position: absolute; right: 22px; bottom: 18px; max-width: calc(100% - 44px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: rgba(255,255,255,0.28); font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; pointer-events: none; }
         @media (min-width: 1181px) { .hud-wrapper { height: 100vh; overflow: hidden; } }
-        @media (max-width: 1180px) { .weather-app { min-height: 1600px; } .content { grid-template-columns: 1fr 1fr; grid-template-rows: auto auto; align-content: start; } .bottom-row { grid-template-columns: 1fr; } .hero, .highlights { display: flex; justify-content: center; align-items: center; align-self: start; aspect-ratio: 1; width: 100%; max-width: min(100%, 50vw); flex-shrink: 0; } }
+        @media (max-width: 1180px) { .weather-app { min-height: 1600px; } .content { grid-template-columns: 1fr 1fr; grid-template-rows: auto auto; align-content: start; } .bottom-row { grid-template-columns: 1fr; } .hero, .highlights { display: flex; justify-content: center; align-items: center; align-self: start; aspect-ratio: 1; width: 100%; max-width: min(100%, 50vw); flex-shrink: 1; min-width: 0; min-height: 0; } }
         @media (max-width: 900px) { .weather-app { padding: clamp(10px, 2vw, 14px); gap: clamp(10px, 1.5vw, 14px); } .hero-full-circle { max-width: min(100%, 240px); } }
         @media (max-width: 768px) { .weather-app { padding: 10px; } .topbar .icon-btn { width: 48px; min-width: 48px; } }
+        @media (max-width: 480px) { .forecast-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 100px), 1fr)); } .forecast-card { min-height: clamp(80px, 18vw, 120px); padding: 8px 6px; } .forecast-card .temps { min-width: 0; overflow: hidden; } .forecast-card .day, .forecast-card .condition { min-width: 0; } }
         .loading, .error { text-align: center; padding: 48px 16px; color: var(--secondary-text-color); }
         .error { color: var(--error-color); }
         .settings-view { padding: clamp(12px, 2vw, 18px); max-width: 100%; box-sizing: border-box; }
@@ -1077,7 +1078,7 @@ class HomeWeatherPanel extends HTMLElement {
         .media-player-label { font-size: 13px; font-weight: 500; color: var(--secondary-text-color); min-width: 140px; }
         .media-player-controls { display: flex; gap: 8px; flex: 1; min-width: 0; }
         .media-player-controls select { flex: 1; min-width: 0; }
-        .media-player-tts-entity, .media-player-language { flex: 1; min-width: 200px; padding: 10px 14px; border: 1px solid var(--divider-color); border-radius: 8px; background: var(--card-background-color); color: var(--primary-text-color); font-size: 14px; }
+        .media-player-tts-entity, .media-player-language { flex: 1; min-width: min(200px, 100%); padding: 10px 14px; border: 1px solid var(--divider-color); border-radius: 8px; background: var(--card-background-color); color: var(--primary-text-color); font-size: 14px; }
         .toggle-switch { position: relative; display: inline-block; width: 44px; height: 24px; }
         .toggle-switch input { opacity: 0; width: 0; height: 0; }
         .toggle-slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background: var(--secondary-background-color); border-radius: 24px; transition: 0.3s; border: 1px solid var(--divider-color); }
@@ -1800,7 +1801,7 @@ class HomeWeatherPanel extends HTMLElement {
             </div>
           </div>
           <div class="forecast-7day-wrap ${this._forecastView === "7day" ? "active" : ""}" data-forecast-view="7day">
-            <div class="forecast-grid" style="grid-template-columns: repeat(${Math.max(1, daily.length)}, minmax(0, 1fr));">
+            <div class="forecast-grid">
               ${daily.map((d, i) => {
                 const dHi = d.temperature != null ? Math.round(d.temperature) : "—";
                 const dLo = d.templow != null ? Math.round(d.templow) : "—";
