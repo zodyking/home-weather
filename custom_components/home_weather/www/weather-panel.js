@@ -861,8 +861,8 @@ class HomeWeatherPanel extends HTMLElement {
         .eyebrow { color: var(--muted); font-size: clamp(8px, 0.9vw, 10px); letter-spacing: 0.2em; text-transform: uppercase; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .title { font-size: clamp(18px, 2.5vw, 34px); line-height: 1; font-weight: 700; letter-spacing: -0.04em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .subtitle { margin-top: 2px; color: var(--muted); font-size: clamp(10px, 1.2vw, 13px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .status-card { display: flex; gap: clamp(6px, 0.8vw, 10px); justify-content: center; padding: 0 clamp(8px, 1vw, 14px); flex-shrink: 0; }
-        .pill { height: clamp(28px, 3vw, 34px); padding: 0 clamp(8px, 1vw, 14px); border-radius: 999px; border: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.035); display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: clamp(10px, 1vw, 12px); white-space: nowrap; flex-shrink: 0; }
+        .status-card { display: flex; align-items: center; gap: clamp(6px, 0.8vw, 10px); justify-content: center; padding: 0 clamp(8px, 1vw, 14px); flex-shrink: 0; }
+        .pill { height: clamp(30px, 3.5vw, 38px); padding: 0 clamp(8px, 1vw, 14px); border-radius: 999px; border: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.035); display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: clamp(11px, 1.2vw, 14px); white-space: nowrap; flex-shrink: 0; }
         .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 12px rgba(99,215,160,0.42); }
         .icon-btn { border: 1px solid var(--stroke); background: var(--panel); border-radius: 18px; box-shadow: var(--shadow); display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--text); transition: 0.16s ease; backdrop-filter: var(--glass); width: 56px; height: 56px; }
         .icon-btn:hover { border-color: var(--stroke-2); background: var(--panel-2); }
@@ -883,13 +883,9 @@ class HomeWeatherPanel extends HTMLElement {
         .hero-body-stack { }
         .hero-full-circle { position: relative; width: 100%; max-width: min(100%, 280px); aspect-ratio: 1; margin: 0 auto; flex-shrink: 0; }
         .hero-full-circle .ring-shell { width: 100%; height: 100%; position: relative; display: grid; place-items: center; z-index: 1; }
-        .hero-arc-chips { display: flex; flex-wrap: nowrap; justify-content: center; gap: clamp(6px, 1vw, 12px); margin-top: 8px; padding: 0 4px; white-space: nowrap; overflow-x: auto; scrollbar-width: thin; }
-        .hero-arc-chips::-webkit-scrollbar { height: 3px; }
-        .hero-arc-chips::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; }
-        .hero-arc-chips span { font-size: 10px; color: var(--muted); flex-shrink: 0; }
-        .hero-arc-bottom { position: absolute; bottom: 0; left: 0; right: 0; height: 36px; pointer-events: none; z-index: 2; }
-        .hero-arc-bottom svg { width: 100%; height: 100%; overflow: visible; }
-        .hero-arc-bottom text { font-size: 12px; fill: var(--muted); }
+        .hero-meta-block { margin-top: 12px; text-align: center; }
+        .hero-datetime-line { font-size: clamp(12px, 1.5vw, 14px); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .hero-meta-line { margin-top: 6px; font-size: clamp(11px, 1.2vw, 13px); color: var(--muted); display: flex; flex-wrap: wrap; justify-content: center; gap: clamp(6px, 1vw, 12px); }
         .hero-left { display: flex; flex-direction: column; justify-content: space-between; min-height: 0; }
         .condition-row { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
         .condition-row .weather-icon { width: 80px; height: 80px; flex: 0 0 auto; display: flex; align-items: center; justify-content: center; }
@@ -975,7 +971,7 @@ class HomeWeatherPanel extends HTMLElement {
         .forecast-7day-wrap.active, .forecast-24h-wrap.active { display: flex; }
         .footer-note { position: absolute; right: 22px; bottom: 18px; color: rgba(255,255,255,0.28); font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; pointer-events: none; }
         @media (min-width: 1181px) { .hud-wrapper { height: 100vh; overflow: hidden; } }
-        @media (max-width: 1180px) { .weather-app { min-height: 1600px; } .content { grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); grid-template-rows: auto auto; } .bottom-row { grid-template-columns: 1fr; } .hero .card, .highlights .card { aspect-ratio: 1; width: 100%; max-width: 100%; } }
+        @media (max-width: 1180px) { .weather-app { min-height: 1600px; } .content { grid-template-columns: 1fr 1fr; grid-template-rows: auto auto; } .bottom-row { grid-template-columns: 1fr; } .hero, .highlights { display: flex; justify-content: center; } .hero .card, .highlights .card { aspect-ratio: 1; width: 100%; max-width: min(100%, 50vw); } }
         @media (max-width: 900px) { .weather-app { padding: clamp(10px, 2vw, 14px); gap: clamp(10px, 1.5vw, 14px); } .hero-full-circle { max-width: min(100%, 240px); } }
         @media (max-width: 768px) { .weather-app { padding: 10px; } .topbar .icon-btn { width: 48px; min-width: 48px; } }
         .loading, .error { text-align: center; padding: 48px 16px; color: var(--secondary-text-color); }
@@ -1675,8 +1671,6 @@ class HomeWeatherPanel extends HTMLElement {
     if (feelsLike != null) metaItems.push(`Feels ${feelsLike}°`);
     if (windSpeed != null) metaItems.push(`Wind ${Math.round(windSpeed)} ${windUnit}`);
     if (windGusts != null) metaItems.push(`Gusts ${Math.round(windGusts)} ${windUnit}`);
-    const arcBottomText = `${timeStr} · ${dateStr}`.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-
     return `
       <section class="content">
         <article class="glass card hero">
@@ -1698,12 +1692,11 @@ class HomeWeatherPanel extends HTMLElement {
                   </div>
                 </div>
               </div>
-              <svg class="hero-arc-bottom" viewBox="0 0 200 36" preserveAspectRatio="xMidYMax meet">
-                <defs><path id="hero-arc-path" d="M 15 28 Q 100 36 185 28" fill="none" stroke="none"/></defs>
-                <text fill="var(--muted)" font-size="11" font-weight="600" text-anchor="middle"><textPath href="#hero-arc-path" startOffset="50%">${arcBottomText}</textPath></text>
-              </svg>
             </div>
-            ${metaItems.length > 0 ? `<div class="hero-arc-chips">${metaItems.map((m) => `<span>${m.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</span>`).join("")}</div>` : ""}
+            <div class="hero-meta-block">
+              <div class="hero-datetime-line">${timeStr.replace(/</g, "&lt;").replace(/>/g, "&gt;")} · ${dateStr.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</div>
+              ${metaItems.length > 0 ? `<div class="hero-meta-line">${metaItems.map((m) => `<span>${m.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</span>`).join("")}</div>` : ""}
+            </div>
           </div>
         </article>
 
