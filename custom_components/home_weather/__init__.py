@@ -7,7 +7,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.typing import ConfigType
 
-from .const import DOMAIN, PANEL_ICON, PANEL_TITLE, PANEL_URL_PATH, VERSION
+from .const import DOMAIN, PANEL_ICON, PANEL_TITLE, PANEL_URL_PATH
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -79,11 +79,21 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 async def _register_panel(hass: HomeAssistant) -> None:
     """Register the custom panel with Home Assistant (same pattern as Home Energy)."""
     try:
+        import json
         import os
+        from pathlib import Path
+
         from homeassistant.components.http import StaticPathConfig
 
         www_path = os.path.join(os.path.dirname(__file__), "www")
         panel_url = f"/local/home_weather"
+
+        manifest_path = Path(__file__).parent / "manifest.json"
+        panel_version = "0.0.0"
+        try:
+            panel_version = str(json.loads(manifest_path.read_text(encoding="utf-8")).get("version", "0.0.0"))
+        except (OSError, json.JSONDecodeError, TypeError) as e:
+            _LOGGER.warning("Could not read version from manifest.json: %s", e)
 
         # Register static path for www files (same as Home Energy)
         await hass.http.async_register_static_paths([
@@ -102,7 +112,7 @@ async def _register_panel(hass: HomeAssistant) -> None:
                 frontend_url_path=PANEL_URL_PATH,
                 sidebar_title=PANEL_TITLE,
                 sidebar_icon=PANEL_ICON,
-                module_url=f"{panel_url}/weather-panel.js?v={VERSION}",
+                module_url=f"{panel_url}/weather-panel.js?v={panel_version}",
                 embed_iframe=False,
                 require_admin=False,
             )

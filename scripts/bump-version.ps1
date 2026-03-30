@@ -1,4 +1,5 @@
-# Bump Home Weather integration version by +0.0.1 (patch)
+# Bump Home Weather integration version by +0.0.1 (patch).
+# Single source of truth: manifest.json. Panel module_url and get_version both use it (__init__.py + services.py).
 $manifestPath = Join-Path $PSScriptRoot "..\custom_components\home_weather\manifest.json"
 $content = Get-Content $manifestPath -Raw
 
