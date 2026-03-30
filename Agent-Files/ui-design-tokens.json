@@ -1,0 +1,127 @@
+{
+  "$schema_note": "Home Energy (smart_dashboards) panel UI tokens for AI-assisted design and code. Source: custom_components/smart_dashboards/frontend/shared-utils.js (:host + shared styles) and energy-panel.js (room cards, budget bar, modals). HA theme is overridden; palette is fixed dark.",
+  "color_scheme": "dark",
+  "theme_behavior": "Panels set CSS variables on :host to override Home Assistant theme for a consistent dark grey + cyan accent experience.",
+
+  "palette": {
+    "primary_background": {
+      "hex": "#111111",
+      "rgb": "rgb(17, 17, 17)",
+      "usage": "Panel root / page background (:host background, --primary-background-color)"
+    },
+    "card_surface": {
+      "hex": "#1c1c1c",
+      "rgb": "rgb(28, 28, 28)",
+      "usage": "Cards, room cards, modals (--card-background-color, --card-bg); same value as panel header bar"
+    },
+    "panel_header": {
+      "hex": "#1c1c1c",
+      "rgb": "rgb(28, 28, 28)",
+      "css_variable": "--panel-header-background",
+      "usage": "Sticky top bar with title and actions (.panel-header)"
+    },
+    "secondary_surface": {
+      "hex": "#282828",
+      "rgb": "rgb(40, 40, 40)",
+      "usage": "Elevated chrome: view tab strip, inputs, secondary panels (--secondary-background-color, --input-bg)"
+    },
+    "text_primary": {
+      "hex": "#e1e1e1",
+      "usage": "Main body and titles (--primary-text-color)"
+    },
+    "text_secondary": {
+      "hex": "#9b9b9b",
+      "usage": "Labels, hints, de-emphasized copy (--secondary-text-color)"
+    },
+    "text_disabled": {
+      "hex": "#6f6f6f",
+      "usage": "Disabled tabs and muted UI (--disabled-text-color)"
+    },
+    "accent": {
+      "hex": "#03a9f4",
+      "rgb": "rgb(3, 169, 244)",
+      "css_variable": "--panel-accent",
+      "usage": "Primary actions, links, key metrics, active tab, icons on title"
+    },
+    "accent_hover": {
+      "hex": "#29b6f6",
+      "css_variable": "--panel-accent-hover",
+      "usage": "Primary button hover"
+    },
+    "accent_dim": {
+      "value": "rgba(3, 169, 244, 0.15)",
+      "css_variable": "--panel-accent-dim",
+      "usage": "Focus rings, subtle accent fills"
+    },
+    "semantic_danger": {
+      "hex": "#f44336",
+      "css_variable": "--panel-danger",
+      "usage": "Errors, over-threshold power, destructive affordances"
+    },
+    "semantic_warning": {
+      "hex": "#ff9800",
+      "css_variable": "--panel-warning",
+      "usage": "Warnings, enforcement badges, efficiency warm states"
+    },
+    "semantic_success": {
+      "hex": "#4caf50",
+      "css_variable": "--panel-success",
+      "usage": "Positive / OK states where used"
+    },
+    "border_subtle": {
+      "value": "rgba(255, 255, 255, 0.08)",
+      "css_variable": "--card-border",
+      "usage": "Card and header borders"
+    },
+    "border_input": {
+      "value": "rgba(255, 255, 255, 0.12)",
+      "css_variable": "--input-border",
+      "usage": "Form fields, secondary buttons"
+    },
+    "overlay_scrim": {
+      "examples": ["rgba(0, 0, 0, 0.42)", "rgba(0, 0, 0, 0.55)"],
+      "usage": "Modal and loading overlays (energy-panel.js)"
+    },
+    "efficiency_star_gold": {
+      "hex": "#ffb300",
+      "usage": "Room efficiency star fill (energy-panel.js)"
+    },
+    "budget_bar_gradients": {
+      "note": "Room kWh bar uses tiered linear gradients (blues, oranges, reds, purples) in energy-panel.js — keep harmonious with accent #03a9f4"
+    }
+  },
+
+  "typography": {
+    "font_stack": "var(--paper-font-body1_-_font-family, 'Roboto', 'Segoe UI', sans-serif)",
+    "principles": [
+      "Prefer fluid font sizes with CSS clamp(min, preferred vw, max) in dense dashboards (room headers, budget markers, stats).",
+      "Use tabular-nums for watts, kWh, and counts.",
+      "Title weight ~500–700 depending on hierarchy; panel title ~16px / weight 500."
+    ]
+  },
+
+  "layout": {
+    "panel_container": "Full viewport min-height; .content-area max-width ~1800px centered with horizontal padding.",
+    "panel_header": "Sticky top; z-index 100; backdrop-filter blur(12px); flex space-between; padding ~10px 16px.",
+    "cards": "Border-radius typically 10–12px; border 1px solid card-border; room cards use gradient header/footer strips at low opacity white."
+  },
+
+  "components": {
+    "buttons": {
+      "primary": "Accent fill, white text, hover lift + cyan shadow",
+      "secondary": "input-bg fill, subtle border, hover light white overlay"
+    },
+    "view_tabs": {
+      "container": "secondary-background-color pill; active tab uses panel-accent fill and white text"
+    }
+  },
+
+  "format_preference": {
+    "note": "Both hex and rgb are valid in CSS; this project uses hex on :host tokens and rgb() where explicitly requested (panel header). Prefer CSS variables for new surfaces."
+  },
+
+  "file_references": {
+    "tokens_host": "custom_components/smart_dashboards/frontend/shared-utils.js (export const sharedStyles, :host block)",
+    "energy_panel_styles": "custom_components/smart_dashboards/frontend/energy-panel.js (_render inline styles)"
+  }
+}

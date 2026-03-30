@@ -837,54 +837,90 @@ class HomeWeatherPanel extends HTMLElement {
       <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
         :host {
-          --bg: #070a0f;
-          --bg-2: #0b1017;
-          --panel: rgba(17, 23, 32, 0.88);
-          --panel-2: rgba(21, 28, 38, 0.94);
-          --panel-3: rgba(25, 34, 46, 0.98);
-          --stroke: rgba(126, 166, 255, 0.12);
-          --stroke-2: rgba(126, 166, 255, 0.2);
-          --text: #eef4fb;
-          --muted: #93a2b8;
-          --blue: #78a6ff;
-          --blue-2: #99bcff;
-          --cyan: #8ed8ff;
-          --green: #63d7a0;
-          --primary-text-color: #eef4fb;
-          --secondary-text-color: #93a2b8;
-          --card-background-color: rgba(17, 23, 32, 0.95);
-          --divider-color: rgba(126, 166, 255, 0.12);
-          --primary-color: #78a6ff;
-          --primary-color-text: #070a0f;
-          --accent-color: #78a6ff;
-          --error-color: #ff7e7e;
-          --shadow: 0 24px 60px rgba(0, 0, 0, 0.34);
-          --radius-xl: 30px;
-          --radius-lg: 24px;
-          --radius-md: 18px;
-          --radius-sm: 14px;
-          --glass: saturate(135%) blur(18px);
+          --primary-background-color: #111111;
+          --card-background-color: #1c1c1c;
+          --panel-header-background: #1c1c1c;
+          --secondary-background-color: #282828;
+          --input-bg: #282828;
+          --primary-text-color: #e1e1e1;
+          --secondary-text-color: #9b9b9b;
+          --disabled-text-color: #6f6f6f;
+          --panel-accent: #03a9f4;
+          --panel-accent-hover: #29b6f6;
+          --panel-accent-dim: rgba(3, 169, 244, 0.15);
+          --panel-danger: #f44336;
+          --panel-warning: #ff9800;
+          --panel-success: #4caf50;
+          --card-border: rgba(255, 255, 255, 0.08);
+          --input-border: rgba(255, 255, 255, 0.12);
+          --divider-color: var(--card-border);
+          --primary-color: var(--panel-accent);
+          --accent-color: var(--panel-accent);
+          --primary-color-text: #ffffff;
+          --error-color: var(--panel-danger);
+          --info-color: var(--panel-accent);
+          --bg: var(--primary-background-color);
+          --bg-2: var(--primary-background-color);
+          --panel: var(--card-background-color);
+          --panel-2: var(--secondary-background-color);
+          --panel-3: var(--secondary-background-color);
+          --stroke: var(--card-border);
+          --stroke-2: var(--input-border);
+          --text: var(--primary-text-color);
+          --muted: var(--secondary-text-color);
+          --blue: var(--panel-accent);
+          --blue-2: var(--panel-accent-hover);
+          --cyan: var(--panel-accent-hover);
+          --green: var(--panel-success);
+          --shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+          --radius-xl: 12px;
+          --radius-lg: 12px;
+          --radius-md: 10px;
+          --radius-sm: 10px;
+          --glass: none;
         }
-        :host { display: block; width: 100%; min-height: 100%; padding: 0; max-width: none; margin: 0; font-family: Inter, SF Pro Display, SF Pro Text, Arial, sans-serif;
-          background: radial-gradient(circle at top left, rgba(120,166,255,0.12), transparent 24%), radial-gradient(circle at 80% 18%, rgba(142,216,255,0.06), transparent 18%), linear-gradient(180deg, #06090d 0%, #0b1017 100%);
-          color: var(--text); }
+        :host {
+          display: block;
+          width: 100%;
+          min-height: 100%;
+          padding: 0;
+          max-width: none;
+          margin: 0;
+          font-family: var(--paper-font-body1_-_font-family, "Roboto", "Segoe UI", sans-serif);
+          background: var(--primary-background-color);
+          color: var(--text);
+        }
         .hud-wrapper { position: relative; min-height: 100%; overflow: auto; }
-        .hud-wrapper::before { content: ""; position: absolute; inset: 0; background: linear-gradient(rgba(255,255,255,0.018) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.018) 1px, transparent 1px); background-size: 48px 48px; opacity: 0.22; mask-image: radial-gradient(circle at center, black 42%, transparent 100%); pointer-events: none; }
-        .hud-wrapper::after { content: ""; position: absolute; inset: 14px; border: 1px solid rgba(126,166,255,0.08); border-radius: 26px; pointer-events: none; }
-        .weather-app { padding: clamp(12px, 2vw, 18px); display: grid; grid-template-rows: clamp(56px, 7vw, 78px) 1fr; gap: clamp(12px, 1.5vw, 16px); height: 100%; min-height: 0; min-width: 0; }
-        .glass { background: var(--panel); border: 1px solid var(--stroke); border-radius: var(--radius-xl); box-shadow: var(--shadow); backdrop-filter: var(--glass); -webkit-backdrop-filter: var(--glass); }
-        .topbar { display: flex; flex-wrap: wrap; align-items: stretch; gap: clamp(8px, 1vw, 14px); min-width: 0; }
-        .topbar .icon-btn { flex-shrink: 0; width: clamp(44px, 5vw, 56px); min-width: 44px; height: 100%; }
-        .title-card { flex: 1; min-width: 0; display: flex; align-items: center; padding: 0 clamp(12px, 1.5vw, 22px); }
+        .hud-wrapper::before, .hud-wrapper::after { content: none; }
+        .weather-app { padding: 0; display: flex; flex-direction: column; gap: 0; height: 100%; min-height: 0; min-width: 0; }
+        .content-area { flex: 1; min-height: 0; min-width: 0; max-width: 1800px; margin: 0 auto; width: 100%; padding: clamp(12px, 2vw, 18px); box-sizing: border-box; }
+        .glass { background: var(--card-background-color); border: 1px solid var(--card-border); border-radius: var(--radius-xl); box-shadow: var(--shadow); }
+        .topbar {
+          position: sticky;
+          top: 0;
+          z-index: 100;
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          gap: 10px 16px;
+          min-width: 0;
+          padding: 10px 16px;
+          background: var(--panel-header-background);
+          backdrop-filter: blur(12px);
+          -webkit-backdrop-filter: blur(12px);
+          border-bottom: 1px solid var(--card-border);
+        }
+        .topbar .icon-btn { flex-shrink: 0; width: clamp(44px, 5vw, 52px); min-width: 44px; height: clamp(44px, 5vw, 52px); }
+        .title-card { flex: 1; min-width: 0; display: flex; align-items: center; padding: 0 8px 0 0; background: transparent; border: none; box-shadow: none; border-radius: 0; }
         .title-wrap { min-width: 0; flex: 1; overflow: hidden; }
-        .eyebrow { color: var(--muted); font-size: clamp(8px, 0.9vw, 10px); letter-spacing: 0.2em; text-transform: uppercase; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .title { font-size: clamp(18px, 2.5vw, 34px); line-height: 1; font-weight: 700; letter-spacing: -0.04em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .subtitle { margin-top: 2px; color: var(--muted); font-size: clamp(10px, 1.2vw, 13px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .status-card { display: flex; align-items: center; gap: clamp(6px, 0.8vw, 10px); justify-content: center; padding: 0 clamp(8px, 1vw, 14px); flex-shrink: 1; flex-wrap: wrap; min-width: 0; }
-        .pill { height: clamp(30px, 3.5vw, 38px); padding: 0 clamp(8px, 1vw, 14px); border-radius: 999px; border: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.035); display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: clamp(11px, 1.2vw, 14px); white-space: nowrap; flex-shrink: 0; min-width: 0; }
-        .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 12px rgba(99,215,160,0.42); }
-        .icon-btn { border: 1px solid var(--stroke); background: var(--panel); border-radius: 18px; box-shadow: var(--shadow); display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--text); transition: 0.16s ease; backdrop-filter: var(--glass); width: 56px; height: 56px; }
-        .icon-btn:hover { border-color: var(--stroke-2); background: var(--panel-2); }
+        .eyebrow { color: var(--muted); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .title { font-size: 16px; line-height: 1.25; font-weight: 500; letter-spacing: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--primary-text-color); }
+        .subtitle { margin-top: 2px; color: var(--secondary-text-color); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .status-card { display: flex; align-items: center; gap: clamp(6px, 0.8vw, 10px); justify-content: center; padding: 0; flex-shrink: 1; flex-wrap: wrap; min-width: 0; background: transparent; border: none; box-shadow: none; border-radius: 0; }
+        .pill { height: clamp(30px, 3.5vw, 36px); padding: 0 clamp(8px, 1vw, 14px); border-radius: 999px; border: 1px solid var(--input-border); background: var(--secondary-background-color); display: inline-flex; align-items: center; gap: 6px; color: var(--secondary-text-color); font-size: clamp(11px, 1.2vw, 13px); white-space: nowrap; flex-shrink: 0; min-width: 0; }
+        .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--panel-success); box-shadow: 0 0 0 1px rgba(76, 175, 80, 0.35); }
+        .icon-btn { border: 1px solid var(--input-border); background: var(--input-bg); border-radius: 10px; box-shadow: none; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--text); transition: background 0.16s ease, border-color 0.16s ease; width: 52px; height: 52px; }
+        .icon-btn:hover { background: rgba(255, 255, 255, 0.06); border-color: var(--input-border); color: var(--panel-accent-hover); }
         .gear { width: 20px; height: 20px; border: 2px solid var(--text); border-radius: 50%; position: relative; opacity: 0.92; }
         .gear::before { content: ""; position: absolute; inset: 5px; border: 2px solid var(--text); border-radius: 50%; }
         .content { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); grid-template-rows: 1fr auto; gap: clamp(12px, 1.5vw, 16px); min-width: 0; min-height: 0; }
@@ -897,7 +933,7 @@ class HomeWeatherPanel extends HTMLElement {
         .card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: clamp(8px, 1vw, 12px); margin-bottom: clamp(12px, 1.5vw, 16px); }
         .card-title { font-size: clamp(12px, 1.5vw, 14px); font-weight: 700; letter-spacing: -0.01em; }
         .card-sub { margin-top: 4px; font-size: clamp(11px, 1.2vw, 12px); color: var(--muted); }
-        .tag { height: 28px; padding: 0 12px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.04); display: inline-flex; align-items: center; color: var(--blue-2); font-size: 11px; white-space: nowrap; }
+        .tag { height: 28px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--input-border); background: var(--secondary-background-color); display: inline-flex; align-items: center; color: var(--panel-accent-hover); font-size: 11px; white-space: nowrap; }
         .hero-body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; overflow: hidden; min-width: 0; }
         .hero-body-stack { }
         .hero-full-circle { position: relative; width: 100%; max-width: min(100%, 280px); aspect-ratio: 1; margin: 0 auto; flex-shrink: 1; min-width: 0; min-height: 0; }
@@ -910,8 +946,8 @@ class HomeWeatherPanel extends HTMLElement {
         .condition-row .weather-icon { width: 80px; height: 80px; flex: 0 0 auto; display: flex; align-items: center; justify-content: center; }
         .condition-row .weather-icon img { width: 88px; height: 72px; object-fit: contain; }
         .temp-row { display: flex; align-items: flex-start; gap: 10px; }
-        .temp-row .value { font-size: clamp(92px, 8vw, 132px); line-height: 0.84; font-weight: 700; letter-spacing: -0.08em; }
-        .temp-row .unit { margin-top: 14px; font-size: 28px; font-weight: 700; color: var(--blue-2); }
+        .temp-row .value { font-size: clamp(92px, 8vw, 132px); line-height: 0.84; font-weight: 700; letter-spacing: -0.08em; font-variant-numeric: tabular-nums; }
+        .temp-row .unit { margin-top: 14px; font-size: 28px; font-weight: 700; color: var(--panel-accent-hover); font-variant-numeric: tabular-nums; }
         .hero-meta { margin-top: 10px; color: var(--muted); font-size: clamp(12px, 1.5vw, 14px); display: flex; flex-wrap: wrap; gap: clamp(8px, 1vw, 18px); }
         .time-block { margin-top: 20px; }
         .time-block .time { font-size: 34px; font-weight: 700; letter-spacing: -0.04em; }
@@ -920,46 +956,44 @@ class HomeWeatherPanel extends HTMLElement {
         .hero-note { margin-top: 8px; color: var(--muted); font-size: 13px; line-height: 1.45; max-width: 90%; }
         .orbital { position: relative; display: flex; align-items: center; justify-content: center; min-height: 0; height: 100%; }
         .ring-shell { width: min(100%, 360px); aspect-ratio: 1; position: relative; display: grid; place-items: center; border-radius: 50%; }
-        .ring { width: 72%; aspect-ratio: 1; border-radius: 50%; border: clamp(8px, 1vw, 12px) solid var(--blue); background: rgba(255,255,255,0.03); box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06); display: grid; place-items: center; position: relative; }
+        .ring { width: 72%; aspect-ratio: 1; border-radius: 50%; border: clamp(8px, 1vw, 12px) solid var(--panel-accent); background: rgba(255, 255, 255, 0.03); box-shadow: inset 0 0 0 1px var(--card-border); display: grid; place-items: center; position: relative; }
         .ring-center { text-align: center; }
         .ring-center .small { font-size: 10px; text-transform: uppercase; letter-spacing: 0.16em; color: var(--muted); }
-        .ring-center .big { margin-top: 8px; font-size: clamp(36px, 3.5vw, 60px); font-weight: 700; letter-spacing: -0.06em; }
-        .ring-center .state { margin-top: 6px; font-size: clamp(10px, 1.2vw, 12px); color: var(--blue-2); letter-spacing: 0.08em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+        .ring-center .big { margin-top: 8px; font-size: clamp(36px, 3.5vw, 60px); font-weight: 700; letter-spacing: -0.06em; font-variant-numeric: tabular-nums; }
+        .ring-center .state { margin-top: 6px; font-size: clamp(10px, 1.2vw, 12px); color: var(--panel-accent-hover); letter-spacing: 0.08em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
         .ring-center-icon { display: flex; align-items: center; justify-content: center; margin-bottom: 4px; }
         .ring-center-icon img { width: clamp(56px, 10vw, 120px); height: clamp(48px, 8vw, 96px); object-fit: contain; }
         .time-block-compact { margin-top: 12px; font-size: 18px; font-weight: 600; letter-spacing: -0.02em; color: var(--muted); }
         .highlights-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 120px), 1fr)); gap: clamp(8px, 1vw, 10px); min-width: 0; }
-        .windy-map-container { flex: 1; min-height: clamp(80px, 15vw, 320px); min-width: 0; position: relative; aspect-ratio: 1; max-height: 100%; border-radius: 12px; overflow: hidden; }
+        .windy-map-container { flex: 1; min-height: clamp(80px, 15vw, 320px); min-width: 0; position: relative; aspect-ratio: 1; max-height: 100%; border-radius: var(--radius-md); overflow: hidden; border: 1px solid var(--card-border); }
         .windy-map-container iframe { width: 100%; height: 100%; border: none; display: block; }
-        .highlight { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: 22px; padding: clamp(12px, 1.5vw, 16px); min-height: min(120px, 25vw); display: flex; flex-direction: column; justify-content: space-between; min-width: 0; }
+        .highlight { background: var(--card-background-color); border: 1px solid var(--card-border); border-radius: var(--radius-lg); padding: clamp(12px, 1.5vw, 16px); min-height: min(120px, 25vw); display: flex; flex-direction: column; justify-content: space-between; min-width: 0; }
         .highlight .top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
         .highlight .label { color: var(--muted); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; }
         .highlight .icon { font-size: 16px; opacity: 0.95; }
         .highlight .icon img { width: 24px; height: 24px; object-fit: contain; }
-        .highlight .value { font-size: 32px; font-weight: 700; letter-spacing: -0.04em; }
+        .highlight .value { font-size: 32px; font-weight: 700; letter-spacing: -0.04em; font-variant-numeric: tabular-nums; }
         .highlight .sub { color: var(--muted); font-size: 11px; }
-        .windy-map-container { flex: 1; min-height: clamp(80px, 15vw, 320px); min-width: 0; position: relative; aspect-ratio: 1; max-height: 100%; border-radius: 12px; overflow: hidden; }
-        .windy-map-container iframe { width: 100%; height: 100%; border: none; display: block; }
         .forecast-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
-        .switcher { display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: 999px; padding: 4px; }
-        .switcher button { height: clamp(26px, 3vw, 30px); padding: 0 clamp(8px, 1.2vw, 14px); border: 0; border-radius: 999px; background: transparent; color: var(--muted); font-size: clamp(10px, 1.2vw, 12px); cursor: pointer; transition: 0.16s ease; }
-        .switcher button.active { background: rgba(120,166,255,0.2); color: var(--text); }
+        .switcher { display: flex; align-items: center; gap: 4px; background: var(--secondary-background-color); border: 1px solid var(--card-border); border-radius: 999px; padding: 4px; }
+        .switcher button { height: clamp(26px, 3vw, 30px); padding: 0 clamp(8px, 1.2vw, 14px); border: 0; border-radius: 999px; background: transparent; color: var(--secondary-text-color); font-size: clamp(10px, 1.2vw, 12px); cursor: pointer; transition: 0.16s ease; }
+        .switcher button.active { background: var(--panel-accent); color: #ffffff; }
         .forecast-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 88px), 1fr)); gap: clamp(6px, 1vw, 10px); align-items: stretch; min-width: 0; }
-        .forecast-card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: clamp(14px, 2vw, 22px); padding: clamp(4px, 0.6vw, 12px) clamp(4px, 0.6vw, 10px); display: flex; flex-direction: column; align-items: center; justify-content: space-between; min-height: clamp(72px, 12vw, 120px); text-align: center; min-width: 0; }
-        .forecast-card.active { background: rgba(120,166,255,0.12); border-color: rgba(153,188,255,0.16); }
+        .forecast-card { background: var(--card-background-color); border: 1px solid var(--card-border); border-radius: var(--radius-md); padding: clamp(4px, 0.6vw, 12px) clamp(4px, 0.6vw, 10px); display: flex; flex-direction: column; align-items: center; justify-content: space-between; min-height: clamp(72px, 12vw, 120px); text-align: center; min-width: 0; }
+        .forecast-card.active { background: var(--panel-accent-dim); border-color: rgba(3, 169, 244, 0.35); }
         .forecast-card .day { font-size: clamp(10px, 1vw, 12px); color: var(--text); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
         .forecast-card .icon { margin: clamp(4px, 0.8vw, 10px) 0 clamp(2px, 0.4vw, 4px); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
         .forecast-card .icon img { width: clamp(28px, 4vw, 48px); height: clamp(24px, 3.5vw, 40px); object-fit: contain; }
         .forecast-card .condition { font-size: clamp(9px, 0.9vw, 11px); color: var(--muted); margin-bottom: clamp(2px, 0.4vw, 6px); text-align: center; line-height: 1.2; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .forecast-card .temps { line-height: 1.25; }
-        .forecast-card .high { font-size: clamp(14px, 2.2vw, 28px); font-weight: 700; letter-spacing: -0.04em; }
-        .forecast-card .low { color: var(--muted); font-size: clamp(11px, 1.2vw, 16px); }
-        .forecast-card .rain { margin-top: clamp(4px, 0.6vw, 8px); color: var(--blue-2); font-size: clamp(10px, 1vw, 12px); font-weight: 600; }
+        .forecast-card .high { font-size: clamp(14px, 2.2vw, 28px); font-weight: 700; letter-spacing: -0.04em; font-variant-numeric: tabular-nums; }
+        .forecast-card .low { color: var(--muted); font-size: clamp(11px, 1.2vw, 16px); font-variant-numeric: tabular-nums; }
+        .forecast-card .rain { margin-top: clamp(4px, 0.6vw, 8px); color: var(--panel-accent-hover); font-size: clamp(10px, 1vw, 12px); font-weight: 600; }
         .forecast-scroll-24h { flex: 1; min-height: 0; display: flex; gap: clamp(6px, 1vw, 10px); overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; -ms-overflow-style: none; }
         .forecast-scroll-24h::-webkit-scrollbar { display: none; }
         .forecast-scroll-24h .forecast-card { min-width: clamp(64px, 8vw, 80px); flex-shrink: 0; }
-        .bottom-right { display: flex; flex-direction: column; min-height: 0; overflow: hidden; border-radius: var(--radius-xl, 22px); }
-        .moon-card-fill { flex: 1 1 auto; min-height: 0; max-height: none; display: flex; flex-direction: column; align-items: center; text-align: center; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: var(--radius-xl, 22px); padding: clamp(12px, 1.5vw, 16px); overflow: hidden; min-width: 0; }
+        .bottom-right { display: flex; flex-direction: column; min-height: 0; overflow: hidden; border-radius: var(--radius-xl); }
+        .moon-card-fill { flex: 1 1 auto; min-height: 0; max-height: none; display: flex; flex-direction: column; align-items: center; text-align: center; background: var(--card-background-color); border: 1px solid var(--card-border); border-radius: var(--radius-xl); padding: clamp(12px, 1.5vw, 16px); overflow: hidden; min-width: 0; }
         .moon-card-fill .card-head { margin-bottom: 12px; flex-shrink: 0; align-self: stretch; width: 100%; }
         .moon-card-fill .card-head > div:first-child { text-align: left; }
         .moon-card { display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; }
@@ -980,7 +1014,7 @@ class HomeWeatherPanel extends HTMLElement {
         .sun-pane { text-align: center; }
         .sun-label { color: var(--muted); font-size: clamp(10px, 1.1vw, 12px); }
         .sun-attribution { margin-top: clamp(6px, 1vw, 12px); font-size: clamp(9px, 1vw, 10px); color: var(--muted); text-decoration: none; }
-        .sun-attribution:hover { color: var(--blue-2); }
+        .sun-attribution:hover { color: var(--panel-accent-hover); }
         .chart-container { flex: 1; min-height: clamp(100px, 20vw, 320px); min-width: 0; width: 100%; }
         .radar-view { display: none; flex: 1; min-height: 0; flex-direction: column; }
         .radar-view.active { display: flex; }
@@ -988,19 +1022,19 @@ class HomeWeatherPanel extends HTMLElement {
         .moon-pane-wrap.active, .sun-pane-wrap.active { display: flex; overflow: hidden; }
         .forecast-7day-wrap, .forecast-24h-wrap { display: none; flex: 1; min-height: 0; flex-direction: column; }
         .forecast-7day-wrap.active, .forecast-24h-wrap.active { display: flex; }
-        .footer-note { position: absolute; right: 22px; bottom: 18px; max-width: calc(100% - 44px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: rgba(255,255,255,0.28); font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; pointer-events: none; }
-        @media (min-width: 1181px) { .hud-wrapper { height: 100vh; overflow: hidden; } }
+        .footer-note { position: absolute; right: 22px; bottom: 18px; max-width: calc(100% - 44px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--disabled-text-color); font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; pointer-events: none; }
+        @media (min-width: 1181px) { .hud-wrapper { min-height: 100vh; } }
         @media (max-width: 1180px) { .weather-app { min-height: 1600px; } .content { grid-template-columns: 1fr 1fr; grid-template-rows: auto auto; align-content: start; } .bottom-row { grid-template-columns: 1fr; } .hero, .highlights { display: flex; justify-content: center; align-items: center; align-self: start; aspect-ratio: 1; width: 100%; max-width: min(100%, 50vw); flex-shrink: 1; min-width: 0; min-height: 0; } }
-        @media (max-width: 900px) { .weather-app { padding: clamp(10px, 2vw, 14px); gap: clamp(10px, 1.5vw, 14px); } .hero-full-circle { max-width: min(100%, 240px); } }
-        @media (max-width: 768px) { .weather-app { padding: 10px; } .topbar .icon-btn { width: 48px; min-width: 48px; } }
+        @media (max-width: 900px) { .content-area { padding: clamp(10px, 2vw, 14px); } .hero-full-circle { max-width: min(100%, 240px); } }
+        @media (max-width: 768px) { .content-area { padding: 10px; } .topbar .icon-btn { width: 48px; min-width: 48px; height: 48px; } }
         @media (max-width: 480px) { .forecast-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 100px), 1fr)); } .forecast-card { min-height: clamp(80px, 18vw, 120px); padding: 8px 6px; } .forecast-card .temps { min-width: 0; overflow: hidden; } .forecast-card .day, .forecast-card .condition { min-width: 0; } }
         .loading, .error { text-align: center; padding: 48px 16px; color: var(--secondary-text-color); }
         .error { color: var(--error-color); }
-        .settings-view { padding: clamp(12px, 2vw, 18px); max-width: 100%; box-sizing: border-box; }
-        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px solid var(--divider-color); flex-wrap: wrap; gap: 12px; }
+        .settings-view { padding: clamp(12px, 2vw, 18px); max-width: 1800px; margin: 0 auto; width: 100%; box-sizing: border-box; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px solid var(--card-border); flex-wrap: wrap; gap: 12px; }
         .header-left { display: flex; align-items: center; gap: 12px; }
         .header-right { display: flex; align-items: center; margin-left: auto; }
-        .header h1 { margin: 0; font-size: 24px; font-weight: 400; color: var(--primary-text-color); }
+        .header h1 { margin: 0; font-size: 16px; font-weight: 500; color: var(--primary-text-color); }
         .header-nav { display: flex; gap: 0; }
         .header-btn { padding: 8px; background: transparent; border: none; border-radius: 8px; color: var(--primary-text-color); cursor: pointer; display: flex; align-items: center; justify-content: center; }
         .header-btn:hover { background: var(--secondary-background-color); }
@@ -1010,24 +1044,24 @@ class HomeWeatherPanel extends HTMLElement {
         .hamburger svg { width: 24px; height: 24px; display: block; }
         @media (max-width: 768px) { .hamburger { display: block; } }
         .narrow .hamburger { display: block; }
-        .nav-tabs { display: flex; gap: 8px; }
-        .nav-tab { padding: 12px 24px; background: transparent; border: none; border-bottom: 2px solid transparent; color: var(--secondary-text-color); cursor: pointer; font-size: 16px; }
+        .nav-tabs { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px; background: var(--secondary-background-color); border: 1px solid var(--card-border); border-radius: 999px; width: fit-content; max-width: 100%; }
+        .nav-tab { padding: 8px 16px; background: transparent; border: none; border-radius: 999px; color: var(--secondary-text-color); cursor: pointer; font-size: 14px; font-weight: 500; }
         .nav-tab:hover { color: var(--primary-text-color); }
-        .nav-tab.active { color: var(--primary-color); border-bottom-color: var(--primary-color); }
-        .view-toggle { display: flex; gap: 8px; margin-bottom: 24px; }
-        .view-toggle button { padding: 8px 16px; background: var(--card-background-color); border: 1px solid var(--divider-color); border-radius: 4px; color: var(--primary-text-color); cursor: pointer; }
-        .view-toggle button.active { background: var(--primary-color); color: var(--primary-color-text); border-color: var(--primary-color); }
+        .nav-tab.active { background: var(--panel-accent); color: #ffffff; }
+        .view-toggle { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 24px; padding: 4px; background: var(--secondary-background-color); border: 1px solid var(--card-border); border-radius: 999px; width: fit-content; max-width: 100%; }
+        .view-toggle button { padding: 8px 16px; background: transparent; border: none; border-radius: 999px; color: var(--secondary-text-color); cursor: pointer; font-size: 13px; font-weight: 500; }
+        .view-toggle button.active { background: var(--panel-accent); color: #ffffff; }
         .hourly-forecast { display: flex; gap: 12px; overflow-x: auto; padding: 16px 0; }
-        .hour-card { min-width: 120px; padding: 20px 16px; background: var(--card-background-color); border-radius: 12px; text-align: center; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border: 1px solid var(--divider-color); }
-        .hour-card.current { border: 2px solid var(--primary-color); background: var(--primary-color); color: var(--primary-color-text); }
+        .hour-card { min-width: 120px; padding: 20px 16px; background: var(--card-background-color); border-radius: var(--radius-md); text-align: center; border: 1px solid var(--card-border); }
+        .hour-card.current { border: 2px solid var(--panel-accent); background: var(--panel-accent); color: #ffffff; }
         .hour-time { font-size: 14px; color: var(--secondary-text-color); margin-bottom: 8px; }
-        .hour-card.current .hour-time { color: var(--primary-color-text); }
+        .hour-card.current .hour-time { color: #ffffff; }
         .hour-temp { font-size: 28px; font-weight: 600; margin: 12px 0; }
         .hour-condition { font-size: 13px; color: var(--secondary-text-color); margin-top: 12px; }
-        .hour-card.current .hour-condition { color: var(--primary-color-text); }
+        .hour-card.current .hour-condition { color: #ffffff; }
         .hour-precip { font-size: 11px; color: var(--info-color); margin-top: 4px; }
         .daily-forecast { display: grid; gap: 12px; }
-        .day-card { display: flex; justify-content: space-between; align-items: center; padding: 20px; background: var(--card-background-color); border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .day-card { display: flex; justify-content: space-between; align-items: center; padding: 20px; background: var(--card-background-color); border-radius: var(--radius-md); border: 1px solid var(--card-border); }
         .day-name { font-size: 16px; font-weight: 500; min-width: 100px; }
         .day-temps { display: flex; gap: 16px; }
         .day-high { font-size: 20px; font-weight: 500; }
@@ -1046,15 +1080,15 @@ class HomeWeatherPanel extends HTMLElement {
           display: grid;
           gap: var(--form-gap-lg);
         }
-        .settings-tabs { display: flex; gap: 0; margin-bottom: 24px; border-bottom: 2px solid var(--divider-color); }
-        .settings-tab { padding: 12px 24px; background: transparent; border: none; border-bottom: 3px solid transparent; margin-bottom: -2px; color: var(--secondary-text-color); cursor: pointer; font-size: 15px; font-weight: 500; }
+        .settings-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 24px; padding: 4px; background: var(--secondary-background-color); border: 1px solid var(--card-border); border-radius: 999px; width: fit-content; max-width: 100%; }
+        .settings-tab { padding: 8px 18px; background: transparent; border: none; border-radius: 999px; color: var(--secondary-text-color); cursor: pointer; font-size: 14px; font-weight: 500; }
         .settings-tab:hover { color: var(--primary-text-color); }
-        .settings-tab.active { color: var(--accent-color); border-bottom-color: var(--accent-color); }
+        .settings-tab.active { background: var(--panel-accent); color: #ffffff; }
         .settings-section { display: none; }
         .settings-section.active { display: block; }
         .form-group { display: flex; flex-direction: column; gap: 6px; margin-bottom: var(--form-gap); }
         .form-group label { font-size: var(--form-label-size); font-weight: var(--form-label-weight); color: var(--primary-text-color); }
-        .form-group input, .form-group select { padding: 10px 14px; height: var(--form-input-height); border: 1px solid var(--divider-color); border-radius: 8px; background: var(--card-background-color); color: var(--primary-text-color); font-size: 14px; box-sizing: border-box; }
+        .form-group input, .form-group select { padding: 10px 14px; height: var(--form-input-height); border: 1px solid var(--input-border); border-radius: 8px; background: var(--input-bg); color: var(--primary-text-color); font-size: 14px; box-sizing: border-box; }
         .form-group input[type="checkbox"] { width: auto; padding: 0; height: auto; }
         .form-row { display: flex; align-items: center; gap: var(--form-gap-sm); }
         .form-row-inline { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: var(--form-gap-sm); align-items: end; margin-bottom: var(--form-gap); }
@@ -1071,22 +1105,22 @@ class HomeWeatherPanel extends HTMLElement {
         .form-group.settings-toggle-row label:first-of-type { margin-bottom: 0; flex: 1; }
         .form-row .btn-icon { padding: 8px 12px; min-width: auto; }
         .media-player-list { display: flex; flex-direction: column; gap: 16px; }
-        .media-player-item { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: var(--card-background-color); border: 1px solid var(--divider-color); border-radius: 8px; }
+        .media-player-item { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: var(--card-background-color); border: 1px solid var(--card-border); border-radius: 8px; }
         .media-player-item select { flex: 1; }
-        .media-player-card { padding: 20px; background: var(--card-background-color); border: 1px solid var(--divider-color); border-radius: 12px; display: flex; flex-direction: column; gap: 14px; }
+        .media-player-card { padding: 20px; background: var(--card-background-color); border: 1px solid var(--card-border); border-radius: var(--radius-md); display: flex; flex-direction: column; gap: 14px; }
         .media-player-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
         .media-player-label { font-size: 13px; font-weight: 500; color: var(--secondary-text-color); min-width: 140px; }
         .media-player-controls { display: flex; gap: 8px; flex: 1; min-width: 0; }
         .media-player-controls select { flex: 1; min-width: 0; }
-        .media-player-tts-entity, .media-player-language { flex: 1; min-width: min(200px, 100%); padding: 10px 14px; border: 1px solid var(--divider-color); border-radius: 8px; background: var(--card-background-color); color: var(--primary-text-color); font-size: 14px; }
+        .media-player-tts-entity, .media-player-language { flex: 1; min-width: min(200px, 100%); padding: 10px 14px; border: 1px solid var(--input-border); border-radius: 8px; background: var(--input-bg); color: var(--primary-text-color); font-size: 14px; }
         .toggle-switch { position: relative; display: inline-block; width: 44px; height: 24px; }
         .toggle-switch input { opacity: 0; width: 0; height: 0; }
-        .toggle-slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background: var(--secondary-background-color); border-radius: 24px; transition: 0.3s; border: 1px solid var(--divider-color); }
+        .toggle-slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background: var(--secondary-background-color); border-radius: 24px; transition: 0.3s; border: 1px solid var(--input-border); }
         .toggle-slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 2px; bottom: 2px; background: var(--primary-text-color); border-radius: 50%; transition: 0.3s; }
         .toggle-switch input:checked + .toggle-slider { background: var(--accent-color); border-color: var(--accent-color); }
         .toggle-switch input:checked + .toggle-slider:before { transform: translateX(20px); background: white; }
         .toggle-label { font-size: 13px; color: var(--secondary-text-color); margin-left: 8px; }
-        .collapsible-section { background: var(--card-background-color); border: 1px solid var(--divider-color); border-radius: 12px; margin-bottom: 16px; overflow: hidden; }
+        .collapsible-section { background: var(--card-background-color); border: 1px solid var(--card-border); border-radius: var(--radius-md); margin-bottom: 16px; overflow: hidden; }
         .collapsible-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; cursor: pointer; user-select: none; transition: background 0.2s; }
         .collapsible-header:hover { background: var(--secondary-background-color); }
         .collapsible-header-left { display: flex; align-items: center; gap: 12px; }
@@ -1109,44 +1143,47 @@ class HomeWeatherPanel extends HTMLElement {
         .checkbox-item.checked { background: var(--accent-color); color: white; }
         .checkbox-item input { display: none; }
         .time-input-group { display: flex; align-items: center; gap: 8px; }
-        .time-input-group input[type="time"] { padding: 10px 14px; border: 1px solid var(--divider-color); border-radius: 8px; background: var(--card-background-color); color: var(--primary-text-color); font-size: 14px; }
+        .time-input-group input[type="time"] { padding: 10px 14px; border: 1px solid var(--input-border); border-radius: 8px; background: var(--input-bg); color: var(--primary-text-color); font-size: 14px; }
         .test-tts-btn { padding: 8px 16px; background: var(--accent-color); color: white; border: none; border-radius: 8px; font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.2s; }
-        .test-tts-btn:hover { filter: brightness(1.1); }
+        .test-tts-btn:hover { background: var(--panel-accent-hover); }
         .multi-select { display: flex; flex-direction: column; gap: 8px; max-height: 200px; overflow-y: auto; padding: 12px; background: var(--secondary-background-color); border-radius: 8px; }
         .multi-select-item { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--card-background-color); border-radius: 6px; cursor: pointer; transition: all 0.2s; }
-        .multi-select-item:hover { background: var(--divider-color); }
+        .multi-select-item:hover { background: rgba(255, 255, 255, 0.06); }
         .multi-select-item.selected { background: var(--accent-color); color: white; }
         .multi-select-item input { display: none; }
-        .textarea-field { width: 100%; min-height: 100px; padding: 12px; border: 1px solid var(--divider-color); border-radius: 8px; background: var(--card-background-color); color: var(--primary-text-color); font-size: 14px; font-family: inherit; resize: vertical; }
+        .textarea-field { width: 100%; min-height: 100px; padding: 12px; border: 1px solid var(--input-border); border-radius: 8px; background: var(--input-bg); color: var(--primary-text-color); font-size: 14px; font-family: inherit; resize: vertical; }
         .inline-toggle { display: flex; align-items: center; gap: 12px; padding: 12px 0; }
         .inline-toggle-label { flex: 1; font-size: 14px; color: var(--primary-text-color); }
-        .settings-section-divider { border: none; border-top: 1px solid var(--divider-color); margin: 20px 0; }
+        .settings-section-divider { border: none; border-top: 1px solid var(--card-border); margin: 20px 0; }
         .form-hint { font-size: 12px; color: var(--secondary-text-color); margin-bottom: 16px; }
         .webhook-status-row { display: flex; align-items: center; gap: 10px; }
         .webhook-status-dot { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; }
-        .webhook-status-dot.idle { background: #e53935; }
-        .webhook-status-dot.triggered { background: #43a047; }
+        .webhook-status-dot.idle { background: var(--panel-danger); }
+        .webhook-status-dot.triggered { background: var(--panel-success); }
         .webhook-status-label { font-size: 13px; font-weight: 500; color: var(--primary-text-color); }
         .webhook-timestamp { font-size: 12px; color: var(--secondary-text-color); margin-left: auto; }
         .webhook-url-display { flex: 1; font-size: 12px; padding: 8px 12px; background: var(--secondary-background-color); border-radius: 6px; color: var(--primary-text-color); cursor: text; }
         .form-actions { display: flex; gap: 12px; justify-content: flex-end; margin-top: 24px; }
-        .btn { padding: 12px 32px; border: none; border-radius: 8px; font-size: 14px; font-weight: 500; cursor: pointer; }
-        .btn-primary { background: var(--primary-color); color: var(--primary-color-text); }
-        .btn-secondary { background: var(--secondary-background-color); color: var(--primary-text-color); }
+        .btn { padding: 12px 32px; border: none; border-radius: 8px; font-size: 14px; font-weight: 500; cursor: pointer; box-sizing: border-box; }
+        .topbar #alerts-btn { width: auto; min-width: 52px; padding-left: 12px; padding-right: 14px; gap: 6px; }
+        .btn-primary { background: var(--panel-accent); color: #ffffff; box-shadow: 0 2px 8px var(--panel-accent-dim); }
+        .btn-primary:hover { background: var(--panel-accent-hover); }
+        .btn-secondary { background: var(--input-bg); color: var(--primary-text-color); border: 1px solid var(--input-border); }
+        .btn-secondary:hover { background: rgba(255, 255, 255, 0.06); }
         .btn:disabled { opacity: 0.5; cursor: not-allowed; }
         /* Entity Autocomplete */
         .entity-autocomplete-wrapper { position: relative; width: 100%; }
-        .entity-autocomplete-input { width: 100%; padding: 12px 16px; border: 1px solid var(--divider-color); border-radius: 8px; background: var(--card-background-color); color: var(--primary-text-color); font-size: 14px; }
-        .entity-autocomplete-input:focus { outline: none; border-color: var(--accent-color); box-shadow: 0 0 0 2px rgba(66,133,244,0.15); }
+        .entity-autocomplete-input { width: 100%; padding: 12px 16px; border: 1px solid var(--input-border); border-radius: 8px; background: var(--input-bg); color: var(--primary-text-color); font-size: 14px; }
+        .entity-autocomplete-input:focus { outline: none; border-color: var(--panel-accent); box-shadow: 0 0 0 2px var(--panel-accent-dim); }
         .entity-autocomplete-input::placeholder { color: var(--secondary-text-color); opacity: 0.7; }
         /* Bento Grid Dashboard */
-        .weather-dashboard { --accent-color: #4285f4; --card-radius: 20px; --gap: 16px; }
+        .weather-dashboard { --card-radius: var(--radius-lg); --gap: 16px; }
         .bento-grid { display: grid; grid-template-columns: 2fr 1fr; gap: var(--gap); margin-bottom: var(--gap); }
         @media (max-width: 900px) { .bento-grid { grid-template-columns: 1fr; } }
-        .bento-card { background: var(--card-background-color); border-radius: var(--card-radius); border: 1px solid var(--divider-color); padding: 24px; }
+        .bento-card { background: var(--card-background-color); border-radius: var(--card-radius); border: 1px solid var(--card-border); padding: 24px; }
         
         /* Hero Card */
-        .hero-card { display: flex; flex-direction: column; gap: 16px; background: linear-gradient(145deg, rgba(66,133,244,0.08) 0%, var(--card-background-color) 100%); }
+        .hero-card { display: flex; flex-direction: column; gap: 16px; background: linear-gradient(145deg, var(--panel-accent-dim) 0%, var(--card-background-color) 100%); }
         .hero-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
         .hero-main { display: flex; align-items: center; gap: 20px; }
         .hero-icon { width: 100px; height: 100px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
@@ -1174,10 +1211,10 @@ class HomeWeatherPanel extends HTMLElement {
           .hero-datetime { text-align: center; }
         }
         
-        /* Highlights Grid */
-        .highlights-card { display: flex; flex-direction: column; }
+        /* Highlights Grid (bento / weather-dashboard only; main dashboard uses earlier .highlights-grid) */
+        .weather-dashboard .highlights-card { display: flex; flex-direction: column; }
         .highlights-title { font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--secondary-text-color); margin-bottom: 16px; }
-        .highlights-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; flex: 1; }
+        .weather-dashboard .highlights-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; flex: 1; }
         .highlight-item { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 16px 12px; background: var(--secondary-background-color); border-radius: 12px; text-align: center; min-height: 90px; }
         .highlight-icon { width: 28px; height: 28px; margin-bottom: 8px; opacity: 0.8; }
         .highlight-value { font-size: 18px; font-weight: 600; color: var(--primary-text-color); }
@@ -1186,28 +1223,28 @@ class HomeWeatherPanel extends HTMLElement {
         /* Forecast Strip */
         .forecast-row { display: grid; grid-template-columns: 1fr auto; gap: var(--gap); margin-bottom: var(--gap); }
         @media (max-width: 900px) { .forecast-row { grid-template-columns: 1fr; } }
-        .forecast-card-container { background: var(--card-background-color); border-radius: var(--card-radius); border: 1px solid var(--divider-color); padding: 20px; overflow: hidden; }
+        .forecast-card-container { background: var(--card-background-color); border-radius: var(--card-radius); border: 1px solid var(--card-border); padding: 20px; overflow: hidden; }
         .forecast-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
         .forecast-title { font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--secondary-text-color); }
-        .forecast-tabs { display: flex; gap: 8px; }
-        .forecast-tab { padding: 6px 14px; background: transparent; border: 1px solid var(--divider-color); border-radius: 6px; color: var(--secondary-text-color); cursor: pointer; font-size: 12px; font-weight: 500; transition: all 0.2s; }
-        .forecast-tab:hover { border-color: var(--primary-text-color); color: var(--primary-text-color); }
-        .forecast-tab.active { background: var(--accent-color); color: white; border-color: var(--accent-color); }
+        .forecast-tabs { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px; background: var(--secondary-background-color); border: 1px solid var(--card-border); border-radius: 999px; width: fit-content; max-width: 100%; }
+        .forecast-tab { padding: 6px 14px; background: transparent; border: none; border-radius: 999px; color: var(--secondary-text-color); cursor: pointer; font-size: 12px; font-weight: 500; transition: background 0.2s, color 0.2s; }
+        .forecast-tab:hover { color: var(--primary-text-color); }
+        .forecast-tab.active { background: var(--panel-accent); color: #ffffff; }
         .forecast-scroll { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 8px; scrollbar-width: thin; }
         .forecast-scroll::-webkit-scrollbar { height: 4px; }
-        .forecast-scroll::-webkit-scrollbar-thumb { background: var(--divider-color); border-radius: 2px; }
+        .forecast-scroll::-webkit-scrollbar-thumb { background: var(--card-border); border-radius: 2px; }
         .forecast-item { flex: 0 0 auto; min-width: 80px; padding: 14px 12px; background: var(--secondary-background-color); border-radius: 12px; text-align: center; transition: all 0.2s; }
         .forecast-item:hover { transform: translateY(-2px); }
-        .forecast-item.current { background: linear-gradient(180deg, rgba(66,133,244,0.15) 0%, rgba(66,133,244,0.05) 100%); }
+        .forecast-item.current { background: linear-gradient(180deg, var(--panel-accent-dim) 0%, rgba(3, 169, 244, 0.05) 100%); }
         .forecast-item-day { font-size: 12px; font-weight: 600; color: var(--primary-text-color); margin-bottom: 8px; }
         .forecast-item-icon { width: 36px; height: 36px; margin: 0 auto 8px; }
         .forecast-item-icon .weather-icon { width: 100%; height: 100%; }
         .forecast-item-temp { font-size: 14px; font-weight: 600; color: var(--primary-text-color); }
         .forecast-item-low { font-size: 12px; color: var(--secondary-text-color); }
-        .forecast-item-precip { font-size: 10px; color: var(--info-color, #1e88e5); margin-top: 4px; }
+        .forecast-item-precip { font-size: 10px; color: var(--info-color); margin-top: 4px; }
         
         /* Moon Phase */
-        .moon-card { display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 160px; background: var(--card-background-color); border-radius: var(--card-radius); border: 1px solid var(--divider-color); padding: 24px; }
+        .moon-card { display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 160px; background: var(--card-background-color); border-radius: var(--card-radius); border: 1px solid var(--card-border); padding: 24px; }
         .moon-title { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--secondary-text-color); margin-bottom: 12px; }
         .moon-icon { width: 80px; height: 80px; margin-bottom: 12px; }
         .moon-icon img { width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 2px 8px rgba(0,0,0,0.15)); }
@@ -1215,7 +1252,7 @@ class HomeWeatherPanel extends HTMLElement {
         .moon-details { font-size: 11px; color: var(--secondary-text-color); margin-top: 4px; text-align: center; }
         
         /* Chart Section */
-        .chart-card { background: var(--card-background-color); border-radius: var(--card-radius); border: 1px solid var(--divider-color); padding: 20px; }
+        .chart-card { background: var(--card-background-color); border-radius: var(--card-radius); border: 1px solid var(--card-border); padding: 20px; }
         .chart-title { font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--secondary-text-color); margin-bottom: 16px; }
         .chart-container { min-height: 280px; }
       </style>
@@ -1242,19 +1279,19 @@ class HomeWeatherPanel extends HTMLElement {
             <div class="weather-app">
               <header class="topbar">
                 ${this._isNarrow ? `<button class="hamburger icon-btn" id="hamburger-btn" aria-label="Open sidebar" style="width:48px;height:48px;"><svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></svg></button>` : ""}
-                <section class="glass title-card">
+                <section class="title-card">
                   <div class="title-wrap">
                     <div class="eyebrow">WEATHER DASHBOARD</div>
                     <div class="title">Home Weather</div>
                     <div class="subtitle">Your weather command center for live updates, forecast, and alerts</div>
                   </div>
                 </section>
-                <section class="glass status-card">
+                <section class="status-card">
                   <div class="pill"><span class="status-dot"></span>Live</div>
                   <div class="pill">v${this._version ?? "—"}</div>
                   <div class="pill" id="update-status-pill">${this._updateStatus === "available" ? "Update available" : "Latest version"}</div>
                 </section>
-                <button class="icon-btn" id="alerts-btn" aria-label="Alerts" style="display:flex;align-items:center;gap:6px;">
+                <button class="icon-btn" id="alerts-btn" aria-label="Alerts" style="display:flex;align-items:center;">
                   <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>
                   <span style="font-size:13px;font-weight:500;">Alerts</span>
                 </button>
@@ -1262,7 +1299,9 @@ class HomeWeatherPanel extends HTMLElement {
                   <div class="gear"></div>
                 </button>
               </header>
+              <div class="content-area">
               ${this._renderContent()}
+              </div>
             </div>
             <div class="footer-note">Home Weather</div>
           </div>`
@@ -1906,11 +1945,11 @@ class HomeWeatherPanel extends HTMLElement {
       fill: { type: "gradient", gradient: { opacityFrom: 0.25, opacityTo: 0.05 } },
       xaxis: {
         categories: data.map((d) => d.time),
-        labels: { style: { colors: "#94a3b8" }, trim: true, maxHeight: 36 },
+        labels: { style: { colors: "#9b9b9b" }, trim: true, maxHeight: 36 },
         axisBorder: { show: false },
         axisTicks: { show: false },
       },
-      grid: { borderColor: "rgba(128,128,128,0.2)", strokeDashArray: 4, xaxis: { lines: { show: false } }, yaxis: { lines: { show: true } } },
+      grid: { borderColor: "rgba(255,255,255,0.08)", strokeDashArray: 4, xaxis: { lines: { show: false } }, yaxis: { lines: { show: true } } },
       legend: { show: true, position: "top", horizontalAlign: "left" },
     };
   }
@@ -1953,17 +1992,17 @@ class HomeWeatherPanel extends HTMLElement {
       const windMax = windVals.length ? Math.ceil(Math.max(...windVals)) + 5 : 50;
 
       const allFields = [
-        { key: "temp", label: "Temperature", color: "#e53935", format: (x) => (x != null ? `${x}°` : "—"), min: tempMin, max: tempMax },
+        { key: "temp", label: "Temperature", color: "#f44336", format: (x) => (x != null ? `${x}°` : "—"), min: tempMin, max: tempMax },
         { key: "feelsLike", label: "Feels Like", color: "#ff7043", format: (x) => (x != null ? `${x}°` : "—"), min: tempMin, max: tempMax },
         { key: "dewPoint", label: "Dew Point", color: "#ab47bc", format: (x) => (x != null ? `${x}°` : "—"), min: tempMin, max: tempMax },
-        { key: "precipChance", label: "Precip Chance", color: "#1e88e5", format: (x) => (x != null ? `${Math.round(x)}%` : "—"), min: 0, max: 100 },
+        { key: "precipChance", label: "Precip Chance", color: "#03a9f4", format: (x) => (x != null ? `${Math.round(x)}%` : "—"), min: 0, max: 100 },
         { key: "humidity", label: "Humidity", color: "#26a69a", format: (x) => (x != null ? `${x}%` : "—"), min: 0, max: 100 },
-        { key: "precipAmount", label: "Precipitation Amount", color: "#42a5f5", format: (x) => (x != null ? `${x} in` : "—"), min: 0, max: precipAmountMax },
-        { key: "windSpeed", label: "Wind Speed", color: "#757575", format: (x) => (x != null ? `${Math.round(x)} ${windUnit}` : "—"), min: 0, max: windMax },
+        { key: "precipAmount", label: "Precipitation Amount", color: "#29b6f6", format: (x) => (x != null ? `${x} in` : "—"), min: 0, max: precipAmountMax },
+        { key: "windSpeed", label: "Wind Speed", color: "#9e9e9e", format: (x) => (x != null ? `${Math.round(x)} ${windUnit}` : "—"), min: 0, max: windMax },
         { key: "windGusts", label: "Wind Gusts", color: "#78909c", format: (x) => (x != null ? `${Math.round(x)} ${windUnit}` : "—"), min: 0, max: windMax },
         { key: "pressure", label: "Pressure", color: "#8d6e63", format: (x) => (x != null ? `${x} inHg` : "—"), min: pressureMin, max: pressureMax },
         { key: "cloudCover", label: "Cloud Cover", color: "#90a4ae", format: (x) => (x != null ? `${x}%` : "—"), min: 0, max: 100 },
-        { key: "uvIndex", label: "UV Index", color: "#ffa726", format: (x) => (x != null ? String(x) : "—"), min: 0, max: 12 },
+        { key: "uvIndex", label: "UV Index", color: "#ff9800", format: (x) => (x != null ? String(x) : "—"), min: 0, max: 12 },
       ];
 
       const series = allFields.map((f) => ({
@@ -1997,7 +2036,7 @@ class HomeWeatherPanel extends HTMLElement {
           animations: { enabled: true, speed: 300 },
           fontFamily: "inherit",
         },
-        colors: ["#ff5252", "#ff7043", "#e040fb", "#448aff", "#00e5ff", "#40c4ff", "#69f0ae", "#ffab40", "#8d6e63", "#b0bec5", "#ffd740"],
+        colors: ["#f44336", "#ff7043", "#e040fb", "#03a9f4", "#00bcd4", "#29b6f6", "#4caf50", "#ff9800", "#8d6e63", "#9e9e9e", "#ffb300"],
         stroke: { curve: "smooth", width: 3, lineCap: "round" },
         series,
         xaxis: {
@@ -2005,7 +2044,7 @@ class HomeWeatherPanel extends HTMLElement {
           labels: { 
             rotate: -45, 
             rotateAlways: true,
-            style: { colors: "#9ca3af", fontSize: "10px" },
+            style: { colors: "#9b9b9b", fontSize: "10px" },
             hideOverlappingLabels: true,
           },
           axisBorder: { show: false },
@@ -2016,13 +2055,13 @@ class HomeWeatherPanel extends HTMLElement {
           max: 100, 
           labels: { 
             formatter: (v) => String(Math.round(v)),
-            style: { colors: "#9ca3af", fontSize: "11px" },
+            style: { colors: "#9b9b9b", fontSize: "11px" },
           }, 
           axisBorder: { show: false }, 
           axisTicks: { show: false },
         },
         grid: {
-          borderColor: "rgba(255,255,255,0.1)",
+          borderColor: "rgba(255,255,255,0.08)",
           strokeDashArray: 3,
           xaxis: { lines: { show: false } },
           yaxis: { lines: { show: true } },
@@ -2034,7 +2073,7 @@ class HomeWeatherPanel extends HTMLElement {
           position: "top", 
           horizontalAlign: "center", 
           fontSize: "11px",
-          labels: { colors: "#9ca3af" },
+          labels: { colors: "#9b9b9b" },
           markers: { width: 10, height: 10, radius: 2 },
           itemMargin: { horizontal: 8, vertical: 4 },
         },

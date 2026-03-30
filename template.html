@@ -12,62 +12,58 @@
     }
 
     :root {
-      --bg: #070a0f;
-      --bg-2: #0b1017;
-      --panel: rgba(17, 23, 32, 0.88);
-      --panel-2: rgba(21, 28, 38, 0.94);
-      --panel-3: rgba(25, 34, 46, 0.98);
-      --stroke: rgba(126, 166, 255, 0.12);
-      --stroke-2: rgba(126, 166, 255, 0.2);
-      --text: #eef4fb;
-      --muted: #93a2b8;
-      --blue: #78a6ff;
-      --blue-2: #99bcff;
-      --cyan: #8ed8ff;
-      --green: #63d7a0;
-      --orange: #ffb869;
-      --yellow: #ffd56f;
-      --red: #ff7e7e;
-      --shadow: 0 24px 60px rgba(0, 0, 0, 0.34);
-      --radius-xl: 30px;
-      --radius-lg: 24px;
-      --radius-md: 18px;
-      --radius-sm: 14px;
-      --glass: saturate(135%) blur(18px);
+      --primary-background-color: #111111;
+      --card-background-color: #1c1c1c;
+      --panel-header-background: #1c1c1c;
+      --secondary-background-color: #282828;
+      --input-bg: #282828;
+      --primary-text-color: #e1e1e1;
+      --secondary-text-color: #9b9b9b;
+      --disabled-text-color: #6f6f6f;
+      --panel-accent: #03a9f4;
+      --panel-accent-hover: #29b6f6;
+      --panel-accent-dim: rgba(3, 169, 244, 0.15);
+      --panel-danger: #f44336;
+      --panel-warning: #ff9800;
+      --panel-success: #4caf50;
+      --card-border: rgba(255, 255, 255, 0.08);
+      --input-border: rgba(255, 255, 255, 0.12);
+      --bg: var(--primary-background-color);
+      --bg-2: var(--primary-background-color);
+      --panel: var(--card-background-color);
+      --panel-2: var(--secondary-background-color);
+      --panel-3: var(--secondary-background-color);
+      --stroke: var(--card-border);
+      --stroke-2: var(--input-border);
+      --text: var(--primary-text-color);
+      --muted: var(--secondary-text-color);
+      --blue: var(--panel-accent);
+      --blue-2: var(--panel-accent-hover);
+      --cyan: var(--panel-accent-hover);
+      --green: var(--panel-success);
+      --orange: #ff9800;
+      --yellow: #ffb300;
+      --red: var(--panel-danger);
+      --shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+      --radius-xl: 12px;
+      --radius-lg: 12px;
+      --radius-md: 10px;
+      --radius-sm: 10px;
+      --glass: none;
     }
 
     html, body {
       width: 100%;
       height: 100%;
       overflow: hidden;
-      font-family: Inter, SF Pro Display, SF Pro Text, Arial, sans-serif;
-      background:
-        radial-gradient(circle at top left, rgba(120,166,255,0.12), transparent 24%),
-        radial-gradient(circle at 80% 18%, rgba(142,216,255,0.06), transparent 18%),
-        linear-gradient(180deg, #06090d 0%, #0b1017 100%);
+      font-family: var(--paper-font-body1_-_font-family, "Roboto", "Segoe UI", sans-serif);
+      background: var(--primary-background-color);
       color: var(--text);
     }
 
-    body::before {
-      content: "";
-      position: fixed;
-      inset: 0;
-      background:
-        linear-gradient(rgba(255,255,255,0.018) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(255,255,255,0.018) 1px, transparent 1px);
-      background-size: 48px 48px;
-      opacity: 0.22;
-      mask-image: radial-gradient(circle at center, black 42%, transparent 100%);
-      pointer-events: none;
-    }
-
+    body::before,
     body::after {
-      content: "";
-      position: fixed;
-      inset: 14px;
-      border: 1px solid rgba(126,166,255,0.08);
-      border-radius: 26px;
-      pointer-events: none;
+      content: none;
     }
 
     .app {
@@ -82,12 +78,10 @@
     }
 
     .glass {
-      background: var(--panel);
-      border: 1px solid var(--stroke);
+      background: var(--card-background-color);
+      border: 1px solid var(--card-border);
       border-radius: var(--radius-xl);
       box-shadow: var(--shadow);
-      backdrop-filter: var(--glass);
-      -webkit-backdrop-filter: var(--glass);
     }
 
     .topbar {
@@ -124,10 +118,10 @@
     }
 
     .title {
-      font-size: 34px;
-      line-height: 1;
-      font-weight: 700;
-      letter-spacing: -0.04em;
+      font-size: 16px;
+      line-height: 1.25;
+      font-weight: 500;
+      letter-spacing: 0;
     }
 
     .subtitle {
@@ -143,12 +137,12 @@
       height: 34px;
       padding: 0 14px;
       border-radius: 999px;
-      border: 1px solid rgba(255,255,255,0.06);
-      background: rgba(255,255,255,0.035);
+      border: 1px solid var(--input-border);
+      background: var(--secondary-background-color);
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      color: var(--muted);
+      color: var(--secondary-text-color);
       font-size: 12px;
       white-space: nowrap;
     }
@@ -163,27 +157,27 @@
       width: 8px;
       height: 8px;
       border-radius: 50%;
-      background: var(--green);
-      box-shadow: 0 0 12px rgba(99,215,160,0.42);
+      background: var(--panel-success);
+      box-shadow: 0 0 0 1px rgba(76, 175, 80, 0.35);
     }
 
     .icon-btn {
-      border: 1px solid var(--stroke);
-      background: var(--panel);
-      border-radius: 18px;
-      box-shadow: var(--shadow);
+      border: 1px solid var(--input-border);
+      background: var(--input-bg);
+      border-radius: 10px;
+      box-shadow: none;
       display: flex;
       align-items: center;
       justify-content: center;
       cursor: pointer;
       color: var(--text);
-      transition: 0.16s ease;
-      backdrop-filter: var(--glass);
+      transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
     }
 
     .icon-btn:hover {
-      border-color: var(--stroke-2);
-      background: var(--panel-2);
+      background: rgba(255, 255, 255, 0.06);
+      border-color: var(--input-border);
+      color: var(--panel-accent-hover);
     }
 
     .gear {
@@ -249,11 +243,11 @@
       height: 28px;
       padding: 0 12px;
       border-radius: 999px;
-      border: 1px solid rgba(255,255,255,0.06);
-      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--input-border);
+      background: var(--secondary-background-color);
       display: inline-flex;
       align-items: center;
-      color: var(--blue-2);
+      color: var(--panel-accent-hover);
       font-size: 11px;
       white-space: nowrap;
     }
@@ -476,9 +470,9 @@
     }
 
     .highlight {
-      background: rgba(255,255,255,0.04);
-      border: 1px solid rgba(255,255,255,0.06);
-      border-radius: 22px;
+      background: var(--card-background-color);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius-lg);
       padding: 16px;
       min-height: 120px;
       display: flex;
@@ -527,9 +521,9 @@
     .switcher {
       display: flex;
       align-items: center;
-      gap: 8px;
-      background: rgba(255,255,255,0.04);
-      border: 1px solid rgba(255,255,255,0.06);
+      gap: 4px;
+      background: var(--secondary-background-color);
+      border: 1px solid var(--card-border);
       border-radius: 999px;
       padding: 4px;
     }
@@ -540,15 +534,15 @@
       border: 0;
       border-radius: 999px;
       background: transparent;
-      color: var(--muted);
+      color: var(--secondary-text-color);
       font-size: 12px;
       cursor: pointer;
       transition: 0.16s ease;
     }
 
     .switcher button.active {
-      background: rgba(120,166,255,0.2);
-      color: var(--text);
+      background: var(--panel-accent);
+      color: #ffffff;
     }
 
     .forecast-grid {
@@ -560,9 +554,9 @@
     }
 
     .forecast-card {
-      background: rgba(255,255,255,0.04);
-      border: 1px solid rgba(255,255,255,0.06);
-      border-radius: 22px;
+      background: var(--card-background-color);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius-md);
       padding: 16px 12px;
       display: flex;
       flex-direction: column;
@@ -573,8 +567,8 @@
     }
 
     .forecast-card.active {
-      background: rgba(120,166,255,0.12);
-      border-color: rgba(153,188,255,0.16);
+      background: var(--panel-accent-dim);
+      border-color: rgba(3, 169, 244, 0.35);
     }
 
     .forecast-card .day {
@@ -627,9 +621,9 @@
 
     .moon-card,
     .hourly-card {
-      background: rgba(255,255,255,0.04);
-      border: 1px solid rgba(255,255,255,0.06);
-      border-radius: 24px;
+      background: var(--card-background-color);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius-xl);
       padding: 16px;
       min-height: 0;
     }
