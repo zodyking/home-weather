@@ -13,6 +13,7 @@ class HomeWeatherPanel extends HTMLElement {
     this._forecastView = "7day";
     this._radarView = "map";
     this._moonCardView = "moon";
+    this._dashboardTab = "today";
     this._useFahrenheit = true;
     this._weatherData = null;
     this._settings = {};
@@ -893,7 +894,7 @@ class HomeWeatherPanel extends HTMLElement {
         .hud-wrapper { position: relative; min-height: 100%; overflow: auto; }
         .hud-wrapper::before, .hud-wrapper::after { content: none; }
         .weather-app { padding: 0; display: flex; flex-direction: column; gap: 0; height: 100%; min-height: 0; min-width: 0; }
-        .content-area { flex: 1; min-height: 0; min-width: 0; max-width: 1800px; margin: 0 auto; width: 100%; padding: clamp(12px, 2vw, 18px); box-sizing: border-box; }
+        .content-area { flex: 1; min-height: 0; min-width: 0; max-width: 1800px; margin: 0 auto; width: 100%; padding: clamp(12px, 2vw, 18px); box-sizing: border-box; display: flex; flex-direction: column; }
         .glass { background: var(--card-background-color); border: 1px solid var(--card-border); border-radius: var(--radius-xl); box-shadow: var(--shadow); }
         .topbar {
           position: sticky;
@@ -923,48 +924,92 @@ class HomeWeatherPanel extends HTMLElement {
         .icon-btn:hover { background: rgba(255, 255, 255, 0.06); border-color: var(--input-border); color: var(--panel-accent-hover); }
         .gear { width: 20px; height: 20px; border: 2px solid var(--text); border-radius: 50%; position: relative; opacity: 0.92; }
         .gear::before { content: ""; position: absolute; inset: 5px; border: 2px solid var(--text); border-radius: 50%; }
-        .content { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); grid-template-rows: 1fr auto; gap: clamp(12px, 1.5vw, 16px); min-width: 0; min-height: 0; }
-        .hero { grid-column: 1; grid-row: 1; min-width: 0; }
-        .highlights { grid-column: 2; grid-row: 1; min-width: 0; }
-        .bottom-row { grid-column: 1 / -1; grid-row: 2; display: grid; grid-template-columns: minmax(0, 2.33fr) minmax(0, 1fr); gap: clamp(12px, 1.5vw, 16px); min-height: 0; min-width: 0; }
-        .forecast { min-height: 0; min-width: 0; }
-        .bottom-right { min-height: 0; min-width: 0; }
+        .dashboard { display: flex; flex-direction: column; gap: clamp(10px, 1.5vw, 14px); min-width: 0; min-height: 0; flex: 1; }
+        .dashboard-message { padding: 48px; text-align: center; }
+        .dashboard-tabs {
+          display: flex;
+          flex-wrap: nowrap;
+          gap: 4px;
+          padding: 4px;
+          overflow-x: auto;
+          -webkit-overflow-scrolling: touch;
+          scrollbar-width: thin;
+          background: var(--secondary-background-color);
+          border: 1px solid var(--card-border);
+          border-radius: 999px;
+          width: 100%;
+          max-width: 100%;
+          box-sizing: border-box;
+        }
+        .dashboard-tabs::-webkit-scrollbar { height: 4px; }
+        .dashboard-tabs::-webkit-scrollbar-thumb { background: var(--card-border); border-radius: 2px; }
+        .dashboard-tab {
+          flex: 0 0 auto;
+          min-height: 44px;
+          padding: 0 16px;
+          border: none;
+          border-radius: 999px;
+          background: transparent;
+          color: var(--secondary-text-color);
+          font-size: 13px;
+          font-weight: 500;
+          font-family: inherit;
+          cursor: pointer;
+          white-space: nowrap;
+          transition: background 0.16s ease, color 0.16s ease;
+        }
+        .dashboard-tab:hover { color: var(--primary-text-color); }
+        .dashboard-tab.active { background: var(--panel-accent); color: #ffffff; }
+        .dashboard-panel { display: none; flex: 1; min-height: 0; min-width: 0; flex-direction: column; }
+        .dashboard-panel.active { display: flex; }
+        .today-card { flex: 1; min-height: 0; }
+        .today-grid {
+          display: grid;
+          grid-template-columns: 1fr;
+          gap: clamp(16px, 2vw, 24px);
+          align-items: start;
+        }
+        @media (min-width: 600px) {
+          .today-grid { grid-template-columns: 1fr 1fr; }
+        }
+        .today-primary { min-width: 0; }
+        .today-primary-row { display: flex; align-items: center; gap: clamp(12px, 2vw, 20px); flex-wrap: wrap; }
+        .today-icon .weather-icon { display: flex; align-items: center; justify-content: center; }
+        .today-icon .weather-icon img { width: clamp(72px, 16vw, 100px); height: clamp(60px, 14vw, 84px); object-fit: contain; }
+        .today-temp-block { min-width: 0; }
+        .today-temp { font-size: clamp(56px, 14vw, 88px); font-weight: 700; line-height: 0.95; letter-spacing: -0.06em; font-variant-numeric: tabular-nums; color: var(--primary-text-color); }
+        .today-unit { font-size: clamp(22px, 5vw, 32px); font-weight: 700; color: var(--panel-accent-hover); margin-left: 2px; vertical-align: super; }
+        .today-condition { margin-top: 8px; font-size: clamp(15px, 2.5vw, 18px); font-weight: 600; color: var(--primary-text-color); text-transform: capitalize; }
+        .today-datetime { margin-top: 10px; font-size: 13px; color: var(--secondary-text-color); }
+        .today-chips { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px; }
+        .today-chip { padding: 6px 10px; border-radius: 8px; background: var(--secondary-background-color); border: 1px solid var(--card-border); font-size: 12px; color: var(--primary-text-color); }
+        .today-stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; min-width: 0; }
+        @media (min-width: 600px) {
+          .today-stats { gap: 12px; }
+        }
+        .today-stat {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+          padding: 12px 14px;
+          background: var(--secondary-background-color);
+          border: 1px solid var(--card-border);
+          border-radius: var(--radius-md);
+          min-width: 0;
+          min-height: 72px;
+        }
+        .today-stat-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+        .today-stat-icon img { width: 22px; height: 22px; object-fit: contain; opacity: 0.9; }
+        .today-stat-label { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--secondary-text-color); }
+        .today-stat-value { font-size: clamp(16px, 3.5vw, 20px); font-weight: 600; font-variant-numeric: tabular-nums; color: var(--primary-text-color); }
+        .forecast-panel-card, .radar-panel-card, .sky-panel-card { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+        .dashboard-panel .windy-map-container { flex: 1; min-height: 280px; max-height: min(70vh, 560px); aspect-ratio: 16 / 10; max-width: 100%; }
+        .dashboard-panel .chart-container { min-height: 280px; flex: 1; }
         .card { min-width: 0; min-height: 0; padding: clamp(12px, 2vw, 20px); display: flex; flex-direction: column; overflow: hidden; }
         .card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: clamp(8px, 1vw, 12px); margin-bottom: clamp(12px, 1.5vw, 16px); }
         .card-title { font-size: clamp(12px, 1.5vw, 14px); font-weight: 700; letter-spacing: -0.01em; }
         .card-sub { margin-top: 4px; font-size: clamp(11px, 1.2vw, 12px); color: var(--muted); }
         .tag { height: 28px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--input-border); background: var(--secondary-background-color); display: inline-flex; align-items: center; color: var(--panel-accent-hover); font-size: 11px; white-space: nowrap; }
-        .hero-body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; overflow: hidden; min-width: 0; }
-        .hero-body-stack { }
-        .hero-full-circle { position: relative; width: 100%; max-width: min(100%, 280px); aspect-ratio: 1; margin: 0 auto; flex-shrink: 1; min-width: 0; min-height: 0; }
-        .hero-full-circle .ring-shell { width: 100%; height: 100%; position: relative; display: grid; place-items: center; z-index: 1; }
-        .hero-meta-block { margin-top: 12px; text-align: center; min-width: 0; overflow: hidden; }
-        .hero-datetime-line { font-size: clamp(12px, 1.5vw, 14px); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .hero-meta-line { margin-top: 6px; font-size: clamp(11px, 1.2vw, 13px); color: var(--muted); display: flex; flex-wrap: wrap; justify-content: center; gap: clamp(6px, 1vw, 12px); min-width: 0; }
-        .hero-left { display: flex; flex-direction: column; justify-content: space-between; min-height: 0; }
-        .condition-row { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
-        .condition-row .weather-icon { width: 80px; height: 80px; flex: 0 0 auto; display: flex; align-items: center; justify-content: center; }
-        .condition-row .weather-icon img { width: 88px; height: 72px; object-fit: contain; }
-        .temp-row { display: flex; align-items: flex-start; gap: 10px; }
-        .temp-row .value { font-size: clamp(92px, 8vw, 132px); line-height: 0.84; font-weight: 700; letter-spacing: -0.08em; font-variant-numeric: tabular-nums; }
-        .temp-row .unit { margin-top: 14px; font-size: 28px; font-weight: 700; color: var(--panel-accent-hover); font-variant-numeric: tabular-nums; }
-        .hero-meta { margin-top: 10px; color: var(--muted); font-size: clamp(12px, 1.5vw, 14px); display: flex; flex-wrap: wrap; gap: clamp(8px, 1vw, 18px); }
-        .time-block { margin-top: 20px; }
-        .time-block .time { font-size: 34px; font-weight: 700; letter-spacing: -0.04em; }
-        .time-block .date { margin-top: 6px; color: var(--muted); font-size: 15px; }
-        .time-block .condition { margin-top: 14px; font-size: 22px; font-weight: 600; letter-spacing: -0.02em; }
-        .hero-note { margin-top: 8px; color: var(--muted); font-size: 13px; line-height: 1.45; max-width: 90%; }
-        .orbital { position: relative; display: flex; align-items: center; justify-content: center; min-height: 0; height: 100%; }
-        .ring-shell { width: min(100%, 360px); aspect-ratio: 1; position: relative; display: grid; place-items: center; border-radius: 50%; }
-        .ring { width: 72%; aspect-ratio: 1; border-radius: 50%; border: clamp(8px, 1vw, 12px) solid var(--panel-accent); background: rgba(255, 255, 255, 0.03); box-shadow: inset 0 0 0 1px var(--card-border); display: grid; place-items: center; position: relative; }
-        .ring-center { text-align: center; }
-        .ring-center .small { font-size: 10px; text-transform: uppercase; letter-spacing: 0.16em; color: var(--muted); }
-        .ring-center .big { margin-top: 8px; font-size: clamp(36px, 3.5vw, 60px); font-weight: 700; letter-spacing: -0.06em; font-variant-numeric: tabular-nums; }
-        .ring-center .state { margin-top: 6px; font-size: clamp(10px, 1.2vw, 12px); color: var(--panel-accent-hover); letter-spacing: 0.08em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
-        .ring-center-icon { display: flex; align-items: center; justify-content: center; margin-bottom: 4px; }
-        .ring-center-icon img { width: clamp(56px, 10vw, 120px); height: clamp(48px, 8vw, 96px); object-fit: contain; }
-        .time-block-compact { margin-top: 12px; font-size: 18px; font-weight: 600; letter-spacing: -0.02em; color: var(--muted); }
-        .highlights-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 120px), 1fr)); gap: clamp(8px, 1vw, 10px); min-width: 0; }
         .windy-map-container { flex: 1; min-height: clamp(80px, 15vw, 320px); min-width: 0; position: relative; aspect-ratio: 1; max-height: 100%; border-radius: var(--radius-md); overflow: hidden; border: 1px solid var(--card-border); }
         .windy-map-container iframe { width: 100%; height: 100%; border: none; display: block; }
         .highlight { background: var(--card-background-color); border: 1px solid var(--card-border); border-radius: var(--radius-lg); padding: clamp(12px, 1.5vw, 16px); min-height: min(120px, 25vw); display: flex; flex-direction: column; justify-content: space-between; min-width: 0; }
@@ -992,8 +1037,7 @@ class HomeWeatherPanel extends HTMLElement {
         .forecast-scroll-24h { flex: 1; min-height: 0; display: flex; gap: clamp(6px, 1vw, 10px); overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; -ms-overflow-style: none; }
         .forecast-scroll-24h::-webkit-scrollbar { display: none; }
         .forecast-scroll-24h .forecast-card { min-width: clamp(64px, 8vw, 80px); flex-shrink: 0; }
-        .bottom-right { display: flex; flex-direction: column; min-height: 0; overflow: hidden; border-radius: var(--radius-xl); }
-        .moon-card-fill { flex: 1 1 auto; min-height: 0; max-height: none; display: flex; flex-direction: column; align-items: center; text-align: center; background: var(--card-background-color); border: 1px solid var(--card-border); border-radius: var(--radius-xl); padding: clamp(12px, 1.5vw, 16px); overflow: hidden; min-width: 0; }
+        .moon-card-fill { flex: 1 1 auto; min-height: 0; max-height: none; display: flex; flex-direction: column; align-items: center; text-align: center; overflow: hidden; min-width: 0; }
         .moon-card-fill .card-head { margin-bottom: 12px; flex-shrink: 0; align-self: stretch; width: 100%; }
         .moon-card-fill .card-head > div:first-child { text-align: left; }
         .moon-card { display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; }
@@ -1024,8 +1068,7 @@ class HomeWeatherPanel extends HTMLElement {
         .forecast-7day-wrap.active, .forecast-24h-wrap.active { display: flex; }
         .footer-note { position: absolute; right: 22px; bottom: 18px; max-width: calc(100% - 44px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--disabled-text-color); font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; pointer-events: none; }
         @media (min-width: 1181px) { .hud-wrapper { min-height: 100vh; } }
-        @media (max-width: 1180px) { .weather-app { min-height: 1600px; } .content { grid-template-columns: 1fr 1fr; grid-template-rows: auto auto; align-content: start; } .bottom-row { grid-template-columns: 1fr; } .hero, .highlights { display: flex; justify-content: center; align-items: center; align-self: start; aspect-ratio: 1; width: 100%; max-width: min(100%, 50vw); flex-shrink: 1; min-width: 0; min-height: 0; } }
-        @media (max-width: 900px) { .content-area { padding: clamp(10px, 2vw, 14px); } .hero-full-circle { max-width: min(100%, 240px); } }
+        @media (max-width: 900px) { .content-area { padding: clamp(10px, 2vw, 14px); } }
         @media (max-width: 768px) { .content-area { padding: 10px; } .topbar .icon-btn { width: 48px; min-width: 48px; height: 48px; } }
         @media (max-width: 480px) { .forecast-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 100px), 1fr)); } .forecast-card { min-height: clamp(80px, 18vw, 120px); padding: 8px 6px; } .forecast-card .temps { min-width: 0; overflow: hidden; } .forecast-card .day, .forecast-card .condition { min-width: 0; } }
         .loading, .error { text-align: center; padding: 48px 16px; color: var(--secondary-text-color); }
@@ -1352,8 +1395,14 @@ class HomeWeatherPanel extends HTMLElement {
     if (this._currentView === "settings") {
       this._attachSettingsHandlers();
     } else if (this._currentView === "forecast") {
-      if (this._radarView === "chart") this._initApexChart();
-      s.querySelectorAll(".switcher button, .forecast-tab").forEach((btn) => {
+      if (this._dashboardTab === "radar" && this._radarView === "chart") this._initApexChart();
+      s.querySelectorAll("[data-dashboard-tab]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          this._dashboardTab = btn.dataset.dashboardTab || "today";
+          this._render();
+        });
+      });
+      s.querySelectorAll(".dashboard-panel .switcher button, .forecast-tab").forEach((btn) => {
         btn.addEventListener("click", () => {
           if (btn.dataset.radarView) {
             this._radarView = btn.dataset.radarView || "map";
@@ -1374,7 +1423,7 @@ class HomeWeatherPanel extends HTMLElement {
     s.querySelectorAll(".radar-view").forEach((el) => el.classList.toggle("active", el.dataset.radarView === this._radarView));
     s.querySelectorAll(".moon-pane-wrap, .sun-pane-wrap").forEach((el) => el.classList.toggle("active", el.dataset.moonView === this._moonCardView));
     s.querySelectorAll(".forecast-7day-wrap, .forecast-24h-wrap").forEach((el) => el.classList.toggle("active", el.dataset.forecastView === this._forecastView));
-    s.querySelectorAll(".switcher button").forEach((btn) => {
+    s.querySelectorAll(".dashboard-panel .switcher button").forEach((btn) => {
       const active = (btn.dataset.radarView && btn.dataset.radarView === this._radarView) ||
         (btn.dataset.moonView && btn.dataset.moonView === this._moonCardView) ||
         (btn.dataset.view && btn.dataset.view === this._forecastView);
@@ -1384,7 +1433,7 @@ class HomeWeatherPanel extends HTMLElement {
     const subEl = s.getElementById("moon-card-sub");
     if (titleEl) titleEl.textContent = this._moonCardView === "sun" ? "Sun Details" : "Moon Phase";
     if (subEl) subEl.textContent = this._moonCardView === "sun" ? "Solar times at your location" : "Lunar cycle at your location";
-    if (this._radarView === "chart") this._initApexChart();
+    if (this._dashboardTab === "radar" && this._radarView === "chart") this._initApexChart();
   }
 
   _attachSettingsHandlers() {
@@ -1679,17 +1728,17 @@ class HomeWeatherPanel extends HTMLElement {
   _renderContent() {
     if (!this._hass) {
       return this._currentView === "forecast"
-        ? `<section class="content"><article class="glass card" style="grid-column:1/-1;padding:48px;text-align:center"><div class="loading">Connecting...</div></article></section>`
+        ? `<section class="dashboard"><article class="glass card dashboard-message"><div class="loading">Connecting...</div></article></section>`
         : `<div class="loading">Connecting...</div>`;
     }
     if (this._loading && !this._config) {
       return this._currentView === "forecast"
-        ? `<section class="content"><article class="glass card" style="grid-column:1/-1;padding:48px;text-align:center"><div class="loading">Loading...</div></article></section>`
+        ? `<section class="dashboard"><article class="glass card dashboard-message"><div class="loading">Loading...</div></article></section>`
         : `<div class="loading">Loading...</div>`;
     }
     if (this._error && !this._config) {
       return this._currentView === "forecast"
-        ? `<section class="content"><article class="glass card" style="grid-column:1/-1;padding:48px;text-align:center"><div class="error">${String(this._error)}</div></article></section>`
+        ? `<section class="dashboard"><article class="glass card dashboard-message"><div class="error">${String(this._error)}</div></article></section>`
         : `<div class="error">${String(this._error)}</div>`;
     }
     if (this._currentView === "forecast") return this._renderForecast();
@@ -1699,7 +1748,7 @@ class HomeWeatherPanel extends HTMLElement {
 
   _renderForecast() {
     if (!this._weatherData || !this._weatherData.configured) {
-      return `<section class="content"><article class="glass card" style="grid-column:1/-1;padding:48px;text-align:center"><div class="error">Weather data not available. Please configure the integration in Settings.</div></article></section>`;
+      return `<section class="dashboard"><article class="glass card dashboard-message"><div class="error">Weather data not available. Please configure the integration in Settings.</div></article></section>`;
     }
     const current = this._weatherData.current || {};
     const hourly = this._weatherData.hourly_forecast || [];
@@ -1754,6 +1803,11 @@ class HomeWeatherPanel extends HTMLElement {
       { icon: "barometer.svg", label: "Pressure", value: pressure != null ? `${pressure} ${pressureUnit}` : "—" },
     ];
 
+    const todayStats = [];
+    if (hiTemp != null) todayStats.push({ icon: "thermometer-warmer.svg", label: "High", value: `${hiTemp}°` });
+    if (loTemp != null) todayStats.push({ icon: "thermometer-colder.svg", label: "Low", value: `${loTemp}°` });
+    todayStats.push(...highlights);
+
     // Moon phase
     const moon = this._getMoonPhase(now);
 
@@ -1780,68 +1834,69 @@ class HomeWeatherPanel extends HTMLElement {
     if (feelsLike != null) metaItems.push(`Feels ${feelsLike}°`);
     if (windSpeed != null) metaItems.push(`Wind ${Math.round(windSpeed)} ${windUnit}`);
     if (windGusts != null) metaItems.push(`Gusts ${Math.round(windGusts)} ${windUnit}`);
+    const condLabel = String(this._getConditionLabel(condition, now)).replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const moonNameSafe = String(moon.name || "").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const statsTiles = todayStats.map((h) => {
+      const lab = String(h.label).replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      const val = String(h.value).replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      return `<div class="today-stat">
+        <div class="today-stat-top">
+          <span class="today-stat-label">${lab}</span>
+          <span class="today-stat-icon"><img src="/local/home_weather/icons/${h.icon}" alt="" loading="lazy"/></span>
+        </div>
+        <div class="today-stat-value">${val}</div>
+      </div>`;
+    }).join("");
     return `
-      <section class="content">
-        <article class="glass card hero">
-          <div class="card-head">
-            <div>
-              <div class="card-title">Current Conditions</div>
-              <div class="card-sub">Local snapshot with live time, temperature, and wind</div>
+      <section class="dashboard">
+        <nav class="dashboard-tabs" role="tablist" aria-label="Weather views">
+          <button type="button" role="tab" class="dashboard-tab ${this._dashboardTab === "today" ? "active" : ""}" aria-selected="${this._dashboardTab === "today"}" data-dashboard-tab="today">Today</button>
+          <button type="button" role="tab" class="dashboard-tab ${this._dashboardTab === "forecast" ? "active" : ""}" aria-selected="${this._dashboardTab === "forecast"}" data-dashboard-tab="forecast">Forecast</button>
+          <button type="button" role="tab" class="dashboard-tab ${this._dashboardTab === "radar" ? "active" : ""}" aria-selected="${this._dashboardTab === "radar"}" data-dashboard-tab="radar">Radar</button>
+          <button type="button" role="tab" class="dashboard-tab ${this._dashboardTab === "sky" ? "active" : ""}" aria-selected="${this._dashboardTab === "sky"}" data-dashboard-tab="sky">Sky</button>
+        </nav>
+
+        <div class="dashboard-panel ${this._dashboardTab === "today" ? "active" : ""}" data-dashboard-panel="today">
+          <article class="glass card today-card">
+            <div class="card-head">
+              <div>
+                <div class="card-title">Current conditions</div>
+                <div class="card-sub">Live at your location</div>
+              </div>
+              <div class="tag">Now</div>
             </div>
-            <div class="tag">Now</div>
-          </div>
-          <div class="hero-body hero-body-stack">
-            <div class="hero-full-circle">
-              <div class="ring-shell">
-                <div class="ring">
-                  <div class="ring-center">
-                    <div class="ring-center-icon">${this._getConditionIcon(condition, "large", now)}</div>
-                    <div class="big">${temp}°</div>
-                    <div class="state">${this._getConditionLabel(condition, now)}</div>
+            <div class="today-grid">
+              <div class="today-primary">
+                <div class="today-primary-row">
+                  <div class="today-icon">${this._getConditionIcon(condition, "large", now)}</div>
+                  <div class="today-temp-block">
+                    <div><span class="today-temp">${String(temp).replace(/</g, "&lt;")}</span><span class="today-unit">°</span></div>
+                    <div class="today-condition">${condLabel}</div>
                   </div>
                 </div>
+                <div class="today-datetime">${timeStr.replace(/</g, "&lt;").replace(/>/g, "&gt;")} · ${dateStr.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</div>
+                ${metaItems.length > 0 ? `<div class="today-chips">${metaItems.map((m) => `<span class="today-chip">${m.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</span>`).join("")}</div>` : ""}
+              </div>
+              <div class="today-stats">${statsTiles}</div>
+            </div>
+          </article>
+        </div>
+
+        <div class="dashboard-panel ${this._dashboardTab === "forecast" ? "active" : ""}" data-dashboard-panel="forecast">
+          <article class="glass card forecast forecast-panel-card">
+            <div class="forecast-top">
+              <div>
+                <div class="card-title">Forecast</div>
+                <div class="card-sub">Daily and hourly outlook</div>
+              </div>
+              <div class="switcher">
+                <button type="button" class="${this._forecastView === "7day" ? "active" : ""}" data-view="7day">${daily.length} day</button>
+                <button type="button" class="${this._forecastView === "24h" ? "active" : ""}" data-view="24h">24 hour</button>
               </div>
             </div>
-            <div class="hero-meta-block">
-              <div class="hero-datetime-line">${timeStr.replace(/</g, "&lt;").replace(/>/g, "&gt;")} · ${dateStr.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</div>
-              ${metaItems.length > 0 ? `<div class="hero-meta-line">${metaItems.map((m) => `<span>${m.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</span>`).join("")}</div>` : ""}
-            </div>
-          </div>
-        </article>
-
-        <article class="glass card highlights">
-          <div class="card-head">
-            <div>
-              <div class="card-title">Radar</div>
-              <div class="card-sub">Live radar and weather at your location</div>
-            </div>
-            <div class="switcher">
-              <button class="${this._radarView === "map" ? "active" : ""}" data-radar-view="map">Map</button>
-              <button class="${this._radarView === "chart" ? "active" : ""}" data-radar-view="chart">Chart</button>
-            </div>
-          </div>
-          <div class="radar-view ${this._radarView === "map" ? "active" : ""}" data-radar-view="map">
-            <div class="windy-map-container">
-              <iframe src="${windyUrl}" frameborder="0" title="Windy weather map" width="100%" height="100%" loading="lazy"></iframe>
-            </div>
-          </div>
-          <div class="radar-view ${this._radarView === "chart" ? "active" : ""}" data-radar-view="chart">
-            <div class="chart-container" id="apex-chart-combined"></div>
-          </div>
-        </article>
-
-        <div class="bottom-row">
-        <article class="glass card forecast">
-          <div class="forecast-top">
-            <div class="card-title">Forecast</div>
-            <div class="switcher">
-              <button class="${this._forecastView === "7day" ? "active" : ""}" data-view="7day">${daily.length} Day</button>
-              <button class="${this._forecastView === "24h" ? "active" : ""}" data-view="24h">24 Hour</button>
-            </div>
-          </div>
-          <div class="forecast-7day-wrap ${this._forecastView === "7day" ? "active" : ""}" data-forecast-view="7day">
-            <div class="forecast-grid">
-              ${daily.map((d, i) => {
+            <div class="forecast-7day-wrap ${this._forecastView === "7day" ? "active" : ""}" data-forecast-view="7day">
+              <div class="forecast-grid">
+                ${daily.map((d, i) => {
                 const dHi = d.temperature != null ? Math.round(d.temperature) : "—";
                 const dLo = d.templow != null ? Math.round(d.templow) : "—";
                 const precipVal = this._formatPrecip(d.precipitation_probability);
@@ -1859,11 +1914,11 @@ class HomeWeatherPanel extends HTMLElement {
                   </div>
                 `;
               }).join("")}
+              </div>
             </div>
-          </div>
-          <div class="forecast-24h-wrap ${this._forecastView === "24h" ? "active" : ""}" data-forecast-view="24h">
-            <div class="forecast-scroll-24h">
-              ${hourly.slice(0, 24).map((h, i) => {
+            <div class="forecast-24h-wrap ${this._forecastView === "24h" ? "active" : ""}" data-forecast-view="24h">
+              <div class="forecast-scroll-24h">
+                ${hourly.slice(0, 24).map((h, i) => {
                 const hTemp = h.temperature != null ? Math.round(h.temperature) : "—";
                 const precipVal = this._formatPrecip(h.precipitation_probability);
                 const timeLabel = i === 0 ? "Now" : this._formatTime(h.datetime);
@@ -1879,30 +1934,54 @@ class HomeWeatherPanel extends HTMLElement {
                   </div>
                 `;
               }).join("")}
+              </div>
             </div>
-          </div>
-        </article>
+          </article>
+        </div>
 
-        <div class="bottom-right">
-          <div class="moon-card moon-card-fill">
+        <div class="dashboard-panel ${this._dashboardTab === "radar" ? "active" : ""}" data-dashboard-panel="radar">
+          <article class="glass card radar-panel-card">
             <div class="card-head">
               <div>
-                <div class="card-title" id="moon-card-title">${this._moonCardView === "sun" ? "Sun Details" : "Moon Phase"}</div>
+                <div class="card-title">Radar</div>
+                <div class="card-sub">Live radar and trends at your location</div>
+              </div>
+              <div class="switcher">
+                <button type="button" class="${this._radarView === "map" ? "active" : ""}" data-radar-view="map">Map</button>
+                <button type="button" class="${this._radarView === "chart" ? "active" : ""}" data-radar-view="chart">Chart</button>
+              </div>
+            </div>
+            <div class="radar-view ${this._radarView === "map" ? "active" : ""}" data-radar-view="map">
+              <div class="windy-map-container">
+                <iframe src="${windyUrl}" frameborder="0" title="Windy weather map" width="100%" height="100%" loading="lazy"></iframe>
+              </div>
+            </div>
+            <div class="radar-view ${this._radarView === "chart" ? "active" : ""}" data-radar-view="chart">
+              <div class="chart-container" id="apex-chart-combined"></div>
+            </div>
+          </article>
+        </div>
+
+        <div class="dashboard-panel ${this._dashboardTab === "sky" ? "active" : ""}" data-dashboard-panel="sky">
+          <article class="glass card moon-card-fill sky-panel-card">
+            <div class="card-head">
+              <div>
+                <div class="card-title" id="moon-card-title">${this._moonCardView === "sun" ? "Sun" : "Moon"}</div>
                 <div class="card-sub" id="moon-card-sub">${this._moonCardView === "sun" ? "Solar times at your location" : "Lunar cycle at your location"}</div>
               </div>
               <div class="switcher moon-sun-switcher">
-                <button class="${this._moonCardView === "moon" ? "active" : ""}" data-moon-view="moon">Moon</button>
-                <button class="${this._moonCardView === "sun" ? "active" : ""}" data-moon-view="sun">Sun</button>
+                <button type="button" class="${this._moonCardView === "moon" ? "active" : ""}" data-moon-view="moon">Moon</button>
+                <button type="button" class="${this._moonCardView === "sun" ? "active" : ""}" data-moon-view="sun">Sun</button>
               </div>
             </div>
             <div class="moon-pane-wrap ${this._moonCardView === "moon" ? "active" : ""}" data-moon-view="moon">
               <div class="moon-pane">
                 <div class="moon-icon-wrap">
                   <div class="moon-icon">
-                    <img src="/local/home_weather/icons/Moon%20Phase/${moon.icon}.svg" alt="${moon.name}" loading="lazy"/>
+                    <img src="/local/home_weather/icons/Moon%20Phase/${moon.icon}.svg" alt="${moonNameSafe}" loading="lazy"/>
                   </div>
                 </div>
-                <div class="moon-title">${moon.name}</div>
+                <div class="moon-title">${moonNameSafe}</div>
                 <div class="moon-sub">${moon.illumination}% illuminated</div>
                 <div class="moon-meta">Day ${moon.daysSinceNew} · Next full in ${moon.daysToFull ?? "—"} days</div>
               </div>
@@ -1917,8 +1996,7 @@ class HomeWeatherPanel extends HTMLElement {
                 <a href="https://sunrise-sunset.org" target="_blank" rel="noopener noreferrer" class="sun-attribution">Data by sunrise-sunset.org</a>
               </div>
             </div>
-          </div>
-        </div>
+          </article>
         </div>
       </section>
     `;
