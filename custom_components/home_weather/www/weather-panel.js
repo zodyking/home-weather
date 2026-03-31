@@ -923,7 +923,7 @@ class HomeWeatherPanel extends HTMLElement {
         .icon-btn:hover { background: rgba(255, 255, 255, 0.06); border-color: var(--input-border); color: var(--panel-accent-hover); }
         .gear { width: 20px; height: 20px; border: 2px solid var(--text); border-radius: 50%; position: relative; opacity: 0.92; }
         .gear::before { content: ""; position: absolute; inset: 5px; border: 2px solid var(--text); border-radius: 50%; }
-        .dashboard { display: flex; flex-direction: column; gap: clamp(10px, 1.5vw, 14px); min-width: 0; min-height: 0; flex: 1; }
+        .dashboard { display: flex; flex-direction: column; gap: clamp(10px, 1.5vw, 14px); min-width: 0; min-height: 0; flex: 1; padding-bottom: clamp(12px, 2vw, 24px); box-sizing: border-box; }
         .dashboard-message { padding: 48px; text-align: center; }
         .dashboard-bento {
           display: grid;
@@ -931,6 +931,7 @@ class HomeWeatherPanel extends HTMLElement {
           gap: clamp(10px, 1.5vw, 14px);
           min-width: 0;
           align-items: stretch;
+          align-content: start;
         }
         .dashboard-bento > * { min-width: 0; }
         @media (min-width: 960px) {
@@ -942,6 +943,10 @@ class HomeWeatherPanel extends HTMLElement {
           .dash-radar { grid-column: 2; grid-row: 1; }
           .dash-forecast { grid-column: 1; grid-row: 2; }
           .dash-sky { grid-column: 2; grid-row: 2; }
+          .dashboard-bento .dash-forecast,
+          .dashboard-bento .dash-sky {
+            min-height: 260px;
+          }
         }
         .today-card { min-height: 0; }
         .today-grid {
@@ -984,8 +989,8 @@ class HomeWeatherPanel extends HTMLElement {
         .today-stat-label { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--secondary-text-color); }
         .today-stat-value { font-size: clamp(16px, 3.5vw, 20px); font-weight: 600; font-variant-numeric: tabular-nums; color: var(--primary-text-color); }
         .forecast-panel-card, .radar-panel-card, .sky-panel-card { min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
-        .dashboard-bento .windy-map-container { flex: 1; min-height: 240px; max-height: min(55vh, 480px); aspect-ratio: 16 / 10; max-width: 100%; }
-        .dashboard-bento .chart-container { min-height: 240px; flex: 1; max-height: min(55vh, 480px); }
+        .dashboard-bento .windy-map-container { flex: 1; min-height: 220px; max-height: min(50vh, 440px); aspect-ratio: 16 / 10; max-width: 100%; }
+        .dashboard-bento .chart-container { min-height: 220px; flex: 1; max-height: min(50vh, 440px); }
         .card { min-width: 0; min-height: 0; padding: clamp(12px, 2vw, 20px); display: flex; flex-direction: column; overflow: hidden; }
         .card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: clamp(8px, 1vw, 12px); margin-bottom: clamp(12px, 1.5vw, 16px); }
         .card-title { font-size: clamp(12px, 1.5vw, 14px); font-weight: 700; letter-spacing: -0.01em; }
