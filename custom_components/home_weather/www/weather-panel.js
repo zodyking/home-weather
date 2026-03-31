@@ -939,13 +939,14 @@ class HomeWeatherPanel extends HTMLElement {
           gap: clamp(10px, 1.5vw, 14px);
           min-width: 0;
           align-items: stretch;
-          align-content: start;
+          align-content: stretch;
         }
         .dashboard-bento > * { min-width: 0; }
         @media (min-width: 960px) {
           .dashboard-bento {
             grid-template-columns: 1fr 1fr;
-            grid-template-rows: auto auto auto;
+            grid-template-rows: auto auto 1fr;
+            min-height: clamp(520px, calc(100dvh - 100px), 2000px);
           }
           .dash-today { grid-column: 1; grid-row: 1; }
           .dash-radar { grid-column: 2; grid-row: 1; }
@@ -954,10 +955,25 @@ class HomeWeatherPanel extends HTMLElement {
           .dash-sun { grid-column: 2; grid-row: 3; }
           .dashboard-bento .dash-moon,
           .dashboard-bento .dash-sun {
-            min-height: 290px;
+            min-height: 0;
+            height: 100%;
+            align-self: stretch;
           }
         }
         .today-card { min-height: 0; }
+        .dashboard-bento .dash-today .today-grid {
+          flex: 1;
+          min-height: 0;
+          display: flex;
+          flex-direction: column;
+        }
+        .dashboard-bento .dash-today .today-primary {
+          flex: 1;
+          min-height: 0;
+          display: flex;
+          flex-direction: column;
+          justify-content: space-between;
+        }
         .today-grid {
           display: block;
           min-width: 0;
@@ -971,12 +987,10 @@ class HomeWeatherPanel extends HTMLElement {
         .today-unit { font-size: clamp(22px, 5vw, 32px); font-weight: 700; color: var(--panel-accent-hover); margin-left: 2px; vertical-align: super; }
         .today-condition { margin-top: 8px; font-size: clamp(15px, 2.5vw, 18px); font-weight: 600; color: var(--primary-text-color); text-transform: capitalize; }
         .today-datetime { margin-top: 10px; font-size: 13px; color: var(--secondary-text-color); }
-        .today-chips { margin-top: 12px; display: flex; flex-wrap: nowrap; justify-content: flex-start; gap: 6px 8px; overflow-x: auto; overflow-y: hidden; padding-bottom: 4px; -webkit-overflow-scrolling: touch; scrollbar-width: thin; min-width: 0; }
-        .today-chips::-webkit-scrollbar { height: 4px; }
-        .today-chips::-webkit-scrollbar-thumb { background: var(--card-border); border-radius: 2px; }
-        .today-chip { padding: 5px 9px; border-radius: 8px; background: var(--secondary-background-color); border: 1px solid var(--card-border); font-size: clamp(10px, 2.8vw, 12px); color: var(--primary-text-color); white-space: nowrap; flex-shrink: 0; }
+        .today-chips { margin-top: 12px; display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 8px; min-width: 0; }
+        .today-chip { padding: 5px 8px; border-radius: 8px; background: var(--secondary-background-color); border: 1px solid var(--card-border); font-size: clamp(10px, 2.6vw, 12px); color: var(--primary-text-color); white-space: nowrap; }
         .forecast-panel-card, .radar-panel-card, .moon-panel-card, .sun-panel-card { min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
-        .dashboard-bento .dash-forecast.forecast-panel-card { min-height: 260px; }
+        .dashboard-bento .dash-forecast.forecast-panel-card { min-height: 280px; }
         .dashboard-bento .radar-body { flex: 1 0 auto; width: 100%; min-width: 0; height: 320px; min-height: 320px; display: flex; flex-direction: column; }
         .dashboard-bento .radar-body .radar-view.active { flex: 1; min-height: 0; display: flex; flex-direction: column; }
         .dashboard-bento .dash-radar .windy-map-container { flex: 1; min-height: 0; height: 100%; aspect-ratio: unset; max-height: none; max-width: 100%; }
@@ -1002,6 +1016,8 @@ class HomeWeatherPanel extends HTMLElement {
         .forecast-strip { flex: 1; min-height: 0; display: flex; flex-direction: row; flex-wrap: nowrap; gap: clamp(6px, 1vw, 10px); overflow-x: auto; overflow-y: hidden; padding-bottom: 6px; -webkit-overflow-scrolling: touch; scrollbar-width: thin; min-width: 0; align-items: stretch; }
         .forecast-strip::-webkit-scrollbar { height: 4px; }
         .forecast-strip::-webkit-scrollbar-thumb { background: var(--card-border); border-radius: 2px; }
+        .forecast-24h-wrap .forecast-strip { scrollbar-width: none; }
+        .forecast-24h-wrap .forecast-strip::-webkit-scrollbar { height: 0; display: none; }
         .forecast-7day-wrap .forecast-strip { display: grid; grid-template-columns: repeat(var(--forecast-cols, 7), minmax(0, 1fr)); overflow-x: visible; width: 100%; }
         .forecast-7day-wrap .forecast-card { width: 100%; min-width: 0; max-width: none; max-height: 176px; flex: unset; padding: 8px 6px; }
         .forecast-card { background: var(--card-background-color); border: 1px solid var(--card-border); border-radius: var(--radius-md); padding: 6px 5px; display: flex; flex-direction: column; align-items: center; justify-content: space-between; min-height: 0; max-height: 132px; text-align: center; min-width: 72px; max-width: 96px; width: clamp(72px, 12vw, 92px); flex: 0 0 auto; box-sizing: border-box; }
@@ -1039,8 +1055,8 @@ class HomeWeatherPanel extends HTMLElement {
         .chart-container { flex: 1; min-height: clamp(100px, 20vw, 320px); min-width: 0; width: 100%; }
         .radar-view { display: none; flex: 1; min-height: 0; flex-direction: column; }
         .radar-view.active { display: flex; }
-        .dash-moon .moon-pane { display: flex; flex: 1; min-height: 0; flex-direction: column; align-items: center; text-align: center; overflow: hidden; }
-        .dash-sun .sun-pane { display: flex; flex: 1; min-height: 0; flex-direction: column; overflow: hidden; }
+        .dash-moon .moon-pane { display: flex; flex: 1; min-height: 0; flex-direction: column; align-items: center; justify-content: center; text-align: center; overflow: hidden; }
+        .dash-sun .sun-pane { display: flex; flex: 1; min-height: 0; flex-direction: column; justify-content: flex-start; overflow: hidden; }
         .dash-moon .moon-icon-wrap { width: clamp(48px, 12vw, 88px); height: clamp(48px, 12vw, 88px); }
         .dash-moon .moon-icon { width: 100%; height: 100%; max-width: 88px; max-height: 88px; }
         .sun-panel-card .sun-pane { align-items: stretch; text-align: left; width: 100%; }
@@ -1050,7 +1066,8 @@ class HomeWeatherPanel extends HTMLElement {
         .forecast-7day-wrap, .forecast-24h-wrap { display: none; flex: 1; min-height: 170px; flex-direction: column; }
         .forecast-7day-wrap.active, .forecast-24h-wrap.active { display: flex; }
         @media (max-width: 600px) {
-          .forecast-7day-wrap .forecast-strip { display: flex; overflow-x: auto; grid-template-columns: unset; }
+          .forecast-7day-wrap .forecast-strip { display: flex; overflow-x: auto; grid-template-columns: unset; scrollbar-width: none; }
+          .forecast-7day-wrap .forecast-strip::-webkit-scrollbar { height: 0; display: none; }
           .forecast-7day-wrap .forecast-card { flex: 0 0 auto; width: clamp(72px, 22vw, 92px); max-width: 96px; max-height: 148px; padding: 6px 5px; }
         }
         .footer-note { position: absolute; right: 22px; bottom: 18px; max-width: calc(100% - 44px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--disabled-text-color); font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; pointer-events: none; }
