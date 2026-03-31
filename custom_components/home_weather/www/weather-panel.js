@@ -1747,9 +1747,6 @@ class HomeWeatherPanel extends HTMLElement {
     const condition = current.condition || current.state || "—";
     const temp = (current.temperature ?? h0.temperature) != null ? Math.round(current.temperature ?? h0.temperature) : "—";
     const windUnit = (current.wind_speed_unit || "mph").toLowerCase();
-    const pressureUnit = (current.pressure_unit || "inHg").toLowerCase();
-    const precipUnit = (current.precipitation_unit || "in").toLowerCase();
-
     // Hi/Lo from today's daily forecast
     const todayDaily = daily[0] || {};
     const hiTemp = todayDaily.temperature != null ? Math.round(todayDaily.temperature) : null;
@@ -1760,14 +1757,11 @@ class HomeWeatherPanel extends HTMLElement {
       temp: h.temperature != null ? Math.round(h.temperature) : null,
       feelsLike: h.apparent_temperature != null ? Math.round(h.apparent_temperature) : null,
       dewPoint: h.dew_point != null ? Math.round(h.dew_point) : null,
-      precipChance: h.precipitation_probability ?? 0,
       precipAmount: h.precipitation ?? 0,
       humidity: h.humidity ?? null,
       windSpeed: h.wind_speed ?? 0,
       windGusts: h.wind_gust_speed ?? 0,
-      pressure: h.pressure ?? null,
       cloudCover: h.cloud_coverage ?? null,
-      uvIndex: h.uv_index ?? null,
     }));
 
     this._graphData = graphData;
@@ -1775,11 +1769,8 @@ class HomeWeatherPanel extends HTMLElement {
 
     const feelsLike = (current.apparent_temperature ?? h0.apparent_temperature) != null ? Math.round(current.apparent_temperature ?? h0.apparent_temperature) : null;
     const humidity = (current.humidity ?? h0.humidity) != null ? Math.round(current.humidity ?? h0.humidity) : null;
-    const precipChance = (h0.precipitation_probability ?? 0);
     const windSpeed = (current.wind_speed ?? h0.wind_speed);
     const windGusts = (current.wind_gust_speed ?? h0.wind_gust_speed);
-    const pressure = (current.pressure ?? h0.pressure);
-    const uvIndex = (current.uv_index ?? h0.uv_index);
 
     // Moon phase
     const moon = this._getMoonPhase(now);
@@ -1808,9 +1799,6 @@ class HomeWeatherPanel extends HTMLElement {
     if (windSpeed != null) metaItems.push(`Wind ${Math.round(windSpeed)} ${windUnit}`);
     if (windGusts != null) metaItems.push(`Gusts ${Math.round(windGusts)} ${windUnit}`);
     if (humidity != null) metaItems.push(`Hum ${humidity}%`);
-    metaItems.push(`Precip ${Math.round(precipChance)}%`);
-    if (uvIndex != null) metaItems.push(`UV ${uvIndex}`);
-    if (pressure != null) metaItems.push(`${pressure} ${pressureUnit}`);
     const condLabel = String(this._getConditionLabel(condition, now)).replace(/</g, "&lt;").replace(/>/g, "&gt;");
     const moonNameSafe = String(moon.name || "").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     return `
@@ -2016,9 +2004,6 @@ class HomeWeatherPanel extends HTMLElement {
       const tempVals = data.flatMap((d) => [d.temp, d.feelsLike, d.dewPoint]).filter((n) => n != null);
       const tempMin = tempVals.length ? Math.floor(Math.min(...tempVals)) - 2 : 0;
       const tempMax = tempVals.length ? Math.ceil(Math.max(...tempVals)) + 2 : 100;
-      const pressureVals = data.map((d) => d.pressure).filter((n) => n != null);
-      const pressureMin = pressureVals.length ? Math.min(...pressureVals) - 0.1 : 29;
-      const pressureMax = pressureVals.length ? Math.max(...pressureVals) + 0.1 : 31;
       const precipAmountVals = data.map((d) => d.precipAmount).filter((n) => n != null && n > 0);
       const precipAmountMax = precipAmountVals.length ? Math.max(...precipAmountVals) * 1.2 || 0.5 : 0.5;
       const windVals = data.flatMap((d) => [d.windSpeed, d.windGusts]).filter((n) => n != null);
@@ -2028,14 +2013,11 @@ class HomeWeatherPanel extends HTMLElement {
         { key: "temp", label: "Temperature", color: "#f44336", format: (x) => (x != null ? `${x}°` : "—"), min: tempMin, max: tempMax },
         { key: "feelsLike", label: "Feels Like", color: "#ff7043", format: (x) => (x != null ? `${x}°` : "—"), min: tempMin, max: tempMax },
         { key: "dewPoint", label: "Dew Point", color: "#ab47bc", format: (x) => (x != null ? `${x}°` : "—"), min: tempMin, max: tempMax },
-        { key: "precipChance", label: "Precip Chance", color: "#03a9f4", format: (x) => (x != null ? `${Math.round(x)}%` : "—"), min: 0, max: 100 },
         { key: "humidity", label: "Humidity", color: "#26a69a", format: (x) => (x != null ? `${x}%` : "—"), min: 0, max: 100 },
         { key: "precipAmount", label: "Precipitation Amount", color: "#29b6f6", format: (x) => (x != null ? `${x} in` : "—"), min: 0, max: precipAmountMax },
-        { key: "windSpeed", label: "Wind Speed", color: "#9e9e9e", format: (x) => (x != null ? `${Math.round(x)} ${windUnit}` : "—"), min: 0, max: windMax },
-        { key: "windGusts", label: "Wind Gusts", color: "#78909c", format: (x) => (x != null ? `${Math.round(x)} ${windUnit}` : "—"), min: 0, max: windMax },
-        { key: "pressure", label: "Pressure", color: "#8d6e63", format: (x) => (x != null ? `${x} inHg` : "—"), min: pressureMin, max: pressureMax },
+        { key: "windSpeed", label: "Wind Speed", color: "#4caf50", format: (x) => (x != null ? `${Math.round(x)} ${windUnit}` : "—"), min: 0, max: windMax },
+        { key: "windGusts", label: "Wind Gusts", color: "#827717", format: (x) => (x != null ? `${Math.round(x)} ${windUnit}` : "—"), min: 0, max: windMax },
         { key: "cloudCover", label: "Cloud Cover", color: "#90a4ae", format: (x) => (x != null ? `${x}%` : "—"), min: 0, max: 100 },
-        { key: "uvIndex", label: "UV Index", color: "#ff9800", format: (x) => (x != null ? String(x) : "—"), min: 0, max: 12 },
       ];
 
       const series = allFields.map((f) => ({
@@ -2069,7 +2051,7 @@ class HomeWeatherPanel extends HTMLElement {
           animations: { enabled: true, speed: 300 },
           fontFamily: "inherit",
         },
-        colors: ["#f44336", "#ff7043", "#e040fb", "#03a9f4", "#00bcd4", "#29b6f6", "#4caf50", "#ff9800", "#8d6e63", "#9e9e9e", "#ffb300"],
+        colors: allFields.map((f) => f.color),
         stroke: { curve: "smooth", width: 3, lineCap: "round" },
         series,
         xaxis: {
@@ -2115,7 +2097,7 @@ class HomeWeatherPanel extends HTMLElement {
       };
       const ch = new ApexCharts(container, opts);
       await ch.render();
-      const toHide = ["Feels Like", "Dew Point", "Precip Chance", "Humidity", "Wind Gusts", "Pressure", "Cloud Cover", "UV Index"];
+      const toHide = ["Feels Like", "Dew Point", "Humidity", "Wind Gusts", "Cloud Cover"];
       toHide.forEach((name) => ch.toggleSeries(name));
       this._apexCharts.push(ch);
     } catch (e) {
