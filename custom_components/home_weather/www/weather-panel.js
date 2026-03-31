@@ -954,7 +954,7 @@ class HomeWeatherPanel extends HTMLElement {
           .dash-sun { grid-column: 2; grid-row: 3; }
           .dashboard-bento .dash-moon,
           .dashboard-bento .dash-sun {
-            min-height: 220px;
+            min-height: 290px;
           }
         }
         .today-card { min-height: 0; }
@@ -962,8 +962,8 @@ class HomeWeatherPanel extends HTMLElement {
           display: block;
           min-width: 0;
         }
-        .today-primary { min-width: 0; }
-        .today-primary-row { display: flex; align-items: center; gap: clamp(12px, 2vw, 20px); flex-wrap: wrap; }
+        .today-primary { min-width: 0; text-align: center; }
+        .today-primary-row { display: flex; align-items: center; justify-content: center; gap: clamp(12px, 2vw, 20px); flex-wrap: wrap; }
         .today-icon .weather-icon { display: flex; align-items: center; justify-content: center; }
         .today-icon .weather-icon img { width: clamp(72px, 16vw, 100px); height: clamp(60px, 14vw, 84px); object-fit: contain; }
         .today-temp-block { min-width: 0; }
@@ -971,11 +971,16 @@ class HomeWeatherPanel extends HTMLElement {
         .today-unit { font-size: clamp(22px, 5vw, 32px); font-weight: 700; color: var(--panel-accent-hover); margin-left: 2px; vertical-align: super; }
         .today-condition { margin-top: 8px; font-size: clamp(15px, 2.5vw, 18px); font-weight: 600; color: var(--primary-text-color); text-transform: capitalize; }
         .today-datetime { margin-top: 10px; font-size: 13px; color: var(--secondary-text-color); }
-        .today-chips { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 6px 8px; }
-        .today-chip { padding: 5px 9px; border-radius: 8px; background: var(--secondary-background-color); border: 1px solid var(--card-border); font-size: clamp(10px, 2.8vw, 12px); color: var(--primary-text-color); }
+        .today-chips { margin-top: 12px; display: flex; flex-wrap: nowrap; justify-content: flex-start; gap: 6px 8px; overflow-x: auto; overflow-y: hidden; padding-bottom: 4px; -webkit-overflow-scrolling: touch; scrollbar-width: thin; min-width: 0; }
+        .today-chips::-webkit-scrollbar { height: 4px; }
+        .today-chips::-webkit-scrollbar-thumb { background: var(--card-border); border-radius: 2px; }
+        .today-chip { padding: 5px 9px; border-radius: 8px; background: var(--secondary-background-color); border: 1px solid var(--card-border); font-size: clamp(10px, 2.8vw, 12px); color: var(--primary-text-color); white-space: nowrap; flex-shrink: 0; }
         .forecast-panel-card, .radar-panel-card, .moon-panel-card, .sun-panel-card { min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
-        .dashboard-bento .windy-map-container { flex: 1; min-height: 220px; max-height: min(50vh, 440px); aspect-ratio: 16 / 10; max-width: 100%; }
-        .dashboard-bento .chart-container { min-height: 220px; flex: 1; max-height: min(50vh, 440px); }
+        .dashboard-bento .dash-forecast.forecast-panel-card { min-height: 260px; }
+        .dashboard-bento .radar-body { flex: 1 0 auto; width: 100%; min-width: 0; height: 320px; min-height: 320px; display: flex; flex-direction: column; }
+        .dashboard-bento .radar-body .radar-view.active { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+        .dashboard-bento .dash-radar .windy-map-container { flex: 1; min-height: 0; height: 100%; aspect-ratio: unset; max-height: none; max-width: 100%; }
+        .dashboard-bento .dash-radar .chart-container { flex: 1; min-height: 0; height: 100%; max-height: none; }
         .card { min-width: 0; min-height: 0; padding: clamp(12px, 2vw, 20px); display: flex; flex-direction: column; overflow: hidden; }
         .card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: clamp(8px, 1vw, 12px); margin-bottom: clamp(12px, 1.5vw, 16px); }
         .card-title { font-size: clamp(12px, 1.5vw, 14px); font-weight: 700; letter-spacing: -0.01em; }
@@ -997,6 +1002,8 @@ class HomeWeatherPanel extends HTMLElement {
         .forecast-strip { flex: 1; min-height: 0; display: flex; flex-direction: row; flex-wrap: nowrap; gap: clamp(6px, 1vw, 10px); overflow-x: auto; overflow-y: hidden; padding-bottom: 6px; -webkit-overflow-scrolling: touch; scrollbar-width: thin; min-width: 0; align-items: stretch; }
         .forecast-strip::-webkit-scrollbar { height: 4px; }
         .forecast-strip::-webkit-scrollbar-thumb { background: var(--card-border); border-radius: 2px; }
+        .forecast-7day-wrap .forecast-strip { display: grid; grid-template-columns: repeat(var(--forecast-cols, 7), minmax(0, 1fr)); overflow-x: visible; width: 100%; }
+        .forecast-7day-wrap .forecast-card { width: 100%; min-width: 0; max-width: none; max-height: 176px; flex: unset; padding: 8px 6px; }
         .forecast-card { background: var(--card-background-color); border: 1px solid var(--card-border); border-radius: var(--radius-md); padding: 6px 5px; display: flex; flex-direction: column; align-items: center; justify-content: space-between; min-height: 0; max-height: 132px; text-align: center; min-width: 72px; max-width: 96px; width: clamp(72px, 12vw, 92px); flex: 0 0 auto; box-sizing: border-box; }
         .forecast-card.active { background: var(--panel-accent-dim); border-color: rgba(3, 169, 244, 0.35); }
         .forecast-card .day { font-size: clamp(10px, 1vw, 12px); color: var(--text); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
@@ -1040,8 +1047,12 @@ class HomeWeatherPanel extends HTMLElement {
         .sun-panel-card .sun-stat { justify-content: space-between; width: 100%; white-space: normal; flex-wrap: wrap; gap: 4px 12px; }
         .sun-panel-card.moon-card-fill { align-items: stretch; text-align: left; }
         .sun-panel-card.moon-card-fill .sun-attribution { margin-top: auto; align-self: flex-start; }
-        .forecast-7day-wrap, .forecast-24h-wrap { display: none; flex: 1; min-height: 0; flex-direction: column; }
+        .forecast-7day-wrap, .forecast-24h-wrap { display: none; flex: 1; min-height: 170px; flex-direction: column; }
         .forecast-7day-wrap.active, .forecast-24h-wrap.active { display: flex; }
+        @media (max-width: 600px) {
+          .forecast-7day-wrap .forecast-strip { display: flex; overflow-x: auto; grid-template-columns: unset; }
+          .forecast-7day-wrap .forecast-card { flex: 0 0 auto; width: clamp(72px, 22vw, 92px); max-width: 96px; max-height: 148px; padding: 6px 5px; }
+        }
         .footer-note { position: absolute; right: 22px; bottom: 18px; max-width: calc(100% - 44px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--disabled-text-color); font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; pointer-events: none; }
         @media (min-width: 1181px) { .hud-wrapper { min-height: 100vh; } }
         @media (max-width: 900px) { .content-area { padding: clamp(10px, 2vw, 14px); } }
@@ -1822,6 +1833,7 @@ class HomeWeatherPanel extends HTMLElement {
                 <button type="button" class="${this._radarView === "chart" ? "active" : ""}" data-radar-view="chart">Chart</button>
               </div>
             </div>
+            <div class="radar-body">
             <div class="radar-view ${this._radarView === "map" ? "active" : ""}" data-radar-view="map">
               <div class="windy-map-container">
                 <iframe src="${windyUrl}" frameborder="0" title="Windy weather map" width="100%" height="100%" loading="lazy"></iframe>
@@ -1829,6 +1841,7 @@ class HomeWeatherPanel extends HTMLElement {
             </div>
             <div class="radar-view ${this._radarView === "chart" ? "active" : ""}" data-radar-view="chart">
               <div class="chart-container" id="apex-chart-combined"></div>
+            </div>
             </div>
           </article>
 
@@ -1844,7 +1857,7 @@ class HomeWeatherPanel extends HTMLElement {
               </div>
             </div>
             <div class="forecast-7day-wrap ${this._forecastView === "7day" ? "active" : ""}" data-forecast-view="7day">
-              <div class="forecast-strip">
+              <div class="forecast-strip" style="--forecast-cols: ${Math.max(1, daily.length)}">
                 ${daily.map((d, i) => {
                 const dHi = d.temperature != null ? Math.round(d.temperature) : "—";
                 const dLo = d.templow != null ? Math.round(d.templow) : "—";
