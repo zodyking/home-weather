@@ -13,7 +13,6 @@ class HomeWeatherPanel extends HTMLElement {
     this._forecastView = "7day";
     this._radarView = "map";
     this._moonCardView = "moon";
-    this._dashboardTab = "today";
     this._useFahrenheit = true;
     this._weatherData = null;
     this._settings = {};
@@ -926,43 +925,25 @@ class HomeWeatherPanel extends HTMLElement {
         .gear::before { content: ""; position: absolute; inset: 5px; border: 2px solid var(--text); border-radius: 50%; }
         .dashboard { display: flex; flex-direction: column; gap: clamp(10px, 1.5vw, 14px); min-width: 0; min-height: 0; flex: 1; }
         .dashboard-message { padding: 48px; text-align: center; }
-        .dashboard-tabs {
-          display: flex;
-          flex-wrap: nowrap;
-          gap: 4px;
-          padding: 4px;
-          overflow-x: auto;
-          -webkit-overflow-scrolling: touch;
-          scrollbar-width: thin;
-          background: var(--secondary-background-color);
-          border: 1px solid var(--card-border);
-          border-radius: 999px;
-          width: 100%;
-          max-width: 100%;
-          box-sizing: border-box;
+        .dashboard-bento {
+          display: grid;
+          grid-template-columns: 1fr;
+          gap: clamp(10px, 1.5vw, 14px);
+          min-width: 0;
+          align-items: stretch;
         }
-        .dashboard-tabs::-webkit-scrollbar { height: 4px; }
-        .dashboard-tabs::-webkit-scrollbar-thumb { background: var(--card-border); border-radius: 2px; }
-        .dashboard-tab {
-          flex: 0 0 auto;
-          min-height: 44px;
-          padding: 0 16px;
-          border: none;
-          border-radius: 999px;
-          background: transparent;
-          color: var(--secondary-text-color);
-          font-size: 13px;
-          font-weight: 500;
-          font-family: inherit;
-          cursor: pointer;
-          white-space: nowrap;
-          transition: background 0.16s ease, color 0.16s ease;
+        .dashboard-bento > * { min-width: 0; }
+        @media (min-width: 960px) {
+          .dashboard-bento {
+            grid-template-columns: 1fr 1fr;
+            grid-template-rows: auto auto;
+          }
+          .dash-today { grid-column: 1; grid-row: 1; }
+          .dash-radar { grid-column: 2; grid-row: 1; }
+          .dash-forecast { grid-column: 1; grid-row: 2; }
+          .dash-sky { grid-column: 2; grid-row: 2; }
         }
-        .dashboard-tab:hover { color: var(--primary-text-color); }
-        .dashboard-tab.active { background: var(--panel-accent); color: #ffffff; }
-        .dashboard-panel { display: none; flex: 1; min-height: 0; min-width: 0; flex-direction: column; }
-        .dashboard-panel.active { display: flex; }
-        .today-card { flex: 1; min-height: 0; }
+        .today-card { min-height: 0; }
         .today-grid {
           display: grid;
           grid-template-columns: 1fr;
@@ -1002,9 +983,9 @@ class HomeWeatherPanel extends HTMLElement {
         .today-stat-icon img { width: 22px; height: 22px; object-fit: contain; opacity: 0.9; }
         .today-stat-label { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--secondary-text-color); }
         .today-stat-value { font-size: clamp(16px, 3.5vw, 20px); font-weight: 600; font-variant-numeric: tabular-nums; color: var(--primary-text-color); }
-        .forecast-panel-card, .radar-panel-card, .sky-panel-card { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
-        .dashboard-panel .windy-map-container { flex: 1; min-height: 280px; max-height: min(70vh, 560px); aspect-ratio: 16 / 10; max-width: 100%; }
-        .dashboard-panel .chart-container { min-height: 280px; flex: 1; }
+        .forecast-panel-card, .radar-panel-card, .sky-panel-card { min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+        .dashboard-bento .windy-map-container { flex: 1; min-height: 240px; max-height: min(55vh, 480px); aspect-ratio: 16 / 10; max-width: 100%; }
+        .dashboard-bento .chart-container { min-height: 240px; flex: 1; max-height: min(55vh, 480px); }
         .card { min-width: 0; min-height: 0; padding: clamp(12px, 2vw, 20px); display: flex; flex-direction: column; overflow: hidden; }
         .card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: clamp(8px, 1vw, 12px); margin-bottom: clamp(12px, 1.5vw, 16px); }
         .card-title { font-size: clamp(12px, 1.5vw, 14px); font-weight: 700; letter-spacing: -0.01em; }
@@ -1395,14 +1376,8 @@ class HomeWeatherPanel extends HTMLElement {
     if (this._currentView === "settings") {
       this._attachSettingsHandlers();
     } else if (this._currentView === "forecast") {
-      if (this._dashboardTab === "radar" && this._radarView === "chart") this._initApexChart();
-      s.querySelectorAll("[data-dashboard-tab]").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          this._dashboardTab = btn.dataset.dashboardTab || "today";
-          this._render();
-        });
-      });
-      s.querySelectorAll(".dashboard-panel .switcher button, .forecast-tab").forEach((btn) => {
+      if (this._radarView === "chart") this._initApexChart();
+      s.querySelectorAll(".dashboard .switcher button, .forecast-tab").forEach((btn) => {
         btn.addEventListener("click", () => {
           if (btn.dataset.radarView) {
             this._radarView = btn.dataset.radarView || "map";
@@ -1423,7 +1398,7 @@ class HomeWeatherPanel extends HTMLElement {
     s.querySelectorAll(".radar-view").forEach((el) => el.classList.toggle("active", el.dataset.radarView === this._radarView));
     s.querySelectorAll(".moon-pane-wrap, .sun-pane-wrap").forEach((el) => el.classList.toggle("active", el.dataset.moonView === this._moonCardView));
     s.querySelectorAll(".forecast-7day-wrap, .forecast-24h-wrap").forEach((el) => el.classList.toggle("active", el.dataset.forecastView === this._forecastView));
-    s.querySelectorAll(".dashboard-panel .switcher button").forEach((btn) => {
+    s.querySelectorAll(".dashboard .switcher button").forEach((btn) => {
       const active = (btn.dataset.radarView && btn.dataset.radarView === this._radarView) ||
         (btn.dataset.moonView && btn.dataset.moonView === this._moonCardView) ||
         (btn.dataset.view && btn.dataset.view === this._forecastView);
@@ -1433,7 +1408,7 @@ class HomeWeatherPanel extends HTMLElement {
     const subEl = s.getElementById("moon-card-sub");
     if (titleEl) titleEl.textContent = this._moonCardView === "sun" ? "Sun Details" : "Moon Phase";
     if (subEl) subEl.textContent = this._moonCardView === "sun" ? "Solar times at your location" : "Lunar cycle at your location";
-    if (this._dashboardTab === "radar" && this._radarView === "chart") this._initApexChart();
+    if (this._radarView === "chart") this._initApexChart();
   }
 
   _attachSettingsHandlers() {
@@ -1849,15 +1824,8 @@ class HomeWeatherPanel extends HTMLElement {
     }).join("");
     return `
       <section class="dashboard">
-        <nav class="dashboard-tabs" role="tablist" aria-label="Weather views">
-          <button type="button" role="tab" class="dashboard-tab ${this._dashboardTab === "today" ? "active" : ""}" aria-selected="${this._dashboardTab === "today"}" data-dashboard-tab="today">Today</button>
-          <button type="button" role="tab" class="dashboard-tab ${this._dashboardTab === "forecast" ? "active" : ""}" aria-selected="${this._dashboardTab === "forecast"}" data-dashboard-tab="forecast">Forecast</button>
-          <button type="button" role="tab" class="dashboard-tab ${this._dashboardTab === "radar" ? "active" : ""}" aria-selected="${this._dashboardTab === "radar"}" data-dashboard-tab="radar">Radar</button>
-          <button type="button" role="tab" class="dashboard-tab ${this._dashboardTab === "sky" ? "active" : ""}" aria-selected="${this._dashboardTab === "sky"}" data-dashboard-tab="sky">Sky</button>
-        </nav>
-
-        <div class="dashboard-panel ${this._dashboardTab === "today" ? "active" : ""}" data-dashboard-panel="today">
-          <article class="glass card today-card">
+        <div class="dashboard-bento">
+          <article class="glass card today-card dash-today">
             <div class="card-head">
               <div>
                 <div class="card-title">Current conditions</div>
@@ -1880,10 +1848,8 @@ class HomeWeatherPanel extends HTMLElement {
               <div class="today-stats">${statsTiles}</div>
             </div>
           </article>
-        </div>
 
-        <div class="dashboard-panel ${this._dashboardTab === "forecast" ? "active" : ""}" data-dashboard-panel="forecast">
-          <article class="glass card forecast forecast-panel-card">
+          <article class="glass card forecast forecast-panel-card dash-forecast">
             <div class="forecast-top">
               <div>
                 <div class="card-title">Forecast</div>
@@ -1937,10 +1903,8 @@ class HomeWeatherPanel extends HTMLElement {
               </div>
             </div>
           </article>
-        </div>
 
-        <div class="dashboard-panel ${this._dashboardTab === "radar" ? "active" : ""}" data-dashboard-panel="radar">
-          <article class="glass card radar-panel-card">
+          <article class="glass card radar-panel-card dash-radar">
             <div class="card-head">
               <div>
                 <div class="card-title">Radar</div>
@@ -1960,10 +1924,8 @@ class HomeWeatherPanel extends HTMLElement {
               <div class="chart-container" id="apex-chart-combined"></div>
             </div>
           </article>
-        </div>
 
-        <div class="dashboard-panel ${this._dashboardTab === "sky" ? "active" : ""}" data-dashboard-panel="sky">
-          <article class="glass card moon-card-fill sky-panel-card">
+          <article class="glass card moon-card-fill sky-panel-card dash-sky">
             <div class="card-head">
               <div>
                 <div class="card-title" id="moon-card-title">${this._moonCardView === "sun" ? "Sun" : "Moon"}</div>
