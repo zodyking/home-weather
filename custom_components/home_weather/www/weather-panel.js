@@ -730,6 +730,15 @@ class HomeWeatherPanel extends HTMLElement {
   _getHomeCoordinates() {
     const h = this._hass;
     if (!h) return { lat: 40.441, lon: -73.938 };
+
+    const weatherEntity = this._settings?.weather_entity ?? this._config?.weather_entity;
+    const weatherState = weatherEntity ? h.states?.[weatherEntity] : null;
+    const wLat = weatherState?.attributes?.latitude;
+    const wLon = weatherState?.attributes?.longitude;
+    if (wLat != null && wLon != null && Number.isFinite(Number(wLat)) && Number.isFinite(Number(wLon))) {
+      return { lat: Number(wLat), lon: Number(wLon) };
+    }
+
     const lat = h.config?.latitude ?? h.states?.["zone.home"]?.attributes?.latitude ?? 40.441;
     const lon = h.config?.longitude ?? h.states?.["zone.home"]?.attributes?.longitude ?? -73.938;
     return { lat, lon };
