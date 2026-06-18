@@ -41,21 +41,32 @@ from .tts_notifications import (
 _LOGGER = logging.getLogger(__name__)
 
 
+_TTS_TRIGGER_FLAGS: tuple[str, ...] = (
+    "enable_time_based",
+    "enable_current_change",
+    "enable_upcoming_change",
+    "enable_sensor_triggered",
+    "enable_webhook",
+    "enable_voice_satellite",
+)
+
+
 def _is_tts_active(tts_config: dict[str, Any]) -> bool:
-    """Return True when TTS triggers should be registered."""
+    """Return True when any TTS-related trigger should be registered."""
     if tts_config.get("enabled", False):
         return True
-    return any(
-        tts_config.get(flag, False)
-        for flag in (
-            "enable_time_based",
-            "enable_current_change",
-            "enable_upcoming_change",
-            "enable_sensor_triggered",
-            "enable_webhook",
-            "enable_voice_satellite",
-        )
-    )
+    return any(tts_config.get(flag, False) for flag in _TTS_TRIGGER_FLAGS)
+
+
+def _is_alerts_active(config: dict[str, Any]) -> bool:
+    """Return True when any alert subsystem (TTS or otherwise) is enabled."""
+    if _is_tts_active(config.get("tts") or {}):
+        return True
+    if (config.get("sun_alerts") or {}).get("enabled", False):
+        return True
+    if (config.get("nws_alerts") or {}).get("enabled", False):
+        return True
+    return False
 
 
 def extract_weather_condition(state: Any) -> str:
@@ -152,49 +163,45 @@ class TTSTriggerManager:
         self._nws_known_alert_ids: set[str] = set()  # Track NWS alert IDs to detect new alerts
 
     async def async_setup(self) -> None:
-        """Set up all enabled triggers based on config."""
+        """Set up all enabled triggers based on config.
+
+        Each trigger is wrapped in its own try/except so a single failing
+        trigger never prevents the rest from registering.
+        """
         config = self._get_config()
-        tts_config = config.get("tts", {})
-        
-        if not _is_tts_active(tts_config):
-            _LOGGER.debug("TTS triggers are disabled, skipping trigger setup")
+        tts_config = config.get("tts") or {}
+
+        if not _is_alerts_active(config):
+            _LOGGER.debug("No alerts enabled, skipping trigger setup")
             return
-        
-        # Time-based triggers
+
+        setups: list[tuple[str, Any]] = []
         if tts_config.get("enable_time_based", False):
-            await self._setup_time_based_trigger(tts_config)
-        
-        # Current weather change trigger
+            setups.append(("time_based", self._setup_time_based_trigger(tts_config)))
         if tts_config.get("enable_current_change", False):
-            await self._setup_current_change_trigger(config)
-        
-        # Upcoming change trigger (check every 5 minutes)
+            setups.append(("current_change", self._setup_current_change_trigger(config)))
         if tts_config.get("enable_upcoming_change", False):
-            await self._setup_upcoming_change_trigger(tts_config)
-        
-        # Sensor triggered
+            setups.append(("upcoming_change", self._setup_upcoming_change_trigger(tts_config)))
         if tts_config.get("enable_sensor_triggered", False):
-            await self._setup_sensor_triggers(tts_config)
-        
-        # Webhook trigger
+            setups.append(("sensor_triggered", self._setup_sensor_triggers(tts_config)))
         if tts_config.get("enable_webhook", False):
-            await self._setup_webhook_trigger(tts_config)
-        
-        # Voice satellite trigger
+            setups.append(("webhook", self._setup_webhook_trigger(tts_config)))
         if tts_config.get("enable_voice_satellite", False):
-            await self._setup_voice_satellite_trigger(tts_config)
-        
-        # Sun alerts (sunrise/sunset TTS and automation)
-        sun_alerts = config.get("sun_alerts", {})
-        if sun_alerts.get("enabled", False):
-            await self._setup_sun_alerts_trigger(config)
-        
-        # NWS weather alerts (sound + TTS when new alert appears)
-        nws_alerts = config.get("nws_alerts", {})
-        if nws_alerts.get("enabled", False):
-            await self._setup_nws_alerts_trigger(config)
-        
-        _LOGGER.info("TTS triggers set up successfully")
+            setups.append(("voice_satellite", self._setup_voice_satellite_trigger(tts_config)))
+        if (config.get("sun_alerts") or {}).get("enabled", False):
+            setups.append(("sun_alerts", self._setup_sun_alerts_trigger(config)))
+        if (config.get("nws_alerts") or {}).get("enabled", False):
+            setups.append(("nws_alerts", self._setup_nws_alerts_trigger(config)))
+
+        successful: list[str] = []
+        for name, coro in setups:
+            try:
+                await coro
+                successful.append(name)
+            except Exception as err:
+                _LOGGER.exception("Failed to set up %s trigger: %s", name, err)
+
+        _LOGGER.info("Home Weather triggers registered: %s", successful or "none")
 
     async def async_unload(self) -> None:
         """Unload all triggers."""
@@ -365,6 +372,112 @@ class TTSTriggerManager:
             new_condition,
             refresh_weather=False,
         )
+
+    async def fire_test_upcoming_change(self) -> None:
+        """Play a sample upcoming-precipitation alert."""
+        config = self._get_config()
+        tts_config = config.get("tts") or {}
+        media_players = media_players_with_tts(config.get("media_players", []))
+        if not media_players:
+            _LOGGER.warning("No media players with TTS configured for upcoming-change test")
+            return
+
+        weather_data = await self._resolve_weather_data(refresh=False)
+        hourly = (weather_data or {}).get("hourly_forecast") or []
+        threshold = int(tts_config.get("precip_threshold", 30))
+        minutes_until = 30
+        precip_kind = "rain"
+        probability = max(threshold, 60)
+
+        now = dt_util.now()
+        for h in hourly:
+            try:
+                h_time_val = h.get("datetime")
+                if isinstance(h_time_val, str):
+                    h_time = dt_util.parse_datetime(h_time_val.replace("Z", "+00:00"))
+                else:
+                    h_time = h_time_val
+                if h_time and h_time.tzinfo is None:
+                    h_time = dt_util.as_local(h_time)
+                if not h_time or h_time <= now:
+                    continue
+                prob = int(h.get("precipitation_probability", 0) or 0)
+                if prob <= 0:
+                    continue
+                minutes_until = max(1, int((h_time - now).total_seconds() / 60))
+                probability = prob
+                precip_kind = h.get("precipitation_kind") or h.get("condition") or precip_kind
+                break
+            except Exception:
+                continue
+
+        message = build_upcoming_change_message(precip_kind, minutes_until, probability)
+        await send_tts_with_ai_rewrite(self.hass, media_players, tts_config, message)
+        _LOGGER.info("Test upcoming-change TTS dispatched")
+
+    async def fire_test_sensor_triggered(self) -> None:
+        """Trigger a sensor forecast on the first configured sensor target."""
+        config = self._get_config()
+        sensor_triggers = (config.get("tts") or {}).get("sensor_triggers") or []
+        target = ""
+        for trig in sensor_triggers:
+            if trig.get("entity_id"):
+                target = trig.get("media_player", "") or ""
+                break
+        await self._fire_scheduled_forecast(target_media_player=target, refresh_weather=False)
+
+    async def fire_test_webhook(self) -> None:
+        """Trigger the first configured webhook forecast (or all if none)."""
+        config = self._get_config()
+        webhooks = (config.get("tts") or {}).get("webhooks") or []
+        name = ""
+        target = ""
+        for wh in webhooks:
+            if wh.get("enabled", True) and wh.get("webhook_id"):
+                name = wh.get("personal_name") or ""
+                target = wh.get("media_player") or ""
+                break
+        await self._fire_webhook_forecast(name, None, target_media_player=target)
+
+    async def fire_test_sunrise(self) -> None:
+        """Speak the sunrise upcoming announcement on all media players."""
+        config = self._get_config()
+        media_players = media_players_with_tts(config.get("media_players", []))
+        if not media_players:
+            _LOGGER.warning("No media players with TTS configured for sunrise test")
+            return
+        mins = int(((config.get("sun_alerts") or {}).get("sunrise_tts") or {}).get("minutes_before", 15))
+        msg = build_sunrise_upcoming_message(mins)
+        await send_tts(self.hass, media_players, msg)
+        _LOGGER.info("Test sunrise TTS dispatched")
+
+    async def fire_test_sunset(self) -> None:
+        """Speak the sunset upcoming announcement on all media players."""
+        config = self._get_config()
+        media_players = media_players_with_tts(config.get("media_players", []))
+        if not media_players:
+            _LOGGER.warning("No media players with TTS configured for sunset test")
+            return
+        mins = int(((config.get("sun_alerts") or {}).get("sunset_tts") or {}).get("minutes_before", 15))
+        msg = build_sunset_upcoming_message(mins)
+        await send_tts(self.hass, media_players, msg)
+        _LOGGER.info("Test sunset TTS dispatched")
+
+    async def fire_test_nws_alert(self) -> None:
+        """Play the configured NWS siren/TTS using a fake alert payload."""
+        config = self._get_config()
+        media_players = media_players_with_tts(config.get("media_players", []))
+        if not media_players:
+            _LOGGER.warning("No media players with TTS configured for NWS test")
+            return
+        sample = {
+            "event": "Test Alert",
+            "description": (
+                "This is a Home Weather test alert. No active warnings are in effect."
+            ),
+        }
+        await play_nws_alert_notification(self.hass, config, sample, media_players)
+        _LOGGER.info("Test NWS alert dispatched")
 
     async def _setup_upcoming_change_trigger(self, tts_config: dict[str, Any]) -> None:
         """Set up trigger for upcoming precipitation alerts.
@@ -551,28 +664,70 @@ class TTSTriggerManager:
 
     async def _setup_voice_satellite_trigger(self, tts_config: dict[str, Any]) -> None:
         """Set up voice satellite (conversation) triggers.
-        
-        Registers conversation commands for weather queries.
+
+        Registers an intent handler ``HomeWeatherForecast`` and adds the user
+        configured phrases as ``conversation`` sentence triggers. Falls back to
+        registering only the intent handler if sentence registration is not
+        supported on the running Home Assistant version.
         """
         commands_text = tts_config.get("conversation_commands", "")
         commands = [c.strip() for c in commands_text.split("\n") if c.strip()]
-        
         if not commands:
+            _LOGGER.debug("Voice satellite enabled but no commands configured")
             return
-        
+
         try:
-            # Register conversation intent
             from homeassistant.helpers import intent
-            
-            for cmd in commands:
-                # Create a simple pattern matcher for each command
-                _LOGGER.debug("Registering voice command: %s", cmd)
-            
-            # Note: Full conversation agent integration requires more complex setup
-            # For now, we log the intended commands
-            _LOGGER.info("Voice satellite commands configured: %s", commands)
-        except Exception as e:
-            _LOGGER.warning("Voice satellite setup not fully supported: %s", e)
+        except Exception as err:
+            _LOGGER.warning("Voice satellite unavailable (intent helper missing): %s", err)
+            return
+
+        manager = self
+
+        class _ForecastIntentHandler(intent.IntentHandler):
+            intent_type = "HomeWeatherForecast"
+            description = "Speak the Home Weather forecast on configured media players."
+
+            async def async_handle(self, intent_obj):
+                manager.hass.async_create_task(
+                    manager._fire_scheduled_forecast(refresh_weather=True)
+                )
+                response = intent_obj.create_response()
+                response.async_set_speech("Here is your weather forecast.")
+                return response
+
+        try:
+            intent.async_register(self.hass, _ForecastIntentHandler())
+            _LOGGER.info("Registered HomeWeatherForecast intent")
+        except Exception as err:
+            _LOGGER.warning("Could not register HomeWeatherForecast intent: %s", err)
+            return
+
+        # Register sentences with the conversation component when available so
+        # the configured phrases route to our intent without YAML.
+        try:
+            from homeassistant.components import conversation
+
+            register_trigger = getattr(conversation, "async_register_trigger", None)
+            if register_trigger is None:
+                _LOGGER.debug(
+                    "conversation.async_register_trigger missing; relying on intent slot"
+                )
+            else:
+                @callback
+                def _on_match(_sentence: str, _result: Any) -> None:
+                    self.hass.async_create_task(
+                        self._fire_scheduled_forecast(refresh_weather=True)
+                    )
+
+                unsub = register_trigger(self.hass, commands, _on_match)
+                if callable(unsub):
+                    self._unsub_callbacks.append(unsub)
+                _LOGGER.info("Voice satellite phrases registered: %s", commands)
+        except Exception as err:
+            _LOGGER.debug(
+                "Voice satellite sentence registration not available: %s", err
+            )
 
     async def _setup_sun_alerts_trigger(self, config: dict[str, Any]) -> None:
         """Set up sunrise/sunset TTS and automation triggers.

@@ -388,6 +388,74 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
             _LOGGER.error("Test current change failed: %s", e)
             connection.send_error(msg["id"], "current_change_failed", str(e))
 
+    def _make_alert_test_handler(method_name: str, error_code: str, require_weather: bool = True):
+        """Create a uniform WS handler that runs a named test method on the trigger manager."""
+
+        @websocket_api.async_response
+        async def _handler(
+            hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+        ) -> None:
+            entry_data = _get_entry_data(hass)
+            if not entry_data:
+                connection.send_error(msg["id"], "not_loaded", "Integration not loaded")
+                return
+            storage = entry_data.get("storage")
+            trigger_manager = entry_data.get("trigger_manager")
+            if not storage or not trigger_manager:
+                connection.send_error(msg["id"], "unavailable", "Trigger manager not available")
+                return
+            config = await storage.async_get()
+            media_players = _media_players_with_tts(config.get("media_players", []))
+            if not media_players:
+                connection.send_error(
+                    msg["id"], "no_media_players",
+                    "No media players with a TTS entity configured",
+                )
+                return
+            if require_weather and not config.get("weather_entity"):
+                connection.send_error(msg["id"], "not_configured", "Weather not configured")
+                return
+            method = getattr(trigger_manager, method_name, None)
+            if not callable(method):
+                connection.send_error(msg["id"], "method_missing", method_name)
+                return
+
+            async def _run() -> None:
+                try:
+                    await method()
+                except Exception as err:
+                    _LOGGER.error("%s background task failed: %s", method_name, err, exc_info=True)
+
+            hass.async_create_task(_run())
+            connection.send_result(msg["id"], {"success": True, "status": "started"})
+
+        _handler.__name__ = f"handle_{method_name}"
+        return _handler
+
+    handle_test_upcoming_change = websocket_api.websocket_command(
+        {"type": "home_weather/test_upcoming_change"}
+    )(_make_alert_test_handler("fire_test_upcoming_change", "upcoming_change_failed"))
+
+    handle_test_sensor_triggered = websocket_api.websocket_command(
+        {"type": "home_weather/test_sensor_triggered"}
+    )(_make_alert_test_handler("fire_test_sensor_triggered", "sensor_test_failed"))
+
+    handle_test_webhook = websocket_api.websocket_command(
+        {"type": "home_weather/test_webhook"}
+    )(_make_alert_test_handler("fire_test_webhook", "webhook_test_failed"))
+
+    handle_test_sunrise = websocket_api.websocket_command(
+        {"type": "home_weather/test_sunrise"}
+    )(_make_alert_test_handler("fire_test_sunrise", "sunrise_test_failed", require_weather=False))
+
+    handle_test_sunset = websocket_api.websocket_command(
+        {"type": "home_weather/test_sunset"}
+    )(_make_alert_test_handler("fire_test_sunset", "sunset_test_failed", require_weather=False))
+
+    handle_test_nws_alert = websocket_api.websocket_command(
+        {"type": "home_weather/test_nws_alert"}
+    )(_make_alert_test_handler("fire_test_nws_alert", "nws_test_failed", require_weather=False))
+
     @websocket_api.websocket_command(
         {
             "type": "home_weather/get_automations",
@@ -516,6 +584,12 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, handle_test_tts)
     websocket_api.async_register_command(hass, handle_test_forecast)
     websocket_api.async_register_command(hass, handle_test_current_change)
+    websocket_api.async_register_command(hass, handle_test_upcoming_change)
+    websocket_api.async_register_command(hass, handle_test_sensor_triggered)
+    websocket_api.async_register_command(hass, handle_test_webhook)
+    websocket_api.async_register_command(hass, handle_test_sunrise)
+    websocket_api.async_register_command(hass, handle_test_sunset)
+    websocket_api.async_register_command(hass, handle_test_nws_alert)
     websocket_api.async_register_command(hass, handle_get_automations)
     websocket_api.async_register_command(hass, handle_get_webhook_info)
     websocket_api.async_register_command(hass, handle_get_version)
