@@ -4,6 +4,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from custom_components.home_weather.tts_triggers import (
+    _is_alerts_active,
     _is_tts_active,
     build_weather_data_from_state,
     compute_trigger_hours,
@@ -23,6 +24,28 @@ def test_is_tts_active_sub_toggle_without_master():
 
 def test_is_tts_active_all_off():
     assert _is_tts_active({"enabled": False}) is False
+
+
+def test_is_alerts_active_picks_up_sun_alerts():
+    assert _is_alerts_active({
+        "tts": {"enabled": False},
+        "sun_alerts": {"enabled": True},
+    }) is True
+
+
+def test_is_alerts_active_picks_up_nws_alerts():
+    assert _is_alerts_active({
+        "tts": {"enabled": False},
+        "nws_alerts": {"enabled": True},
+    }) is True
+
+
+def test_is_alerts_active_returns_false_when_nothing_on():
+    assert _is_alerts_active({
+        "tts": {"enabled": False},
+        "sun_alerts": {"enabled": False},
+        "nws_alerts": {"enabled": False},
+    }) is False
 
 
 def test_compute_trigger_hours_anchors_to_start():
