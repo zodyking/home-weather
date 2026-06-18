@@ -70,6 +70,9 @@ def extract_weather_condition(state: Any) -> str:
 
 def compute_trigger_hours(start_h: int, end_h: int, hour_pattern: int) -> list[int]:
     """Compute clock hours for time-based forecasts anchored to start_h."""
+    hour_pattern = int(hour_pattern)
+    start_h = int(start_h)
+    end_h = int(end_h)
     if hour_pattern <= 0 or start_h > end_h:
         return []
     hours: list[int] = []
@@ -214,11 +217,13 @@ class TTSTriggerManager:
         
         _LOGGER.info("TTS triggers unloaded")
 
-    async def _resolve_weather_data(self) -> dict[str, Any]:
+    async def _resolve_weather_data(self, *, refresh: bool = True) -> dict[str, Any]:
         """Refresh and return the best available weather data for TTS."""
-        if self._refresh_weather_data:
+        if refresh and self._refresh_weather_data:
             try:
-                await self._refresh_weather_data()
+                await asyncio.wait_for(self._refresh_weather_data(), timeout=15.0)
+            except asyncio.TimeoutError:
+                _LOGGER.warning("Weather refresh timed out before TTS, using cached data")
             except Exception as err:
                 _LOGGER.warning("Weather refresh failed before TTS: %s", err)
 
@@ -242,8 +247,8 @@ class TTSTriggerManager:
         Triggers at regular intervals (hour_pattern) with minute offset,
         filtered by start/end time and days of week.
         """
-        hour_pattern = tts_config.get("hour_pattern", 3)
-        minute_offset = tts_config.get("minute_offset", 3)
+        hour_pattern = int(tts_config.get("hour_pattern", 3))
+        minute_offset = int(tts_config.get("minute_offset", 3))
         start_time = tts_config.get("start_time", "08:00")
         end_time = tts_config.get("end_time", "21:00")
         days_of_week = tts_config.get("days_of_week", [])
@@ -348,14 +353,18 @@ class TTSTriggerManager:
 
     async def fire_test_scheduled_forecast(self) -> None:
         """Play a scheduled forecast on all configured media players."""
-        await self._fire_scheduled_forecast()
+        await self._fire_scheduled_forecast(refresh_weather=False)
 
     async def fire_test_current_change(self) -> None:
         """Play a sample current-change alert on all configured media players."""
-        weather_data = await self._resolve_weather_data()
+        weather_data = await self._resolve_weather_data(refresh=False)
         current = weather_data.get("current") or {}
         new_condition = current.get("condition") or current.get("state") or "changing conditions"
-        await self._fire_current_change("previous conditions", new_condition)
+        await self._fire_current_change(
+            "previous conditions",
+            new_condition,
+            refresh_weather=False,
+        )
 
     async def _setup_upcoming_change_trigger(self, tts_config: dict[str, Any]) -> None:
         """Set up trigger for upcoming precipitation alerts.
@@ -794,15 +803,21 @@ class TTSTriggerManager:
 
         self._nws_known_alert_ids = {x for x in known if x in active_ids}
 
-    async def _fire_scheduled_forecast(self, target_media_player: str = "") -> None:
+    async def _fire_scheduled_forecast(
+        self,
+        target_media_player: str = "",
+        *,
+        refresh_weather: bool = True,
+    ) -> None:
         """Fire a scheduled forecast TTS.
         
         Args:
             target_media_player: If specified, only send to this media player.
                                If empty, send to all configured media players.
+            refresh_weather: Whether to refresh coordinator data before building message.
         """
         config = self._get_config()
-        weather_data = await self._resolve_weather_data()
+        weather_data = await self._resolve_weather_data(refresh=refresh_weather)
         tts_config = config.get("tts", {})
         media_players = media_players_with_tts(config.get("media_players", []))
 
@@ -835,10 +850,16 @@ class TTSTriggerManager:
         )
         _LOGGER.info("Scheduled forecast TTS sent to %s", target_media_player or "all players")
 
-    async def _fire_current_change(self, old_condition: str, new_condition: str) -> None:
+    async def _fire_current_change(
+        self,
+        old_condition: str,
+        new_condition: str,
+        *,
+        refresh_weather: bool = True,
+    ) -> None:
         """Fire a current change alert TTS."""
         config = self._get_config()
-        weather_data = await self._resolve_weather_data()
+        weather_data = await self._resolve_weather_data(refresh=refresh_weather)
         tts_config = config.get("tts", {})
         media_players = media_players_with_tts(config.get("media_players", []))
         volume = None  # Volume controlled per media player

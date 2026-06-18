@@ -57,6 +57,10 @@ def _media_players_with_tts(media_players: list[dict[str, Any]]) -> list[dict[st
 @callback
 def async_setup_websocket_api(hass: HomeAssistant) -> None:
     """Set up WebSocket API handlers."""
+    domain_data = hass.data.setdefault(DOMAIN, {})
+    if domain_data.get("websocket_api_registered"):
+        return
+    domain_data["websocket_api_registered"] = True
 
     @websocket_api.websocket_command(
         {
@@ -246,7 +250,7 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
                     "entity_id": media_player,
                     "volume_level": volume,
                 },
-                blocking=True,
+                blocking=False,
             )
             
             # Build TTS service data - only include non-empty optional fields
@@ -271,7 +275,7 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
                 "speak",
                 service_data,
                 target={"entity_id": tts_entity},
-                blocking=True,
+                blocking=False,
             )
             
             connection.send_result(msg["id"], {"success": True})
@@ -319,8 +323,15 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
                 connection.send_error(msg["id"], "not_configured", "Weather not configured")
                 return
 
-            await trigger_manager.fire_test_scheduled_forecast()
-            connection.send_result(msg["id"], {"success": True})
+            async def _run_test() -> None:
+                try:
+                    await trigger_manager.fire_test_scheduled_forecast()
+                    _LOGGER.info("Test forecast TTS queued successfully")
+                except Exception as err:
+                    _LOGGER.error("Test forecast background task failed: %s", err, exc_info=True)
+
+            hass.async_create_task(_run_test())
+            connection.send_result(msg["id"], {"success": True, "status": "started"})
         except Exception as e:
             _LOGGER.error("Test forecast failed: %s", e)
             connection.send_error(msg["id"], "forecast_failed", str(e))
@@ -364,8 +375,15 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
                 connection.send_error(msg["id"], "not_configured", "Weather not configured")
                 return
 
-            await trigger_manager.fire_test_current_change()
-            connection.send_result(msg["id"], {"success": True})
+            async def _run_test() -> None:
+                try:
+                    await trigger_manager.fire_test_current_change()
+                    _LOGGER.info("Test current-change TTS queued successfully")
+                except Exception as err:
+                    _LOGGER.error("Test current-change background task failed: %s", err, exc_info=True)
+
+            hass.async_create_task(_run_test())
+            connection.send_result(msg["id"], {"success": True, "status": "started"})
         except Exception as e:
             _LOGGER.error("Test current change failed: %s", e)
             connection.send_error(msg["id"], "current_change_failed", str(e))

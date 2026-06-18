@@ -563,7 +563,7 @@ async def send_tts(
                     "media_player",
                     "volume_set",
                     {"entity_id": entity_id, "volume_level": volume},
-                    blocking=True,
+                    blocking=False,
                 )
             except Exception as vol_e:
                 _LOGGER.warning("Failed to set volume on %s: %s", entity_id, vol_e)
@@ -594,7 +594,7 @@ async def send_tts(
                 "speak",
                 service_data,
                 target={"entity_id": tts_entity},
-                blocking=True,
+                blocking=False,
             )
             
             _LOGGER.info("TTS sent successfully to %s", entity_id)
@@ -623,19 +623,22 @@ async def send_tts_with_ai_rewrite(
     
     if use_ai and ai_entity:
         try:
-            result = await hass.services.async_call(
-                "ai_task",
-                "generate_data",
-                {
-                    "entity_id": ai_entity,
-                    "task_type": "text",
-                    "input_data": {
-                        "original_message": message,
-                        "prompt": ai_prompt,
+            result = await asyncio.wait_for(
+                hass.services.async_call(
+                    "ai_task",
+                    "generate_data",
+                    {
+                        "entity_id": ai_entity,
+                        "task_type": "text",
+                        "input_data": {
+                            "original_message": message,
+                            "prompt": ai_prompt,
+                        },
                     },
-                },
-                blocking=True,
-                return_response=True,
+                    blocking=True,
+                    return_response=True,
+                ),
+                timeout=20.0,
             )
             
             if result and isinstance(result, dict):
@@ -643,6 +646,8 @@ async def send_tts_with_ai_rewrite(
                 if rewritten and isinstance(rewritten, str):
                     final_message = rewritten
                     _LOGGER.debug("AI rewrote TTS message")
+        except asyncio.TimeoutError:
+            _LOGGER.warning("AI rewrite timed out, using original message")
         except Exception as e:
             _LOGGER.warning("AI rewrite failed, using original message: %s", e)
     

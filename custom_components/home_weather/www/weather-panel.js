@@ -1636,16 +1636,25 @@ class HomeWeatherPanel extends HTMLElement {
     const testForecastBtn = s.getElementById("test-forecast-btn");
     if (testForecastBtn) {
       testForecastBtn.addEventListener("click", async () => {
-        testForecastBtn.textContent = "Playing...";
+        const originalLabel = testForecastBtn.textContent;
+        testForecastBtn.textContent = "Starting...";
         testForecastBtn.disabled = true;
         try {
           await this._hass.callWS({ type: "home_weather/test_forecast" });
+          testForecastBtn.textContent = "Queued";
         } catch (e) {
           console.error("Test forecast failed:", e);
           alert("Test forecast failed: " + e.message);
+          testForecastBtn.textContent = originalLabel;
         } finally {
-          testForecastBtn.textContent = "Test Forecast";
           testForecastBtn.disabled = false;
+          if (testForecastBtn.textContent === "Queued") {
+            setTimeout(() => {
+              if (testForecastBtn.textContent === "Queued") {
+                testForecastBtn.textContent = originalLabel;
+              }
+            }, 2500);
+          }
         }
       });
     }
@@ -1654,16 +1663,25 @@ class HomeWeatherPanel extends HTMLElement {
     const testCurrentChangeBtn = s.getElementById("test-current-change-btn");
     if (testCurrentChangeBtn) {
       testCurrentChangeBtn.addEventListener("click", async () => {
-        testCurrentChangeBtn.textContent = "Playing...";
+        const originalLabel = testCurrentChangeBtn.textContent;
+        testCurrentChangeBtn.textContent = "Starting...";
         testCurrentChangeBtn.disabled = true;
         try {
           await this._hass.callWS({ type: "home_weather/test_current_change" });
+          testCurrentChangeBtn.textContent = "Queued";
         } catch (e) {
           console.error("Test current change failed:", e);
           alert("Test current change failed: " + e.message);
+          testCurrentChangeBtn.textContent = originalLabel;
         } finally {
-          testCurrentChangeBtn.textContent = "Test Current Change";
           testCurrentChangeBtn.disabled = false;
+          if (testCurrentChangeBtn.textContent === "Queued") {
+            setTimeout(() => {
+              if (testCurrentChangeBtn.textContent === "Queued") {
+                testCurrentChangeBtn.textContent = originalLabel;
+              }
+            }, 2500);
+          }
         }
       });
     }
