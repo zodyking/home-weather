@@ -41,6 +41,45 @@ from .tts_notifications import (
 _LOGGER = logging.getLogger(__name__)
 
 
+def _is_tts_active(tts_config: dict[str, Any]) -> bool:
+    """Return True when TTS triggers should be registered."""
+    if tts_config.get("enabled", False):
+        return True
+    return any(
+        tts_config.get(flag, False)
+        for flag in (
+            "enable_time_based",
+            "enable_current_change",
+            "enable_upcoming_change",
+            "enable_sensor_triggered",
+            "enable_webhook",
+            "enable_voice_satellite",
+        )
+    )
+
+
+def extract_weather_condition(state: Any) -> str:
+    """Read the weather condition from a state object."""
+    if not state:
+        return ""
+    condition = state.attributes.get("condition") if state.attributes else None
+    if condition:
+        return str(condition)
+    return str(state.state or "")
+
+
+def compute_trigger_hours(start_h: int, end_h: int, hour_pattern: int) -> list[int]:
+    """Compute clock hours for time-based forecasts anchored to start_h."""
+    if hour_pattern <= 0 or start_h > end_h:
+        return []
+    hours: list[int] = []
+    hour = start_h
+    while hour <= end_h:
+        hours.append(hour)
+        hour += hour_pattern
+    return hours
+
+
 class TTSTriggerManager:
     """Manage all TTS triggers for the Home Weather integration."""
 
@@ -74,8 +113,8 @@ class TTSTriggerManager:
         config = self._get_config()
         tts_config = config.get("tts", {})
         
-        if not tts_config.get("enabled", False):
-            _LOGGER.debug("TTS is disabled, skipping trigger setup")
+        if not _is_tts_active(tts_config):
+            _LOGGER.debug("TTS triggers are disabled, skipping trigger setup")
             return
         
         # Time-based triggers
@@ -162,8 +201,7 @@ class TTSTriggerManager:
         if not allowed_days:
             allowed_days = set(range(7))  # Default to all days
         
-        # Calculate which hours to trigger (every N hours)
-        trigger_hours = list(range(0, 24, hour_pattern)) if hour_pattern > 0 else []
+        trigger_hours = compute_trigger_hours(start_h, end_h, hour_pattern)
         
         @callback
         def _check_and_fire(now: datetime) -> None:
@@ -204,29 +242,33 @@ class TTSTriggerManager:
             _LOGGER.warning("No weather entity configured for current change trigger")
             return
         
-        # Initialize last condition
         state = self.hass.states.get(weather_entity)
         if state:
-            self._last_condition = state.state
-        
+            self._last_condition = extract_weather_condition(state)
+
         @callback
         def _state_changed(event: Event) -> None:
             """Handle state change events."""
             new_state = event.data.get("new_state")
             old_state = event.data.get("old_state")
-            
+
             if not new_state or not old_state:
                 return
-            
-            old_condition = old_state.state
-            new_condition = new_state.state
-            
-            # Only fire if condition actually changed
-            if old_condition != new_condition and self._last_condition != new_condition:
-                self._last_condition = new_condition
-                self.hass.async_create_task(
-                    self._fire_current_change(old_condition, new_condition)
-                )
+
+            old_condition = extract_weather_condition(old_state)
+            new_condition = extract_weather_condition(new_state)
+
+            if (
+                not new_condition
+                or old_condition == new_condition
+                or self._last_condition == new_condition
+            ):
+                return
+
+            self._last_condition = new_condition
+            self.hass.async_create_task(
+                self._fire_current_change(old_condition, new_condition)
+            )
         
         unsub = async_track_state_change_event(
             self.hass,

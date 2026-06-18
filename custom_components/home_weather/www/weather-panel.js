@@ -1689,6 +1689,24 @@ class HomeWeatherPanel extends HTMLElement {
         }
       });
     }
+
+    // Test Current Change button
+    const testCurrentChangeBtn = s.getElementById("test-current-change-btn");
+    if (testCurrentChangeBtn) {
+      testCurrentChangeBtn.addEventListener("click", async () => {
+        testCurrentChangeBtn.textContent = "Playing...";
+        testCurrentChangeBtn.disabled = true;
+        try {
+          await this._hass.callWS({ type: "home_weather/test_current_change" });
+        } catch (e) {
+          console.error("Test current change failed:", e);
+          alert("Test current change failed: " + e.message);
+        } finally {
+          testCurrentChangeBtn.textContent = "Test Current Change";
+          testCurrentChangeBtn.disabled = false;
+        }
+      });
+    }
     
     // Add media player
     const addMediaBtn = s.getElementById("add-media-btn");
@@ -2412,6 +2430,10 @@ class HomeWeatherPanel extends HTMLElement {
           <!-- Current Change Alerts -->
           ${renderCollapsible("current-change", "Current Change Alerts", "Alert when weather changes", `
             ${renderToggle("enable-current-change", tts.enable_current_change, "Enable Current Change Alerts")}
+            <div class="form-group" style="margin-top: var(--form-gap);">
+              <button type="button" class="test-tts-btn" id="test-current-change-btn">Test Current Change</button>
+              <p class="form-hint">Play a sample current-change alert on all configured media players.</p>
+            </div>
             <p class="form-hint" style="margin-top: 12px;">Volume is controlled per media player.</p>
           `)}
           

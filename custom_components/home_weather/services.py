@@ -10,9 +10,53 @@ from homeassistant.components.webhook import async_generate_url
 from homeassistant.core import HomeAssistant, callback
 
 from .const import DOMAIN, WEBHOOK_LAST_TRIGGERED_KEY
-from .tts_notifications import build_scheduled_forecast, send_tts_with_ai_rewrite
+from .tts_notifications import (
+    build_scheduled_forecast,
+    build_current_change_message,
+    send_tts_with_ai_rewrite,
+)
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _ensure_tts_enabled_for_triggers(config: dict[str, Any]) -> dict[str, Any]:
+    """Auto-enable the master TTS switch when any trigger toggle is on."""
+    tts = dict(config.get("tts") or {})
+    if tts.get("enabled"):
+        return config
+    if any(
+        tts.get(flag, False)
+        for flag in (
+            "enable_time_based",
+            "enable_current_change",
+            "enable_upcoming_change",
+            "enable_sensor_triggered",
+            "enable_webhook",
+            "enable_voice_satellite",
+        )
+    ):
+        tts["enabled"] = True
+        config = {**config, "tts": tts}
+    return config
+
+
+def _get_entry_data(hass: HomeAssistant) -> dict[str, Any] | None:
+    """Return the first loaded integration entry data dict."""
+    if DOMAIN not in hass.data:
+        return None
+    for data in hass.data[DOMAIN].values():
+        if isinstance(data, dict) and data.get("storage"):
+            return data
+    return None
+
+
+def _media_players_with_tts(media_players: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Return media players that have both entity and TTS entity configured."""
+    return [
+        mp
+        for mp in media_players
+        if mp.get("entity_id") and mp.get("tts_entity_id")
+    ]
 
 
 @callback
@@ -77,6 +121,7 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
 
         try:
             config = msg.get("config", {})
+            config = _ensure_tts_enabled_for_triggers(config)
             await storage.async_save(config)
             if coordinator:
                 await coordinator.async_request_refresh()
@@ -253,20 +298,13 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
         Builds a full scheduled forecast message and sends it to all configured
         media players. Useful for testing TTS without waiting for a scheduled trigger.
         """
-        if DOMAIN not in hass.data:
+        entry_data = _get_entry_data(hass)
+        if not entry_data:
             connection.send_error(msg["id"], "not_loaded", "Integration not loaded")
             return
 
-        storage = None
-        coordinator = None
-        if DOMAIN in hass.data:
-            for entry_id, data in hass.data[DOMAIN].items():
-                if isinstance(data, dict):
-                    storage = data.get("storage")
-                    coordinator = data.get("coordinator")
-                    if storage and coordinator:
-                        break
-
+        storage = entry_data.get("storage")
+        coordinator = entry_data.get("coordinator")
         if not storage or not coordinator:
             connection.send_error(msg["id"], "unavailable", "Storage or coordinator not available")
             return
@@ -280,11 +318,15 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
                 connection.send_error(msg["id"], "not_configured", "Weather not configured")
                 return
 
-            media_players = config.get("media_players", [])
+            media_players = _media_players_with_tts(config.get("media_players", []))
             tts_config = config.get("tts", {})
 
             if not media_players:
-                connection.send_error(msg["id"], "no_media_players", "No media players configured")
+                connection.send_error(
+                    msg["id"],
+                    "no_media_players",
+                    "No media players with a TTS entity configured",
+                )
                 return
 
             message = build_scheduled_forecast(weather_data, config)
@@ -293,6 +335,60 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
         except Exception as e:
             _LOGGER.error("Test forecast failed: %s", e)
             connection.send_error(msg["id"], "forecast_failed", str(e))
+
+    @websocket_api.websocket_command(
+        {
+            "type": "home_weather/test_current_change",
+        }
+    )
+    @websocket_api.async_response
+    async def handle_test_current_change(
+        hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+    ) -> None:
+        """Handle test_current_change WebSocket command.
+
+        Plays a sample current-change alert on all configured media players.
+        """
+        entry_data = _get_entry_data(hass)
+        if not entry_data:
+            connection.send_error(msg["id"], "not_loaded", "Integration not loaded")
+            return
+
+        storage = entry_data.get("storage")
+        coordinator = entry_data.get("coordinator")
+        if not storage or not coordinator:
+            connection.send_error(msg["id"], "unavailable", "Storage or coordinator not available")
+            return
+
+        try:
+            config = await storage.async_get()
+            await coordinator.async_request_refresh()
+            weather_data = coordinator.data or {}
+
+            if not weather_data or weather_data.get("configured") is False:
+                connection.send_error(msg["id"], "not_configured", "Weather not configured")
+                return
+
+            media_players = _media_players_with_tts(config.get("media_players", []))
+            tts_config = config.get("tts", {})
+
+            if not media_players:
+                connection.send_error(
+                    msg["id"],
+                    "no_media_players",
+                    "No media players with a TTS entity configured",
+                )
+                return
+
+            current = weather_data.get("current") or {}
+            new_condition = current.get("condition") or current.get("state") or "changing conditions"
+            old_condition = "previous conditions"
+            message = build_current_change_message(old_condition, new_condition, weather_data)
+            await send_tts_with_ai_rewrite(hass, media_players, tts_config, message)
+            connection.send_result(msg["id"], {"success": True})
+        except Exception as e:
+            _LOGGER.error("Test current change failed: %s", e)
+            connection.send_error(msg["id"], "current_change_failed", str(e))
 
     @websocket_api.websocket_command(
         {
@@ -421,6 +517,7 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, handle_get_tts_entities)
     websocket_api.async_register_command(hass, handle_test_tts)
     websocket_api.async_register_command(hass, handle_test_forecast)
+    websocket_api.async_register_command(hass, handle_test_current_change)
     websocket_api.async_register_command(hass, handle_get_automations)
     websocket_api.async_register_command(hass, handle_get_webhook_info)
     websocket_api.async_register_command(hass, handle_get_version)
