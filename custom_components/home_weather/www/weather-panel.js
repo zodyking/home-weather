@@ -1037,7 +1037,9 @@ class HomeWeatherPanel extends HTMLElement {
         .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px solid var(--card-border); flex-wrap: wrap; gap: 12px; }
         .header-left { display: flex; align-items: center; gap: 12px; }
         .header-right { display: flex; align-items: center; margin-left: auto; }
-        .header h1 { margin: 0; font-size: 16px; font-weight: 500; color: var(--primary-text-color); }
+        .header h1 { margin: 0; font-size: 20px; font-weight: 600; color: var(--primary-text-color); letter-spacing: -0.01em; }
+        .header-title-block { display: flex; flex-direction: column; }
+        .header-eyebrow { font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--secondary-text-color); }
         .header-nav { display: flex; gap: 0; }
         .header-btn { padding: 8px; background: transparent; border: none; border-radius: 8px; color: var(--primary-text-color); cursor: pointer; display: flex; align-items: center; justify-content: center; }
         .header-btn:hover { background: var(--secondary-background-color); }
@@ -1083,12 +1085,35 @@ class HomeWeatherPanel extends HTMLElement {
           display: grid;
           gap: var(--form-gap-lg);
         }
-        .settings-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 24px; padding: 4px; background: var(--secondary-background-color); border: 1px solid var(--card-border); border-radius: 999px; width: fit-content; max-width: 100%; }
-        .settings-tab { padding: 8px 18px; background: transparent; border: none; border-radius: 999px; color: var(--secondary-text-color); cursor: pointer; font-size: 14px; font-weight: 500; }
-        .settings-tab:hover { color: var(--primary-text-color); }
-        .settings-tab.active { background: var(--panel-accent); color: #ffffff; }
-        .settings-section { display: none; }
-        .settings-section.active { display: block; }
+        /* Alerts page */
+        .alerts-page { padding: clamp(12px, 2vw, 18px); max-width: 920px; margin: 0 auto; width: 100%; box-sizing: border-box; }
+        .alerts-title { font-size: 18px; font-weight: 600; color: var(--primary-text-color); margin: 0 0 16px; }
+        .alerts-list { display: flex; flex-direction: column; gap: 12px; }
+        .alerts-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 48px 16px; background: var(--card-background-color); border: 1px dashed var(--card-border); border-radius: var(--radius-lg); color: var(--secondary-text-color); }
+        .alerts-empty svg { opacity: 0.6; }
+        .alerts-empty.is-error { color: var(--panel-danger); border-color: rgba(244,67,54,0.35); }
+        .alert-card { background: var(--card-background-color); border: 1px solid var(--card-border); border-left-width: 4px; border-radius: var(--radius-md); padding: 16px 20px; display: flex; flex-direction: column; gap: 10px; }
+        .alert-card.sev-warning { border-left-color: var(--panel-danger); }
+        .alert-card.sev-watch { border-left-color: var(--panel-warning); }
+        .alert-card.sev-advisory { border-left-color: var(--panel-accent); }
+        .alert-card-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .alert-card-head h3 { font-size: 16px; font-weight: 600; color: var(--primary-text-color); margin: 0; }
+        .alert-pill { font-size: 10px; font-weight: 700; letter-spacing: 0.12em; padding: 3px 10px; border-radius: 999px; background: var(--secondary-background-color); color: var(--secondary-text-color); }
+        .alert-card.sev-warning .alert-pill { background: rgba(244,67,54,0.15); color: #ff8a80; }
+        .alert-card.sev-watch .alert-pill { background: rgba(255,152,0,0.15); color: #ffb74d; }
+        .alert-card.sev-advisory .alert-pill { background: var(--panel-accent-dim); color: var(--panel-accent-hover); }
+        .alert-desc { font-size: 14px; color: var(--secondary-text-color); line-height: 1.55; margin: 0; }
+        .alert-meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px 18px; margin: 0; padding-top: 8px; border-top: 1px solid var(--card-border); }
+        .alert-meta dt { font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--secondary-text-color); }
+        .alert-meta dd { font-size: 13px; color: var(--primary-text-color); margin: 2px 0 0; font-variant-numeric: tabular-nums; }
+
+        .settings-group { display: flex; flex-direction: column; gap: 12px; }
+        .settings-group-title { font-size: 11px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--secondary-text-color); }
+        .settings-group-sub { font-size: 13px; color: var(--secondary-text-color); margin-bottom: 4px; max-width: 70ch; line-height: 1.5; }
+        .form-actions-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: var(--form-gap); }
+        .btn-secondary-test { background: var(--secondary-background-color); color: var(--primary-text-color); border: 1px solid var(--input-border); }
+        .btn-secondary-test:hover { background: rgba(255, 255, 255, 0.06); }
+        code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.92em; padding: 1px 5px; border-radius: 4px; background: rgba(255,255,255,0.06); color: var(--panel-accent-hover); }
         .form-group { display: flex; flex-direction: column; gap: 6px; margin-bottom: var(--form-gap); }
         .form-group label { font-size: var(--form-label-size); font-weight: var(--form-label-weight); color: var(--primary-text-color); }
         .form-group input, .form-group select { padding: 10px 14px; height: var(--form-input-height); border: 1px solid var(--input-border); border-radius: 8px; background: var(--input-bg); color: var(--primary-text-color); font-size: 14px; box-sizing: border-box; }
@@ -1123,15 +1148,18 @@ class HomeWeatherPanel extends HTMLElement {
         .toggle-switch input:checked + .toggle-slider { background: var(--accent-color); border-color: var(--accent-color); }
         .toggle-switch input:checked + .toggle-slider:before { transform: translateX(20px); background: white; }
         .toggle-label { font-size: 13px; color: var(--secondary-text-color); margin-left: 8px; }
-        .collapsible-section { background: var(--card-background-color); border: 1px solid var(--card-border); border-radius: var(--radius-md); margin-bottom: 16px; overflow: hidden; }
-        .collapsible-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; cursor: pointer; user-select: none; transition: background 0.2s; }
+        .collapsible-section { background: var(--card-background-color); border: 1px solid var(--card-border); border-radius: var(--radius-md); overflow: hidden; transition: border-color 0.2s ease; }
+        .collapsible-section.open { border-color: rgba(255,255,255,0.16); }
+        .collapsible-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; cursor: pointer; user-select: none; transition: background 0.2s; gap: 12px; }
         .collapsible-header:hover { background: var(--secondary-background-color); }
-        .collapsible-header-left { display: flex; align-items: center; gap: 12px; }
+        .collapsible-header-left { display: flex; align-items: center; gap: 14px; flex: 1; min-width: 0; }
+        .collapsible-header-left > div:last-child { min-width: 0; }
         .collapsible-title { font-size: 15px; font-weight: 600; color: var(--primary-text-color); }
         .collapsible-subtitle { font-size: 12px; color: var(--secondary-text-color); margin-top: 2px; }
-        .collapsible-chevron { width: 20px; height: 20px; color: var(--secondary-text-color); transition: transform 0.2s; }
+        .collapsible-chevron { width: 20px; height: 20px; color: var(--secondary-text-color); transition: transform 0.2s; flex-shrink: 0; }
         .collapsible-section.open .collapsible-chevron { transform: rotate(180deg); }
         .collapsible-content { padding: var(--section-padding); display: none; flex-direction: column; gap: var(--form-gap); }
+        .collapsible-header + .collapsible-content { border-top: 1px solid var(--card-border); }
         .collapsible-section.open .collapsible-content { display: flex; }
         .subsection-block { display: flex; flex-direction: column; gap: var(--form-gap-sm); }
         .subsection-title { font-size: 14px; font-weight: 600; color: var(--primary-text-color); margin-bottom: 4px; }
@@ -1312,7 +1340,10 @@ class HomeWeatherPanel extends HTMLElement {
                 <button class="hamburger" id="hamburger-btn" aria-label="Open Home Assistant sidebar">
                   <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></svg>
                 </button>
-                <h1>Home Weather</h1>
+                <div class="header-title-block">
+                  <div class="header-eyebrow">Home Weather</div>
+                  <h1>Settings</h1>
+                </div>
               </div>
               <div class="header-right">
                 <button class="header-btn" id="back-btn" aria-label="Back to dashboard" data-view="forecast">
@@ -1387,27 +1418,18 @@ class HomeWeatherPanel extends HTMLElement {
   _attachSettingsHandlers() {
     const s = this.shadowRoot;
     if (!s) return;
-    
+
     // Initialize entity autocomplete inputs
     this._initEntityAutocompletes(s);
-    
-    // Settings tabs
-    s.querySelectorAll(".settings-tab").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        this._syncSettingsFromForm();
-        this._settingsTab = btn.dataset.settingsTab || "weather";
-        this._render();
-      });
-    });
-    
+
     // Weather entity
     const we = s.getElementById("weather-entity");
     if (we) we.addEventListener("change", (e) => { this._settings.weather_entity = e.target.value || null; });
-    
+
     // Collapsible sections
     s.querySelectorAll(".collapsible-header").forEach((header) => {
       header.addEventListener("click", (e) => {
-        // Don't toggle if clicking on the toggle switch inside header
+        // Don't toggle if clicking on the toggle switch inside header (it controls the enable flag)
         if (e.target.closest(".toggle-switch")) return;
         const section = header.closest(".collapsible-section");
         const sectionId = section?.dataset?.sectionId;
@@ -1659,32 +1681,39 @@ class HomeWeatherPanel extends HTMLElement {
       });
     }
 
-    // Test Current Change button
-    const testCurrentChangeBtn = s.getElementById("test-current-change-btn");
-    if (testCurrentChangeBtn) {
-      testCurrentChangeBtn.addEventListener("click", async () => {
-        const originalLabel = testCurrentChangeBtn.textContent;
-        testCurrentChangeBtn.textContent = "Starting...";
-        testCurrentChangeBtn.disabled = true;
+    // Generic helper to wire any test-trigger button to a WebSocket command.
+    const wireTestButton = (btnId, wsType, busyLabel = "Sending…") => {
+      const btn = s.getElementById(btnId);
+      if (!btn) return;
+      btn.addEventListener("click", async () => {
+        const originalLabel = btn.textContent;
+        btn.textContent = busyLabel;
+        btn.disabled = true;
         try {
-          await this._hass.callWS({ type: "home_weather/test_current_change" });
-          testCurrentChangeBtn.textContent = "Queued";
+          await this._hass.callWS({ type: wsType });
+          btn.textContent = "Queued";
         } catch (e) {
-          console.error("Test current change failed:", e);
-          alert("Test current change failed: " + e.message);
-          testCurrentChangeBtn.textContent = originalLabel;
+          console.error(`${wsType} failed:`, e);
+          alert(`${originalLabel} failed: ${(e && e.message) || e}`);
+          btn.textContent = originalLabel;
         } finally {
-          testCurrentChangeBtn.disabled = false;
-          if (testCurrentChangeBtn.textContent === "Queued") {
+          btn.disabled = false;
+          if (btn.textContent === "Queued") {
             setTimeout(() => {
-              if (testCurrentChangeBtn.textContent === "Queued") {
-                testCurrentChangeBtn.textContent = originalLabel;
-              }
+              if (btn.textContent === "Queued") btn.textContent = originalLabel;
             }, 2500);
           }
         }
       });
-    }
+    };
+
+    wireTestButton("test-current-change-btn", "home_weather/test_current_change");
+    wireTestButton("test-upcoming-change-btn", "home_weather/test_upcoming_change");
+    wireTestButton("test-sensor-btn", "home_weather/test_sensor_triggered");
+    wireTestButton("test-webhook-btn", "home_weather/test_webhook");
+    wireTestButton("test-sunrise-btn", "home_weather/test_sunrise");
+    wireTestButton("test-sunset-btn", "home_weather/test_sunset");
+    wireTestButton("test-nws-btn", "home_weather/test_nws_alert");
     
     // Add media player
     const addMediaBtn = s.getElementById("add-media-btn");
@@ -2105,31 +2134,46 @@ class HomeWeatherPanel extends HTMLElement {
     if (!this._alertsData && !this._alertsLoading) {
       this._alertsLoading = true;
       this._fetchNwsAlerts();
-      return `<div class="settings-form" style="padding:24px;"><div class="loading" style="padding:48px;text-align:center">Loading alerts...</div></div>`;
     }
+    const empty = (msg, isError = false) => `
+      <section class="alerts-page">
+        <div class="alerts-empty ${isError ? "is-error" : ""}">
+          <svg viewBox="0 0 24 24" fill="currentColor" width="48" height="48" aria-hidden="true"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>
+          <p>${msg}</p>
+        </div>
+      </section>`;
     if (this._alertsLoading || !this._alertsData) {
-      return `<div class="settings-form" style="padding:24px;"><div class="loading" style="padding:48px;text-align:center">Loading alerts...</div></div>`;
+      return `<section class="alerts-page"><div class="alerts-empty"><p>Loading alerts…</p></div></section>`;
+    }
+    if (this._alertsData.error) {
+      return empty(`Failed to load alerts: ${String(this._alertsData.error).replace(/</g, "&lt;")}`, true);
     }
     const alerts = this._alertsData.alerts || [];
-    if (this._alertsData.error) {
-      return `<div class="settings-form" style="padding:24px;"><div class="glass card" style="padding:32px;text-align:center"><p class="error">Failed to load alerts: ${String(this._alertsData.error).replace(/</g, "&lt;")}</p></div></div>`;
-    }
     if (alerts.length === 0) {
-      return `<div class="settings-form" style="padding:24px;"><div class="glass card" style="padding:32px;text-align:center;border-radius:var(--card-radius);border:1px solid var(--divider-color);"><p style="color:var(--primary-text-color);">No active alerts.</p></div></div>`;
+      return empty("No active weather alerts for your area.");
     }
     const rows = alerts.map((a) => {
       const event = String(a.event || "Alert").replace(/</g, "&lt;").replace(/>/g, "&gt;");
       const descRaw = a.description || "";
-      const desc = (descRaw.length > 300 ? descRaw.substring(0, 300) + "..." : descRaw).replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>");
-      const effective = a.effective ? new Date(a.effective).toLocaleString() : "";
-      const expires = a.expires ? new Date(a.expires).toLocaleString() : "";
-      return `<div class="glass card" style="margin-bottom:16px;padding:20px;border-radius:var(--card-radius);border:1px solid var(--divider-color);">
-        <div style="font-size:16px;font-weight:600;color:var(--primary-text-color);margin-bottom:8px;">${event}</div>
-        <div style="font-size:14px;color:var(--secondary-text-color);margin-bottom:12px;line-height:1.5;">${desc}</div>
-        <div style="font-size:12px;color:var(--secondary-text-color);">Effective: ${effective} | Expires: ${expires}</div>
-      </div>`;
+      const desc = (descRaw.length > 600 ? descRaw.substring(0, 600) + "…" : descRaw)
+        .replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>");
+      const effective = a.effective ? new Date(a.effective).toLocaleString() : "—";
+      const expires = a.expires ? new Date(a.expires).toLocaleString() : "—";
+      const sev = String(a.event || "").toLowerCase();
+      const sevClass = sev.includes("warning") ? "sev-warning" : sev.includes("watch") ? "sev-watch" : "sev-advisory";
+      return `<article class="alert-card ${sevClass}">
+        <header class="alert-card-head">
+          <span class="alert-pill">${sevClass.replace("sev-", "").toUpperCase()}</span>
+          <h3>${event}</h3>
+        </header>
+        <p class="alert-desc">${desc}</p>
+        <dl class="alert-meta">
+          <div><dt>Effective</dt><dd>${effective}</dd></div>
+          <div><dt>Expires</dt><dd>${expires}</dd></div>
+        </dl>
+      </article>`;
     }).join("");
-    return `<div class="settings-form" style="padding:24px;"><h2 style="font-size:18px;margin-bottom:16px;color:var(--primary-text-color);">Active Weather Alerts</h2>${rows}</div>`;
+    return `<section class="alerts-page"><h2 class="alerts-title">Active weather alerts</h2><div class="alerts-list">${rows}</div></section>`;
   }
 
   _fetchNwsAlerts() {
@@ -2168,13 +2212,9 @@ class HomeWeatherPanel extends HTMLElement {
 
   _renderSettings() {
     const entities = Object.keys((this._hass && this._hass.states) || {});
-    const weatherEntities = entities.filter((e) => e.startsWith("weather."));
     const mediaPlayerEntities = entities.filter((e) => e.startsWith("media_player."));
     const ttsEntities = entities.filter((e) => e.startsWith("tts."));
-    const binarySensorEntities = entities.filter((e) => e.startsWith("binary_sensor."));
-    const aiTaskEntities = entities.filter((e) => e.startsWith("ai_task."));
-    
-    // Initialize TTS settings with defaults
+
     const defaultTts = {
       enabled: false, engine: "", voice: "", volume_level: 0.6, preroll_ms: 150,
       cache: true, language: "", enable_time_based: false, hour_pattern: 3,
@@ -2258,25 +2298,30 @@ class HomeWeatherPanel extends HTMLElement {
 
     return `
       <div class="settings-form">
-        <div class="settings-tabs">
-          <button class="settings-tab ${this._settingsTab === "weather" ? "active" : ""}" data-settings-tab="weather">Weather</button>
-          <button class="settings-tab ${this._settingsTab === "tts" ? "active" : ""}" data-settings-tab="tts">TTS Settings</button>
-        </div>
-        
-        <!-- Weather Tab -->
-        <div class="settings-section ${this._settingsTab === "weather" ? "active" : ""}" data-section="weather">
-          <div class="form-group">
-            <label>Weather Entity *</label>
-            ${this._renderEntityAutocomplete("weather-entity", this._settings.weather_entity || "", "weather", "Type to search weather entities...")}
+
+        <!-- Section: Weather Source -->
+        <div class="settings-group">
+          <div class="settings-group-title">Weather source</div>
+          <div class="settings-group-sub">Pick the entity that powers your dashboard and forecasts.</div>
+          <div class="collapsible-section open" data-section-id="weather-source">
+            <div class="collapsible-content" style="display:flex;padding-top:20px;">
+              <div class="form-group">
+                <label>Weather Entity *</label>
+                ${this._renderEntityAutocomplete("weather-entity", this._settings.weather_entity || "", "weather", "Type to search weather entities...")}
+                <p class="form-hint">Required. Must support hourly and daily forecasts.</p>
+              </div>
+            </div>
           </div>
         </div>
-        
-        <!-- TTS Tab -->
-        <div class="settings-section ${this._settingsTab === "tts" ? "active" : ""}" data-section="tts">
-          
-          <!-- TTS Master Toggle & Message Prefix -->
+
+        <!-- Section: Announcements & Alerts -->
+        <div class="settings-group">
+          <div class="settings-group-title">Announcements &amp; alerts</div>
+          <div class="settings-group-sub">Every alert type can be enabled and tested independently. Sun and NWS alerts run even when the master TTS toggle is off.</div>
+
+          <!-- Master TTS + Message Prefix -->
           <div class="collapsible-section open" data-section-id="tts-master">
-            <div class="collapsible-content" style="display: block; padding-top: 20px;">
+            <div class="collapsible-content" style="display: flex; padding-top: 20px;">
               ${renderToggle("tts-enabled", tts.enabled, "Enable TTS Announcements")}
               <div class="form-group" style="margin-top: var(--form-gap);">
                 <label>Message Intro</label>
@@ -2355,8 +2400,6 @@ class HomeWeatherPanel extends HTMLElement {
           
           <!-- Time-Based Forecasts -->
           ${renderCollapsible("time-based", "Time-Based Forecasts", "Scheduled announcements", `
-            ${renderToggle("enable-time-based", tts.enable_time_based, "Enable Scheduled Forecasts")}
-            
             <div class="form-row-inline" style="margin-top: var(--form-gap);">
               <div class="form-group">
                 <label>Announce Every</label>
@@ -2399,26 +2442,22 @@ class HomeWeatherPanel extends HTMLElement {
               </div>
             </div>
             
-            <div class="form-group" style="margin-top: var(--form-gap);">
-              <button type="button" class="test-tts-btn" id="test-forecast-btn">Test Forecast</button>
-              <p class="form-hint">Play the full scheduled forecast on all configured media players.</p>
+            <div class="form-actions-row">
+              <button type="button" class="test-tts-btn" id="test-forecast-btn">Test forecast</button>
             </div>
-          `)}
-          
+            <p class="form-hint">Plays the full scheduled forecast on all configured media players.</p>
+          `, true, "enable-time-based", tts.enable_time_based)}
+
           <!-- Current Change Alerts -->
-          ${renderCollapsible("current-change", "Current Change Alerts", "Alert when weather changes", `
-            ${renderToggle("enable-current-change", tts.enable_current_change, "Enable Current Change Alerts")}
-            <div class="form-group" style="margin-top: var(--form-gap);">
-              <button type="button" class="test-tts-btn" id="test-current-change-btn">Test Current Change</button>
-              <p class="form-hint">Play a sample current-change alert on all configured media players.</p>
+          ${renderCollapsible("current-change", "Current Change Alerts", "Speak when conditions change", `
+            <p class="form-hint" style="margin-top: var(--form-gap);">Triggered when the weather entity's condition changes (e.g. sunny → cloudy). Volume is controlled per media player.</p>
+            <div class="form-actions-row">
+              <button type="button" class="test-tts-btn" id="test-current-change-btn">Test current change</button>
             </div>
-            <p class="form-hint" style="margin-top: 12px;">Volume is controlled per media player.</p>
-          `)}
-          
+          `, true, "enable-current-change", tts.enable_current_change)}
+
           <!-- Upcoming Change Alerts -->
-          ${renderCollapsible("upcoming-change", "Upcoming Change Alerts", "Alert before precipitation", `
-            ${renderToggle("enable-upcoming-change", tts.enable_upcoming_change, "Enable Upcoming Change Alerts")}
-            
+          ${renderCollapsible("upcoming-change", "Upcoming Change Alerts", "Heads-up before rain or snow", `
             <div class="form-group" style="margin-top: var(--form-gap);">
               <label>Minutes Before to Announce</label>
               <select id="minutes-before-announce">
@@ -2428,12 +2467,14 @@ class HomeWeatherPanel extends HTMLElement {
                 <option value="60" ${tts.minutes_before_announce === 60 ? "selected" : ""}>1 hour</option>
               </select>
             </div>
-          `)}
-          
+            <div class="form-actions-row">
+              <button type="button" class="test-tts-btn" id="test-upcoming-change-btn">Test upcoming change</button>
+            </div>
+            <p class="form-hint">Picks the next forecast period above your precipitation threshold.</p>
+          `, true, "enable-upcoming-change", tts.enable_upcoming_change)}
+
           <!-- Sunrise & Sunset Alerts -->
-          ${renderCollapsible("sun-alerts", "Sunrise & Sunset Alerts", "TTS and automations at sunrise/sunset", `
-            ${renderToggle("sun-alerts-enabled", sunAlerts.enabled, "Enable Sunrise/Sunset Alerts")}
-            
+          ${renderCollapsible("sun-alerts", "Sunrise &amp; Sunset Alerts", "TTS and automations at sunrise/sunset", `
             <div class="subsection-block" style="margin-top: var(--form-gap);">
               <div class="subsection-title">Sunrise TTS</div>
               ${renderToggle("sunrise-tts-enabled", sunAlerts.sunrise_tts.enabled, "Enable sunrise announcements")}
@@ -2473,18 +2514,22 @@ class HomeWeatherPanel extends HTMLElement {
                 ${this._renderEntityAutocomplete("sunset-automation-entity", sunAlerts.sunset_automation.entity_id || "", "automation", "Type to search automations...")}
               </div>
             </div>
-          `)}
-          
+            <div class="form-actions-row">
+              <button type="button" class="test-tts-btn" id="test-sunrise-btn">Test sunrise</button>
+              <button type="button" class="test-tts-btn btn-secondary-test" id="test-sunset-btn">Test sunset</button>
+            </div>
+            <p class="form-hint">Tests speak the "upcoming" message immediately.</p>
+          `, true, "sun-alerts-enabled", sunAlerts.enabled)}
+
           <!-- NWS Alerts -->
-          ${renderCollapsible("nws-alerts", "NWS Weather Alerts", "TTS and siren when National Weather Service issues alerts", `
-            ${renderToggle("nws-alerts-enabled", nwsAlerts.enabled, "Enable NWS Alerts")}
+          ${renderCollapsible("nws-alerts", "NWS Weather Alerts", "Siren + TTS for National Weather Service alerts", `
             <div class="form-group" style="margin-top: var(--form-gap);">
               <label>Alert sound (plays before TTS)</label>
               <select id="nws-alerts-sound-file">
                 <option value="">None</option>
                 ${(this._wwwSounds || []).map((f) => `<option value="${f}" ${nwsAlerts.sound_file === f ? "selected" : ""}>${f}</option>`).join("")}
               </select>
-              <p class="form-hint">Place .mp3, .wav, or .ogg files in custom_components/home_weather/www/sounds/</p>
+              <p class="form-hint">Place .mp3, .wav, or .ogg files in <code>custom_components/home_weather/www/sounds/</code>.</p>
             </div>
             <div class="form-row-inline">
               <div class="form-group">
@@ -2496,12 +2541,13 @@ class HomeWeatherPanel extends HTMLElement {
                 ${renderSlider("nws-alerts-tts-volume", nwsAlerts.tts_volume, 0, 1, 0.05, "%")}
               </div>
             </div>
-          `)}
-          
+            <div class="form-actions-row">
+              <button type="button" class="test-tts-btn" id="test-nws-btn">Test NWS alert</button>
+            </div>
+          `, true, "nws-alerts-enabled", nwsAlerts.enabled)}
+
           <!-- Sensor Triggered -->
-          ${renderCollapsible("sensor-triggered", "Sensor Triggered", "Announce when entity state changes", `
-            ${renderToggle("enable-sensor-triggered", tts.enable_sensor_triggered, "Enable Sensor-Triggered Forecasts")}
-            
+          ${renderCollapsible("sensor-triggered", "Sensor Triggered", "Announce when an entity reaches a state", `
             <div class="form-group" style="margin-top: var(--form-gap);">
               <label>Sensor Triggers</label>
               <p class="form-hint">Add entities and define the state that triggers a TTS announcement.</p>
@@ -2531,12 +2577,14 @@ class HomeWeatherPanel extends HTMLElement {
               </div>
               <button class="btn btn-secondary" id="add-sensor-trigger" style="margin-top: 12px;">+ Add Sensor Trigger</button>
             </div>
-          `)}
-          
+            <div class="form-actions-row">
+              <button type="button" class="test-tts-btn" id="test-sensor-btn">Test sensor trigger</button>
+            </div>
+            <p class="form-hint">Runs a forecast on the media player from the first sensor row (or all players).</p>
+          `, true, "enable-sensor-triggered", tts.enable_sensor_triggered)}
+
           <!-- Webhook -->
           ${renderCollapsible("webhook", "Webhook Triggers", `${tts.webhooks.length} configured`, `
-            ${renderToggle("enable-webhook", tts.enable_webhook, "Enable Webhook Triggers")}
-            
             <div class="form-group" style="margin-top: var(--form-gap);">
               <label>Webhook Configurations</label>
               <p class="form-hint">Create multiple webhooks with unique IDs for different users or scenarios.</p>
@@ -2615,18 +2663,28 @@ class HomeWeatherPanel extends HTMLElement {
               </div>
               <button class="btn btn-secondary" id="add-webhook" style="margin-top: 12px;">+ Add Webhook</button>
             </div>
-          `)}
-          
+            <div class="form-actions-row">
+              <button type="button" class="test-tts-btn" id="test-webhook-btn">Test webhook</button>
+            </div>
+            <p class="form-hint">Runs the webhook forecast for the first enabled webhook above.</p>
+          `, true, "enable-webhook", tts.enable_webhook)}
+
           <!-- Voice Satellite -->
-          ${renderCollapsible("voice-satellite", "Voice Satellite", "Conversation commands", `
-            ${renderToggle("enable-voice-satellite", tts.enable_voice_satellite, "Enable Voice Commands")}
-            
+          ${renderCollapsible("voice-satellite", "Voice Satellite", "Speak weather on voice queries", `
             <div class="form-group" style="margin-top: var(--form-gap);">
               <label>Conversation Commands (one per line)</label>
               <textarea class="textarea-field" id="conversation-commands" placeholder="What is the weather&#10;Whats the weather">${tts.conversation_commands}</textarea>
+              <p class="form-hint">Registers a <code>HomeWeatherForecast</code> intent and the phrases above as conversation triggers.</p>
             </div>
-          `)}
-          
+          `, true, "enable-voice-satellite", tts.enable_voice_satellite)}
+
+        </div>
+
+        <!-- Section: Advanced -->
+        <div class="settings-group">
+          <div class="settings-group-title">Advanced</div>
+          <div class="settings-group-sub">Thresholds, forecast tuning and AI rewriting.</div>
+
           <!-- Forecast Settings -->
           ${renderCollapsible("forecast-settings", "Forecast Settings", "Thresholds and limits", `
             <div class="form-group">
@@ -2659,27 +2717,24 @@ class HomeWeatherPanel extends HTMLElement {
               <input type="number" id="daily-forecast-days" min="0" max="7" value="${tts.daily_forecast_days}"/>
             </div>
           `)}
-          
+
           <!-- AI Rewrite -->
-          ${renderCollapsible("ai-rewrite", "AI Rewrite", "Optionally rewrite messages with AI", `
-            ${renderToggle("use-ai-rewrite", tts.use_ai_rewrite, "Enable AI Message Rewriting")}
-            
+          ${renderCollapsible("ai-rewrite", "AI Rewrite", "Rewrite TTS messages with an AI Task", `
             <div class="form-group" style="margin-top: var(--form-gap);">
               <label>AI Task Entity</label>
               ${this._renderEntityAutocomplete("ai-task-entity", tts.ai_task_entity || "", "ai_task", "Type to search AI task entities...")}
             </div>
-            
             <div class="form-group">
               <label>AI Rewrite Prompt</label>
               <textarea class="textarea-field" id="ai-rewrite-prompt">${tts.ai_rewrite_prompt}</textarea>
             </div>
-          `)}
-          
+          `, true, "use-ai-rewrite", tts.use_ai_rewrite)}
+
         </div>
-        
+
         <div class="form-actions">
           <button class="btn btn-secondary" id="cancel-btn">Cancel</button>
-          <button class="btn btn-primary" id="save-btn">Save</button>
+          <button class="btn btn-primary" id="save-btn">Save changes</button>
         </div>
       </div>
     `;
