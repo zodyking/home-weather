@@ -37,8 +37,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     
     def get_weather_data():
         return coordinator.data or {}
-    
-    trigger_manager = TTSTriggerManager(hass, get_config, get_weather_data)
+
+    async def refresh_weather_data():
+        await coordinator.async_request_refresh()
+
+    trigger_manager = TTSTriggerManager(
+        hass,
+        get_config,
+        get_weather_data,
+        refresh_weather_data=refresh_weather_data,
+    )
 
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = {

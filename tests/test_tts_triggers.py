@@ -5,8 +5,10 @@ from types import SimpleNamespace
 
 from custom_components.home_weather.tts_triggers import (
     _is_tts_active,
+    build_weather_data_from_state,
     compute_trigger_hours,
     extract_weather_condition,
+    media_players_with_tts,
 )
 
 
@@ -42,3 +44,24 @@ def test_extract_weather_condition_prefers_attribute():
 def test_extract_weather_condition_falls_back_to_state():
     state = SimpleNamespace(state="rainy", attributes={})
     assert extract_weather_condition(state) == "rainy"
+
+
+def test_media_players_with_tts_filters_incomplete_entries():
+    players = [
+        {"entity_id": "media_player.kitchen", "tts_entity_id": "tts.google"},
+        {"entity_id": "media_player.bedroom", "tts_entity_id": ""},
+    ]
+    assert media_players_with_tts(players) == [
+        {"entity_id": "media_player.kitchen", "tts_entity_id": "tts.google"}
+    ]
+
+
+def test_build_weather_data_from_state_missing_entity():
+    class _Hass:
+        class states:
+            @staticmethod
+            def get(_entity_id):
+                return None
+
+    assert build_weather_data_from_state(_Hass(), "weather.home") == {"configured": False}
+

@@ -292,52 +292,7 @@ class HomeWeatherPanel extends HTMLElement {
 
   async _saveSettings() {
     if (!this._hass) return;
-    const s = this.shadowRoot;
-    if (s) {
-      // Collect weather entity
-      const weatherEntity = s.getElementById("weather-entity");
-      if (weatherEntity) this._settings.weather_entity = weatherEntity.value || null;
-      
-      // Collect all TTS settings using helper
-      this._settings.tts = this._collectTtsSettings();
-      
-      // Collect sun alerts
-      this._settings.sun_alerts = this._collectSunAlertsSettings();
-      
-      // Collect NWS alerts
-      this._settings.nws_alerts = this._collectNwsAlertsSettings();
-      
-      // Collect message prefix
-      const messagePrefix = s.getElementById("message-prefix");
-      if (messagePrefix) this._settings.message_prefix = messagePrefix.value || "Weather update";
-      
-      // Collect media players from cards (exclude webhook cards)
-      const cards = s.querySelectorAll("#media-player-list .media-player-card");
-      if (cards.length) {
-        this._settings.media_players = Array.from(cards).map((card) => {
-          const entitySel = card.querySelector(".media-player-select");
-          const ttsSel = card.querySelector(".media-player-tts-entity");
-          const volumeSlider = card.querySelector(".media-player-volume");
-          const prerollInput = card.querySelector(".media-player-preroll");
-          const cacheChk = card.querySelector(".media-player-cache");
-          const langInput = card.querySelector(".media-player-language");
-          const optionsInput = card.querySelector(".media-player-options");
-          let options = {};
-          if (optionsInput?.value) {
-            try { options = JSON.parse(optionsInput.value); } catch (_) {}
-          }
-          return {
-            entity_id: entitySel?.value || "",
-            tts_entity_id: ttsSel?.value || "",
-            volume: parseFloat(volumeSlider?.value || 0.6),
-            preroll_ms: parseInt(prerollInput?.value || 150, 10),
-            cache: !!cacheChk?.checked,
-            language: (langInput?.value || "").trim(),
-            options,
-          };
-        }).filter((m) => m.entity_id);
-      }
-    }
+    this._syncSettingsFromForm();
     try {
       this._loading = true;
       this._render();
@@ -1394,7 +1349,11 @@ class HomeWeatherPanel extends HTMLElement {
       this._render();
       this._loadWebhookInfo();
     });
-    if (backBtn) backBtn.addEventListener("click", () => { this._currentView = "forecast"; this._render(); });
+    if (backBtn) backBtn.addEventListener("click", () => {
+      this._syncSettingsFromForm();
+      this._currentView = "forecast";
+      this._render();
+    });
     if (this._currentView === "settings") {
       this._attachSettingsHandlers();
     } else if (this._currentView === "forecast") {
@@ -1435,6 +1394,7 @@ class HomeWeatherPanel extends HTMLElement {
     // Settings tabs
     s.querySelectorAll(".settings-tab").forEach((btn) => {
       btn.addEventListener("click", () => {
+        this._syncSettingsFromForm();
         this._settingsTab = btn.dataset.settingsTab || "weather";
         this._render();
       });
@@ -2707,9 +2667,52 @@ class HomeWeatherPanel extends HTMLElement {
     `;
   }
 
+  _syncSettingsFromForm() {
+    if (this._currentView !== "settings") return;
+    const s = this.shadowRoot;
+    if (!s) return;
+
+    const weatherEntity = s.getElementById("weather-entity");
+    if (weatherEntity) this._settings.weather_entity = weatherEntity.value || null;
+
+    this._settings.tts = this._collectTtsSettings();
+    this._settings.sun_alerts = this._collectSunAlertsSettings();
+    this._settings.nws_alerts = this._collectNwsAlertsSettings();
+
+    const messagePrefix = s.getElementById("message-prefix");
+    if (messagePrefix) this._settings.message_prefix = messagePrefix.value || "Weather update";
+
+    const cards = s.querySelectorAll("#media-player-list .media-player-card");
+    if (cards.length) {
+      this._settings.media_players = Array.from(cards).map((card) => {
+        const entitySel = card.querySelector(".media-player-select");
+        const ttsSel = card.querySelector(".media-player-tts-entity");
+        const volumeSlider = card.querySelector(".media-player-volume");
+        const prerollInput = card.querySelector(".media-player-preroll");
+        const cacheChk = card.querySelector(".media-player-cache");
+        const langInput = card.querySelector(".media-player-language");
+        const optionsInput = card.querySelector(".media-player-options");
+        let options = {};
+        if (optionsInput?.value) {
+          try { options = JSON.parse(optionsInput.value); } catch (_) {}
+        }
+        return {
+          entity_id: entitySel?.value || "",
+          tts_entity_id: ttsSel?.value || "",
+          volume: parseFloat(volumeSlider?.value || 0.6),
+          preroll_ms: parseInt(prerollInput?.value || 150, 10),
+          cache: !!cacheChk?.checked,
+          language: (langInput?.value || "").trim(),
+          options,
+        };
+      }).filter((m) => m.entity_id);
+    }
+  }
+
   _collectTtsSettings() {
     const s = this.shadowRoot;
-    if (!s) return {};
+    const existing = this._settings.tts || {};
+    if (!s) return { ...existing };
     
     // Collect days of week (toggle switches in day-toggle-row)
     const daysOfWeek = [];
@@ -2723,32 +2726,32 @@ class HomeWeatherPanel extends HTMLElement {
     const webhooks = this._settings.tts?.webhooks || [];
     
     return {
-      enabled: s.getElementById("tts-enabled")?.checked || false,
-      // Global TTS settings removed - now per-player in media_players array
-      enable_time_based: s.getElementById("enable-time-based")?.checked || false,
-      hour_pattern: parseInt(s.getElementById("hour-pattern")?.value || 3, 10),
-      minute_offset: parseInt(s.getElementById("minute-offset")?.value || 3, 10),
-      start_time: s.getElementById("start-time")?.value || "08:00",
-      end_time: s.getElementById("end-time")?.value || "21:00",
-      days_of_week: daysOfWeek.length > 0 ? daysOfWeek : ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
-      enable_sensor_triggered: s.getElementById("enable-sensor-triggered")?.checked || false,
+      ...existing,
+      enabled: s.getElementById("tts-enabled")?.checked ?? existing.enabled ?? false,
+      enable_time_based: s.getElementById("enable-time-based")?.checked ?? existing.enable_time_based ?? false,
+      hour_pattern: parseInt(s.getElementById("hour-pattern")?.value || existing.hour_pattern || 3, 10),
+      minute_offset: parseInt(s.getElementById("minute-offset")?.value || existing.minute_offset || 3, 10),
+      start_time: s.getElementById("start-time")?.value || existing.start_time || "08:00",
+      end_time: s.getElementById("end-time")?.value || existing.end_time || "21:00",
+      days_of_week: daysOfWeek.length > 0 ? daysOfWeek : (existing.days_of_week || ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]),
+      enable_sensor_triggered: s.getElementById("enable-sensor-triggered")?.checked ?? existing.enable_sensor_triggered ?? false,
       sensor_triggers: sensorTriggers.filter((t) => t.entity_id),
-      enable_current_change: s.getElementById("enable-current-change")?.checked || false,
-      enable_upcoming_change: s.getElementById("enable-upcoming-change")?.checked || false,
-      minutes_before_announce: parseInt(s.getElementById("minutes-before-announce")?.value || 30, 10),
-      enable_webhook: s.getElementById("enable-webhook")?.checked || false,
+      enable_current_change: s.getElementById("enable-current-change")?.checked ?? existing.enable_current_change ?? false,
+      enable_upcoming_change: s.getElementById("enable-upcoming-change")?.checked ?? existing.enable_upcoming_change ?? false,
+      minutes_before_announce: parseInt(s.getElementById("minutes-before-announce")?.value || existing.minutes_before_announce || 30, 10),
+      enable_webhook: s.getElementById("enable-webhook")?.checked ?? existing.enable_webhook ?? false,
       webhooks: webhooks.filter((w) => w.webhook_id),
-      enable_voice_satellite: s.getElementById("enable-voice-satellite")?.checked || false,
-      conversation_commands: s.getElementById("conversation-commands")?.value || "",
-      precip_threshold: parseInt(s.getElementById("precip-threshold")?.value || 30, 10),
-      hours_ahead: parseInt(s.getElementById("hours-ahead")?.value || 24, 10),
-      hourly_segments_count: parseInt(s.getElementById("hourly-segments-count")?.value || 3, 10),
-      wind_speed_threshold: parseInt(s.getElementById("wind-speed-threshold")?.value || 15, 10),
-      wind_gust_threshold: parseInt(s.getElementById("wind-gust-threshold")?.value || 20, 10),
-      daily_forecast_days: parseInt(s.getElementById("daily-forecast-days")?.value || 3, 10),
-      use_ai_rewrite: s.getElementById("use-ai-rewrite")?.checked || false,
-      ai_task_entity: s.getElementById("ai-task-entity")?.value || "",
-      ai_rewrite_prompt: s.getElementById("ai-rewrite-prompt")?.value || "",
+      enable_voice_satellite: s.getElementById("enable-voice-satellite")?.checked ?? existing.enable_voice_satellite ?? false,
+      conversation_commands: s.getElementById("conversation-commands")?.value || existing.conversation_commands || "",
+      precip_threshold: parseInt(s.getElementById("precip-threshold")?.value || existing.precip_threshold || 30, 10),
+      hours_ahead: parseInt(s.getElementById("hours-ahead")?.value || existing.hours_ahead || 24, 10),
+      hourly_segments_count: parseInt(s.getElementById("hourly-segments-count")?.value || existing.hourly_segments_count || 3, 10),
+      wind_speed_threshold: parseInt(s.getElementById("wind-speed-threshold")?.value || existing.wind_speed_threshold || 15, 10),
+      wind_gust_threshold: parseInt(s.getElementById("wind-gust-threshold")?.value || existing.wind_gust_threshold || 20, 10),
+      daily_forecast_days: parseInt(s.getElementById("daily-forecast-days")?.value || existing.daily_forecast_days || 3, 10),
+      use_ai_rewrite: s.getElementById("use-ai-rewrite")?.checked ?? existing.use_ai_rewrite ?? false,
+      ai_task_entity: s.getElementById("ai-task-entity")?.value || existing.ai_task_entity || "",
+      ai_rewrite_prompt: s.getElementById("ai-rewrite-prompt")?.value || existing.ai_rewrite_prompt || "",
     };
   }
 

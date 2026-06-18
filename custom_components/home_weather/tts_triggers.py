@@ -80,6 +80,43 @@ def compute_trigger_hours(start_h: int, end_h: int, hour_pattern: int) -> list[i
     return hours
 
 
+def build_weather_data_from_state(hass: HomeAssistant, weather_entity: str) -> dict[str, Any]:
+    """Build minimal weather data from a live entity state."""
+    state = hass.states.get(weather_entity)
+    if not state:
+        return {"configured": False}
+
+    current = {
+        "temperature": state.attributes.get("temperature")
+        or state.attributes.get("native_temperature"),
+        "condition": state.attributes.get("condition"),
+        "state": state.state,
+        "humidity": state.attributes.get("humidity"),
+        "wind_speed": state.attributes.get("wind_speed")
+        or state.attributes.get("native_wind_speed"),
+        "wind_speed_unit": state.attributes.get("wind_speed_unit")
+        or state.attributes.get("native_wind_speed_unit", "mph"),
+        "wind_gust_speed": state.attributes.get("wind_gust_speed")
+        or state.attributes.get("native_wind_gust_speed"),
+    }
+    return {
+        "current": current,
+        "hourly_forecast": [],
+        "daily_forecast": [],
+        "configured": True,
+        "weather_entity": weather_entity,
+    }
+
+
+def media_players_with_tts(media_players: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Return media players that have both entity and TTS entity configured."""
+    return [
+        mp
+        for mp in media_players
+        if mp.get("entity_id") and mp.get("tts_entity_id")
+    ]
+
+
 class TTSTriggerManager:
     """Manage all TTS triggers for the Home Weather integration."""
 
@@ -88,6 +125,7 @@ class TTSTriggerManager:
         hass: HomeAssistant,
         get_config: Callable[[], dict[str, Any]],
         get_weather_data: Callable[[], dict[str, Any]],
+        refresh_weather_data: Callable[[], Any] | None = None,
     ) -> None:
         """Initialize the trigger manager.
         
@@ -95,10 +133,12 @@ class TTSTriggerManager:
             hass: Home Assistant instance
             get_config: Callable that returns current config
             get_weather_data: Callable that returns current weather data
+            refresh_weather_data: Optional async callable to refresh weather data
         """
         self.hass = hass
         self._get_config = get_config
         self._get_weather_data = get_weather_data
+        self._refresh_weather_data = refresh_weather_data
         self._unsub_callbacks: list[Callable] = []
         self._last_condition: str | None = None
         self._upcoming_alert_fired: set[str] = set()  # Track which hours already alerted
@@ -174,6 +214,28 @@ class TTSTriggerManager:
         
         _LOGGER.info("TTS triggers unloaded")
 
+    async def _resolve_weather_data(self) -> dict[str, Any]:
+        """Refresh and return the best available weather data for TTS."""
+        if self._refresh_weather_data:
+            try:
+                await self._refresh_weather_data()
+            except Exception as err:
+                _LOGGER.warning("Weather refresh failed before TTS: %s", err)
+
+        weather_data = self._get_weather_data() or {}
+        if weather_data.get("configured") is not False:
+            return weather_data
+
+        weather_entity = self._get_config().get("weather_entity")
+        if not weather_entity:
+            return weather_data
+
+        fallback = build_weather_data_from_state(self.hass, weather_entity)
+        if fallback.get("configured"):
+            _LOGGER.debug("Using live weather entity state for TTS fallback")
+            return fallback
+        return weather_data
+
     async def _setup_time_based_trigger(self, tts_config: dict[str, Any]) -> None:
         """Set up time-based forecast triggers.
         
@@ -233,7 +295,13 @@ class TTSTriggerManager:
             second=0,
         )
         self._unsub_callbacks.append(unsub)
-        _LOGGER.debug("Time-based trigger set up: every %d hours at minute %d", hour_pattern, minute_offset)
+        _LOGGER.info(
+            "Time-based trigger set up: hours=%s at minute %d, window %s-%s",
+            trigger_hours,
+            minute_offset,
+            start_time,
+            end_time,
+        )
 
     async def _setup_current_change_trigger(self, config: dict[str, Any]) -> None:
         """Set up trigger for when current weather conditions change."""
@@ -276,7 +344,18 @@ class TTSTriggerManager:
             _state_changed,
         )
         self._unsub_callbacks.append(unsub)
-        _LOGGER.debug("Current change trigger set up for %s", weather_entity)
+        _LOGGER.info("Current change trigger set up for %s", weather_entity)
+
+    async def fire_test_scheduled_forecast(self) -> None:
+        """Play a scheduled forecast on all configured media players."""
+        await self._fire_scheduled_forecast()
+
+    async def fire_test_current_change(self) -> None:
+        """Play a sample current-change alert on all configured media players."""
+        weather_data = await self._resolve_weather_data()
+        current = weather_data.get("current") or {}
+        new_condition = current.get("condition") or current.get("state") or "changing conditions"
+        await self._fire_current_change("previous conditions", new_condition)
 
     async def _setup_upcoming_change_trigger(self, tts_config: dict[str, Any]) -> None:
         """Set up trigger for upcoming precipitation alerts.
@@ -723,18 +802,18 @@ class TTSTriggerManager:
                                If empty, send to all configured media players.
         """
         config = self._get_config()
-        weather_data = self._get_weather_data()
+        weather_data = await self._resolve_weather_data()
         tts_config = config.get("tts", {})
-        media_players = config.get("media_players", [])
-        
+        media_players = media_players_with_tts(config.get("media_players", []))
+
         if not media_players:
-            _LOGGER.debug("No media players configured, skipping TTS")
+            _LOGGER.warning("No media players with TTS configured, skipping scheduled TTS")
             return
-        
+
         if not weather_data or weather_data.get("configured") is False:
             _LOGGER.warning("Weather not configured or data unavailable, skipping scheduled TTS")
             return
-        
+
         # Filter to specific media player if specified
         if target_media_player:
             media_players = [mp for mp in media_players if mp.get("entity_id") == target_media_player]
@@ -759,12 +838,13 @@ class TTSTriggerManager:
     async def _fire_current_change(self, old_condition: str, new_condition: str) -> None:
         """Fire a current change alert TTS."""
         config = self._get_config()
-        weather_data = self._get_weather_data()
+        weather_data = await self._resolve_weather_data()
         tts_config = config.get("tts", {})
-        media_players = config.get("media_players", [])
+        media_players = media_players_with_tts(config.get("media_players", []))
         volume = None  # Volume controlled per media player
-        
+
         if not media_players:
+            _LOGGER.warning("No media players with TTS configured, skipping current change TTS")
             return
         
         if not weather_data or weather_data.get("configured") is False:

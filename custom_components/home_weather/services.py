@@ -10,11 +10,6 @@ from homeassistant.components.webhook import async_generate_url
 from homeassistant.core import HomeAssistant, callback
 
 from .const import DOMAIN, WEBHOOK_LAST_TRIGGERED_KEY
-from .tts_notifications import (
-    build_scheduled_forecast,
-    build_current_change_message,
-    send_tts_with_ai_rewrite,
-)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -304,23 +299,14 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
             return
 
         storage = entry_data.get("storage")
-        coordinator = entry_data.get("coordinator")
-        if not storage or not coordinator:
-            connection.send_error(msg["id"], "unavailable", "Storage or coordinator not available")
+        trigger_manager = entry_data.get("trigger_manager")
+        if not storage or not trigger_manager:
+            connection.send_error(msg["id"], "unavailable", "Storage or trigger manager not available")
             return
 
         try:
             config = await storage.async_get()
-            await coordinator.async_request_refresh()
-            weather_data = coordinator.data or {}
-
-            if not weather_data or weather_data.get("configured") is False:
-                connection.send_error(msg["id"], "not_configured", "Weather not configured")
-                return
-
             media_players = _media_players_with_tts(config.get("media_players", []))
-            tts_config = config.get("tts", {})
-
             if not media_players:
                 connection.send_error(
                     msg["id"],
@@ -329,8 +315,11 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
                 )
                 return
 
-            message = build_scheduled_forecast(weather_data, config)
-            await send_tts_with_ai_rewrite(hass, media_players, tts_config, message)
+            if not config.get("weather_entity"):
+                connection.send_error(msg["id"], "not_configured", "Weather not configured")
+                return
+
+            await trigger_manager.fire_test_scheduled_forecast()
             connection.send_result(msg["id"], {"success": True})
         except Exception as e:
             _LOGGER.error("Test forecast failed: %s", e)
@@ -355,23 +344,14 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
             return
 
         storage = entry_data.get("storage")
-        coordinator = entry_data.get("coordinator")
-        if not storage or not coordinator:
-            connection.send_error(msg["id"], "unavailable", "Storage or coordinator not available")
+        trigger_manager = entry_data.get("trigger_manager")
+        if not storage or not trigger_manager:
+            connection.send_error(msg["id"], "unavailable", "Storage or trigger manager not available")
             return
 
         try:
             config = await storage.async_get()
-            await coordinator.async_request_refresh()
-            weather_data = coordinator.data or {}
-
-            if not weather_data or weather_data.get("configured") is False:
-                connection.send_error(msg["id"], "not_configured", "Weather not configured")
-                return
-
             media_players = _media_players_with_tts(config.get("media_players", []))
-            tts_config = config.get("tts", {})
-
             if not media_players:
                 connection.send_error(
                     msg["id"],
@@ -380,11 +360,11 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
                 )
                 return
 
-            current = weather_data.get("current") or {}
-            new_condition = current.get("condition") or current.get("state") or "changing conditions"
-            old_condition = "previous conditions"
-            message = build_current_change_message(old_condition, new_condition, weather_data)
-            await send_tts_with_ai_rewrite(hass, media_players, tts_config, message)
+            if not config.get("weather_entity"):
+                connection.send_error(msg["id"], "not_configured", "Weather not configured")
+                return
+
+            await trigger_manager.fire_test_current_change()
             connection.send_result(msg["id"], {"success": True})
         except Exception as e:
             _LOGGER.error("Test current change failed: %s", e)
