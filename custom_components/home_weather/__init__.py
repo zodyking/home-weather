@@ -99,7 +99,12 @@ async def _register_panel(hass: HomeAssistant) -> None:
         manifest_path = Path(__file__).parent / "manifest.json"
         panel_version = "0.0.0"
         try:
-            panel_version = str(json.loads(manifest_path.read_text(encoding="utf-8")).get("version", "0.0.0"))
+            # Manifest read is disk I/O — run off the event loop to avoid
+            # blocking-call warnings.
+            manifest_text = await hass.async_add_executor_job(
+                manifest_path.read_text, "utf-8"
+            )
+            panel_version = str(json.loads(manifest_text).get("version", "0.0.0"))
         except (OSError, json.JSONDecodeError, TypeError) as e:
             _LOGGER.warning("Could not read version from manifest.json: %s", e)
 

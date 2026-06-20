@@ -20,6 +20,39 @@ from .const import NUMBER_WORDS
 
 _LOGGER = logging.getLogger(__name__)
 
+TTS_STATUS_EVENT = "home_weather_tts_status"
+
+
+def _fire_tts_status(
+    hass: HomeAssistant,
+    status: str,
+    *,
+    request_id: str | None = None,
+    entity_id: str = "",
+    message_preview: str = "",
+    reason: str = "",
+    alert_kind: str = "",
+) -> None:
+    """Fire a TTS status event the frontend can subscribe to.
+
+    status: "playing" | "failed" | "skipped" | "sent"
+    reason: short human-readable explanation for failed/skipped.
+    """
+    try:
+        hass.bus.async_fire(
+            TTS_STATUS_EVENT,
+            {
+                "status": status,
+                "request_id": request_id or "",
+                "entity_id": entity_id,
+                "message_preview": (message_preview or "")[:160],
+                "reason": reason,
+                "alert_kind": alert_kind,
+            },
+        )
+    except Exception as err:  # never let event-firing break TTS
+        _LOGGER.warning("Failed to fire TTS status event: %s", err)
+
 
 # ============================================================================
 # Number and Time Formatting
@@ -518,6 +551,9 @@ async def send_tts(
     media_players_config: list[dict[str, Any]],
     message: str,
     volume_override: float | None = None,
+    *,
+    request_id: str | None = None,
+    alert_kind: str = "",
 ) -> None:
     """Send TTS to all configured media players.
     
@@ -528,13 +564,26 @@ async def send_tts(
     - cache
     - language (optional, only included if non-empty)
     - options (optional dict, only included if non-empty)
+
+    Fires home_weather_tts_status events so the UI can show real playback
+    status instead of a blind "Queued" label.
     """
     if not media_players_config:
         _LOGGER.warning("No media players configured for TTS")
+        _fire_tts_status(
+            hass, "skipped",
+            request_id=request_id, reason="No media players configured",
+            alert_kind=alert_kind,
+        )
         return
     
     if not message or not message.strip():
         _LOGGER.warning("Empty TTS message, skipping")
+        _fire_tts_status(
+            hass, "skipped",
+            request_id=request_id, reason="Empty TTS message",
+            alert_kind=alert_kind,
+        )
         return
     
     for i, mp in enumerate(media_players_config):
@@ -545,6 +594,12 @@ async def send_tts(
         tts_entity = mp.get("tts_entity_id")
         if not tts_entity:
             _LOGGER.warning("No TTS entity configured for %s, skipping", entity_id)
+            _fire_tts_status(
+                hass, "skipped",
+                request_id=request_id, entity_id=entity_id,
+                reason=f"No TTS entity configured for {entity_id}",
+                alert_kind=alert_kind,
+            )
             continue
         
         # Per-player settings
@@ -598,6 +653,11 @@ async def send_tts(
             )
             
             _LOGGER.info("TTS sent successfully to %s", entity_id)
+            _fire_tts_status(
+                hass, "sent",
+                request_id=request_id, entity_id=entity_id,
+                message_preview=message, alert_kind=alert_kind,
+            )
             
             # Delay between players
             if i < len(media_players_config) - 1:
@@ -605,6 +665,11 @@ async def send_tts(
             
         except Exception as e:
             _LOGGER.error("Error sending TTS to %s: %s", entity_id, e, exc_info=True)
+            _fire_tts_status(
+                hass, "failed",
+                request_id=request_id, entity_id=entity_id,
+                reason=str(e), alert_kind=alert_kind,
+            )
 
 
 async def send_tts_with_ai_rewrite(
@@ -613,6 +678,9 @@ async def send_tts_with_ai_rewrite(
     tts_config: dict[str, Any],
     message: str,
     volume_override: float | None = None,
+    *,
+    request_id: str | None = None,
+    alert_kind: str = "",
 ) -> None:
     """Send TTS with optional AI rewrite of the message."""
     use_ai = tts_config.get("use_ai_rewrite", False)
@@ -650,8 +718,13 @@ async def send_tts_with_ai_rewrite(
             _LOGGER.warning("AI rewrite timed out, using original message")
         except Exception as e:
             _LOGGER.warning("AI rewrite failed, using original message: %s", e)
+    elif use_ai and not ai_entity:
+        _LOGGER.warning("AI rewrite enabled but no ai_task_entity configured, using original message")
     
-    await send_tts(hass, media_players_config, final_message, volume_override)
+    await send_tts(
+        hass, media_players_config, final_message, volume_override,
+        request_id=request_id, alert_kind=alert_kind,
+    )
 
 
 async def play_nws_alert_notification(
@@ -659,6 +732,8 @@ async def play_nws_alert_notification(
     config: dict[str, Any],
     alert_properties: dict[str, Any],
     media_players_config: list[dict[str, Any]],
+    *,
+    request_id: str | None = None,
 ) -> None:
     """Play siren sound (if configured) then TTS for an NWS weather alert."""
     nws = config.get("nws_alerts", {})
@@ -670,6 +745,11 @@ async def play_nws_alert_notification(
     if len(msg) > 500:
         msg = msg[:497] + "..."
     if not media_players_config:
+        _fire_tts_status(
+            hass, "skipped",
+            request_id=request_id, reason="No media players configured",
+            alert_kind="nws_alert",
+        )
         return
     base_url = ""
     try:
@@ -704,4 +784,12 @@ async def play_nws_alert_notification(
             )
         except Exception as exc:
             _LOGGER.warning("NWS alert playback failed for %s: %s", eid, exc)
-    await send_tts(hass, media_players_config, msg, volume_override=tts_vol)
+            _fire_tts_status(
+                hass, "failed",
+                request_id=request_id, entity_id=eid,
+                reason=str(exc), alert_kind="nws_alert",
+            )
+    await send_tts(
+        hass, media_players_config, msg, volume_override=tts_vol,
+        request_id=request_id, alert_kind="nws_alert",
+    )

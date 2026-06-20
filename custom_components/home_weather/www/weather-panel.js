@@ -50,6 +50,10 @@ class HomeWeatherPanel extends HTMLElement {
     if (hass && !this._webhookEventUnsub) {
       this._subscribeToWebhookEvents();
     }
+    // Subscribe to TTS status events for real playback feedback
+    if (hass && !this._ttsStatusUnsub) {
+      this._subscribeToTtsStatus();
+    }
     // Do NOT call _render() here - hass updates on every HA state change, causing constant re-renders.
     // Rendering happens on: loadConfig, loadWeatherData, user actions, media query.
   }
@@ -69,6 +73,8 @@ class HomeWeatherPanel extends HTMLElement {
     this._startUpdateCheckPoll();
     // Subscribe to webhook triggered events for real-time status updates
     this._subscribeToWebhookEvents();
+    // Subscribe to TTS status events for real playback feedback
+    this._subscribeToTtsStatus();
   }
 
   disconnectedCallback() {
@@ -80,6 +86,11 @@ class HomeWeatherPanel extends HTMLElement {
     if (this._webhookEventUnsub) {
       this._webhookEventUnsub();
       this._webhookEventUnsub = null;
+    }
+    // Unsubscribe from TTS status events
+    if (this._ttsStatusUnsub) {
+      this._ttsStatusUnsub();
+      this._ttsStatusUnsub = null;
     }
   }
 
@@ -96,6 +107,75 @@ class HomeWeatherPanel extends HTMLElement {
     } catch (e) {
       console.warn("Error subscribing to webhook events:", e);
     }
+  }
+
+  _subscribeToTtsStatus() {
+    if (!this._hass || this._ttsStatusUnsub) return;
+    if (!this._pendingTtsRequests) this._pendingTtsRequests = new Map();
+    try {
+      this._hass.connection.subscribeEvents((event) => {
+        this._handleTtsStatusEvent(event);
+      }, "home_weather_tts_status").then((unsub) => {
+        this._ttsStatusUnsub = unsub;
+      }).catch((e) => {
+        console.warn("Failed to subscribe to TTS status events:", e);
+      });
+    } catch (e) {
+      console.warn("Error subscribing to TTS status events:", e);
+    }
+  }
+
+  _handleTtsStatusEvent(event) {
+    const data = (event && event.data) || {};
+    const request_id = data.request_id;
+    if (!request_id) return;
+    const pending = this._pendingTtsRequests && this._pendingTtsRequests.get(request_id);
+    if (!pending) return;
+
+    const { btn, originalLabel, resetTimer } = pending;
+    const status = data.status;
+    const reason = data.reason || "";
+
+    // Map backend status to UI label
+    let label = originalLabel;
+    if (status === "sent") {
+      label = "Playing\u2026";
+    } else if (status === "failed") {
+      label = reason ? `Failed: ${this._truncate(reason, 28)}` : "Failed";
+    } else if (status === "skipped") {
+      label = reason ? `Skipped: ${this._truncate(reason, 28)}` : "Skipped";
+    } else {
+      return; // ignore unknown statuses
+    }
+
+    if (btn && this.shadowRoot && this.shadowRoot.contains(btn)) {
+      btn.textContent = label;
+    }
+
+    // Clear any prior reset timer and schedule a fresh one so the label
+    // persists long enough for the user to read the outcome.
+    if (resetTimer) clearTimeout(resetTimer);
+    if (pending.fallbackTimer) {
+      clearTimeout(pending.fallbackTimer);
+      pending.fallbackTimer = null;
+    }
+    const newTimer = setTimeout(() => {
+      this._pendingTtsRequests && this._pendingTtsRequests.delete(request_id);
+      if (btn && this.shadowRoot && this.shadowRoot.contains(btn)) {
+        btn.textContent = originalLabel;
+        btn.disabled = false;
+      }
+    }, 4000);
+    pending.resetTimer = newTimer;
+  }
+
+  _truncate(str, n) {
+    return str.length > n ? str.slice(0, n - 1) + "\u2026" : str;
+  }
+
+  _trackTtsRequest(request_id, btn, originalLabel) {
+    if (!this._pendingTtsRequests) this._pendingTtsRequests = new Map();
+    this._pendingTtsRequests.set(request_id, { btn, originalLabel, resetTimer: null });
   }
 
   _handleWebhookTriggered(event) {
@@ -693,6 +773,19 @@ class HomeWeatherPanel extends HTMLElement {
       .replace(/\b\w/g, (c) => c.toUpperCase());
   }
 
+  _renderHeaderTempPill() {
+    const w = this._weatherData;
+    if (!w || !w.configured) return "";
+    const current = w.current || {};
+    const hourly = w.hourly_forecast || [];
+    const h0 = hourly[0] || {};
+    const temp = (current.temperature ?? h0.temperature);
+    if (temp == null) return "";
+    const condition = current.condition || current.state || "";
+    const icon = this._getConditionIcon(condition, null, new Date());
+    return `<div class="pill header-temp-pill"><span class="header-temp-icon">${icon}</span><span class="header-temp-val">${Math.round(temp)}&deg;</span></div>`;
+  }
+
   _getConditionIcon(condition, size, datetime, forceDay = false) {
     const c = (condition || "").toLowerCase().replace(/\s+/g, "");
     const isNight = forceDay ? false : this._isNightTime(datetime);
@@ -778,23 +871,47 @@ class HomeWeatherPanel extends HTMLElement {
       <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
         :host {
-          --primary-background-color: #111111;
-          --card-background-color: #1c1c1c;
-          --panel-header-background: #1c1c1c;
-          --secondary-background-color: #282828;
-          --input-bg: #282828;
-          --primary-text-color: #e1e1e1;
-          --secondary-text-color: #9b9b9b;
-          --disabled-text-color: #6f6f6f;
-          --panel-accent: #03a9f4;
-          --panel-accent-hover: #29b6f6;
-          --panel-accent-dim: rgba(3, 169, 244, 0.15);
-          --panel-danger: #f44336;
-          --panel-warning: #ff9800;
-          --panel-success: #4caf50;
-          --card-border: rgba(255, 255, 255, 0.08);
-          --input-border: rgba(255, 255, 255, 0.12);
-          --divider-color: var(--card-border);
+          /* Panel-private tokens. HA themes cannot override these because they
+             only know the standard --card-background-color etc. names. All panel
+             surfaces resolve to these hardcoded dark values. */
+          --hw-bg: #111111;
+          --hw-surface: #1c1c1c;
+          --hw-surface-2: #161616;
+          --hw-elevated: #282828;
+          --hw-input-bg: #282828;
+          --hw-text: #e1e1e1;
+          --hw-muted: #9b9b9b;
+          --hw-disabled: #6f6f6f;
+          --hw-accent: #03a9f4;
+          --hw-accent-hover: #29b6f6;
+          --hw-accent-dim: rgba(3, 169, 244, 0.15);
+          --hw-danger: #f44336;
+          --hw-warning: #ff9800;
+          --hw-success: #4caf50;
+          --hw-border: rgba(255, 255, 255, 0.08);
+          --hw-border-strong: rgba(255, 255, 255, 0.12);
+          --hw-hover: rgba(255, 255, 255, 0.04);
+
+          /* Semantic aliases point at the private tokens so existing
+             var(--card-background-color) references stay dark regardless of the
+             active HA theme. */
+          --primary-background-color: var(--hw-bg);
+          --card-background-color: var(--hw-surface);
+          --panel-header-background: var(--hw-surface);
+          --secondary-background-color: var(--hw-elevated);
+          --input-bg: var(--hw-input-bg);
+          --primary-text-color: var(--hw-text);
+          --secondary-text-color: var(--hw-muted);
+          --disabled-text-color: var(--hw-disabled);
+          --panel-accent: var(--hw-accent);
+          --panel-accent-hover: var(--hw-accent-hover);
+          --panel-accent-dim: var(--hw-accent-dim);
+          --panel-danger: var(--hw-danger);
+          --panel-warning: var(--hw-warning);
+          --panel-success: var(--hw-success);
+          --card-border: var(--hw-border);
+          --input-border: var(--hw-border-strong);
+          --divider-color: var(--hw-border);
           --primary-color: var(--panel-accent);
           --accent-color: var(--panel-accent);
           --primary-color-text: #ffffff;
@@ -857,41 +974,55 @@ class HomeWeatherPanel extends HTMLElement {
           max-width: none;
           margin: 0;
           font-family: var(--paper-font-body1_-_font-family, "Roboto", "Segoe UI", sans-serif);
-          background: var(--primary-background-color);
-          color: var(--text);
+          background: var(--hw-bg);
+          color: var(--hw-text);
         }
+        /* Force every surface element to dark defaults so no HA theme or UA
+           stylesheet can ever produce white cards/buttons. */
+        :host button, :host article, :host section, :host aside {
+          background: transparent;
+          color: inherit;
+        }
+        :host button { border: none; font: inherit; }
         .hud-wrapper { position: relative; min-height: 100%; overflow: auto; }
         .hud-wrapper::before, .hud-wrapper::after { content: none; }
         .weather-app { padding: 0; display: flex; flex-direction: column; gap: 0; height: 100%; min-height: 0; min-width: 0; }
-        .content-area { flex: 1; min-height: 0; min-width: 0; max-width: 720px; margin: 0 auto; width: 100%; padding: clamp(var(--space-3), 2vw, var(--space-4)); padding-bottom: calc(clamp(var(--space-3), 2vw, var(--space-4)) + var(--safe-bottom)); box-sizing: border-box; display: flex; flex-direction: column; overflow-x: hidden; }
-        .glass { background: var(--card-background-color); border: 1px solid var(--card-border); border-radius: var(--radius-xl); box-shadow: var(--shadow); }
+        .content-area { flex: 1; min-height: 0; min-width: 0; width: 100%; max-width: 100%; margin: 0; padding: clamp(var(--space-3), 3vw, var(--space-5)); padding-bottom: calc(clamp(var(--space-3), 3vw, var(--space-5)) + var(--safe-bottom)); box-sizing: border-box; display: flex; flex-direction: column; overflow-x: hidden; }
+        @media (min-width: 1200px) {
+          .content-area { max-width: 1600px; margin: 0 auto; }
+        }
+        .glass { background: var(--hw-surface); border: 1px solid var(--hw-border); border-radius: var(--radius-xl); box-shadow: var(--shadow); }
         .topbar {
           position: sticky;
           top: 0;
           z-index: 100;
           display: flex;
-          flex-wrap: wrap;
+          flex-wrap: nowrap;
           align-items: center;
           gap: var(--space-2) var(--space-3);
           min-width: 0;
-          padding: calc(var(--space-2) + var(--safe-top)) calc(var(--space-3) + var(--safe-right)) var(--space-2) calc(var(--space-3) + var(--safe-left));
-          background: var(--panel-header-background);
-          backdrop-filter: blur(12px);
-          -webkit-backdrop-filter: blur(12px);
-          border-bottom: 1px solid var(--card-border);
+          padding: calc(var(--space-1) + var(--safe-top)) calc(var(--space-3) + var(--safe-right)) var(--space-1) calc(var(--space-3) + var(--safe-left));
+          background: rgba(28, 28, 28, 0.72);
+          backdrop-filter: blur(14px) saturate(140%);
+          -webkit-backdrop-filter: blur(14px) saturate(140%);
+          border-bottom: 1px solid var(--hw-border);
         }
         .topbar .icon-btn { flex-shrink: 0; width: 44px; min-width: 44px; height: 44px; }
         .title-card { flex: 1; min-width: 0; display: flex; align-items: center; padding: 0 var(--space-2) 0 0; background: transparent; border: none; box-shadow: none; border-radius: 0; }
         .title-wrap { min-width: 0; flex: 1; overflow: hidden; }
-        .eyebrow { color: var(--muted); font-size: var(--fs-eyebrow); letter-spacing: 0.14em; text-transform: uppercase; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .title { font-size: clamp(17px, 2.2vw, 20px); line-height: 1.2; font-weight: 600; letter-spacing: -0.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--primary-text-color); }
-        .status-card { display: flex; align-items: center; gap: var(--space-2); justify-content: flex-end; padding: 0; flex-shrink: 1; flex-wrap: wrap; min-width: 0; background: transparent; border: none; box-shadow: none; border-radius: 0; }
-        .pill { min-height: 32px; height: 32px; padding: 0 var(--space-3); border-radius: 999px; border: 1px solid var(--input-border); background: var(--secondary-background-color); display: inline-flex; align-items: center; gap: 5px; color: var(--secondary-text-color); font-size: var(--fs-xs); white-space: nowrap; flex-shrink: 0; min-width: 0; }
-        .pill.pill-muted { font-size: var(--fs-eyebrow); color: var(--muted); }
-        .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--panel-success); box-shadow: 0 0 0 1px rgba(76, 175, 80, 0.35); }
-        .icon-btn { border: 1px solid var(--input-border); background: var(--input-bg); border-radius: var(--radius-sm); box-shadow: none; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--text); transition: background var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease); width: 44px; height: 44px; min-width: 44px; }
-        .icon-btn:hover { background: rgba(255, 255, 255, 0.06); border-color: var(--input-border); color: var(--panel-accent-hover); }
-        .icon-btn:focus-visible, .switcher button:focus-visible, .nav-tab:focus-visible, .btn:focus-visible, .forecast-tab:focus-visible, .forecast-card:focus-visible, .daily-row:focus-visible, .alert-card:focus-visible { outline: 2px solid var(--panel-accent); outline-offset: 2px; }
+        .eyebrow { color: var(--hw-muted); font-size: var(--fs-eyebrow); letter-spacing: 0.14em; text-transform: uppercase; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .title { font-size: clamp(15px, 1.8vw, 18px); line-height: 1.2; font-weight: 600; letter-spacing: -0.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--hw-text); }
+        .status-card { display: flex; align-items: center; gap: var(--space-2); justify-content: flex-end; padding: 0; flex-shrink: 1; flex-wrap: nowrap; min-width: 0; background: transparent; border: none; box-shadow: none; border-radius: 0; }
+        .pill { min-height: 32px; height: 32px; padding: 0 var(--space-3); border-radius: 999px; border: 1px solid var(--hw-border-strong); background: var(--hw-elevated); display: inline-flex; align-items: center; gap: 5px; color: var(--hw-muted); font-size: var(--fs-xs); white-space: nowrap; flex-shrink: 0; min-width: 0; }
+        .pill.pill-muted { font-size: var(--fs-eyebrow); color: var(--hw-muted); }
+        .header-temp-pill { color: var(--hw-text); font-weight: 600; gap: 6px; }
+        .header-temp-icon { display: inline-flex; align-items: center; }
+        .header-temp-icon img { width: 20px; height: 18px; object-fit: contain; }
+        .header-temp-val { font-size: var(--fs-body); font-variant-numeric: tabular-nums; }
+        .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--hw-success); box-shadow: 0 0 0 1px rgba(76, 175, 80, 0.35); }
+        .icon-btn { border: 1px solid var(--hw-border-strong); background: var(--hw-input-bg); border-radius: var(--radius-sm); box-shadow: none; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--hw-text); transition: background var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease); width: 44px; height: 44px; min-width: 44px; }
+        .icon-btn:hover { background: var(--hw-hover); border-color: var(--hw-border-strong); color: var(--hw-accent-hover); }
+        .icon-btn:focus-visible, .switcher button:focus-visible, .nav-tab:focus-visible, .btn:focus-visible, .forecast-tab:focus-visible, .forecast-card:focus-visible, .daily-row:focus-visible, .alert-card:focus-visible { outline: 2px solid var(--hw-accent); outline-offset: 2px; }
         .icon-btn svg { width: 22px; height: 22px; }
         .dashboard { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; min-height: 0; flex: 1; padding-bottom: calc(var(--space-5) + var(--safe-bottom)); box-sizing: border-box; }
         .dashboard-message { padding: var(--space-6); text-align: center; }
@@ -916,11 +1047,11 @@ class HomeWeatherPanel extends HTMLElement {
         .hourly-strip::before { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, var(--panel-accent-dim), transparent 30%); pointer-events: none; border-radius: var(--radius-md); }
 
         /* Forecast card (hourly strip item) */
-        .forecast-card { background: var(--card-background-color); border: 1px solid var(--card-border); border-top: 3px solid transparent; border-radius: var(--radius-md); padding: var(--space-3) var(--space-2); display: flex; flex-direction: column; align-items: center; justify-content: space-between; min-height: 120px; text-align: center; width: clamp(68px, 18vw, 84px); flex: 0 0 auto; box-sizing: border-box; cursor: pointer; transition: background var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease); scroll-snap-align: start; }
-        .forecast-card:hover { background: var(--secondary-background-color); }
+        .forecast-card { background: var(--hw-surface); border: 1px solid var(--hw-border); border-top: 3px solid transparent; border-radius: var(--radius-md); padding: var(--space-3) var(--space-2); display: flex; flex-direction: column; align-items: center; justify-content: space-between; min-height: 120px; text-align: center; width: clamp(68px, 18vw, 84px); flex: 0 0 auto; box-sizing: border-box; cursor: pointer; transition: background var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease); scroll-snap-align: start; }
+        .forecast-card:hover { background: var(--hw-hover); }
         .forecast-card:active { transform: scale(0.97); }
-        .forecast-card.active { background: var(--panel-accent-dim); border-color: rgba(3, 169, 244, 0.35); border-top-color: var(--panel-accent); }
-        .forecast-card .day { font-size: var(--fs-xs); color: var(--text); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+        .forecast-card.active { background: var(--hw-accent-dim); border-color: rgba(3, 169, 244, 0.35); border-top-color: var(--hw-accent); }
+        .forecast-card .day { font-size: var(--fs-xs); color: var(--hw-text); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
         .forecast-card .icon { margin: var(--space-1) 0; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
         .forecast-card .icon img { width: clamp(28px, 7vw, 38px); height: clamp(24px, 6vw, 32px); object-fit: contain; }
         .forecast-card .condition { font-size: 9px; color: var(--muted); margin-bottom: var(--space-1); text-align: center; line-height: 1.2; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -929,21 +1060,22 @@ class HomeWeatherPanel extends HTMLElement {
         .forecast-card .low { color: var(--muted); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
         .forecast-card .rain { margin-top: var(--space-1); color: var(--panel-accent-hover); font-size: var(--fs-xs); font-weight: 600; }
 
-        /* Daily vertical list */
-        .daily-list { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }
-        .daily-row { display: grid; grid-template-columns: 64px 36px 1fr auto; grid-template-rows: auto; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-2); border-radius: var(--radius-md); cursor: pointer; transition: background var(--dur-fast) var(--ease); min-height: 56px; }
-        .daily-row:hover { background: var(--secondary-background-color); }
-        .daily-row.active { background: var(--panel-accent-dim); }
-        .daily-row .daily-day { font-size: var(--fs-body); font-weight: 600; color: var(--primary-text-color); }
+        /* Daily vertical list — explicit dark surfaces, accent left-border per day */
+        .daily-card { background: var(--hw-surface-2) !important; border: 1px solid var(--hw-border) !important; }
+        .daily-list { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+        .daily-row { display: grid; grid-template-columns: 64px 36px 1fr auto; grid-template-rows: auto; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-3) var(--space-2) calc(var(--space-3) - 3px); border-radius: var(--radius-md); border-left: 3px solid transparent; background: transparent; cursor: pointer; transition: background var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease); min-height: 48px; }
+        .daily-row:hover { background: var(--hw-hover); }
+        .daily-row.active { background: var(--hw-accent-dim); border-left-color: var(--hw-accent); }
+        .daily-row .daily-day { font-size: var(--fs-body); font-weight: 600; color: var(--hw-text); }
         .daily-row .daily-icon { display: flex; align-items: center; justify-content: center; }
         .daily-row .daily-icon img { width: 36px; height: 30px; object-fit: contain; }
         .daily-row .daily-bar { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }
-        .daily-row .daily-precip { display: flex; align-items: center; gap: var(--space-1); font-size: var(--fs-xs); color: var(--panel-accent-hover); font-weight: 600; }
-        .daily-range-track { position: relative; height: 4px; background: var(--secondary-background-color); border-radius: 2px; overflow: hidden; min-width: 60px; }
-        .daily-range-fill { position: absolute; top: 0; bottom: 0; background: linear-gradient(90deg, var(--panel-accent), var(--panel-warning)); border-radius: 2px; }
+        .daily-row .daily-precip { display: flex; align-items: center; gap: var(--space-1); font-size: var(--fs-xs); color: var(--hw-accent-hover); font-weight: 600; }
+        .daily-range-track { position: relative; height: 4px; background: var(--hw-elevated); border-radius: 2px; overflow: hidden; min-width: 60px; }
+        .daily-range-fill { position: absolute; top: 0; bottom: 0; background: linear-gradient(90deg, var(--hw-accent), var(--hw-warning)); border-radius: 2px; }
         .daily-row .daily-temps { display: flex; align-items: baseline; gap: var(--space-2); font-variant-numeric: tabular-nums; }
-        .daily-row .daily-high { font-size: var(--fs-body); font-weight: 700; color: var(--primary-text-color); }
-        .daily-row .daily-low { font-size: var(--fs-small); color: var(--muted); }
+        .daily-row .daily-high { font-size: var(--fs-body); font-weight: 700; color: var(--hw-text); }
+        .daily-row .daily-low { font-size: var(--fs-small); color: var(--hw-muted); }
         @media (max-width: 380px) {
           .daily-row { grid-template-columns: 52px 32px 1fr auto; gap: var(--space-2); }
           .daily-range-track { min-width: 40px; }
@@ -1250,9 +1382,8 @@ class HomeWeatherPanel extends HTMLElement {
                     <div class="title">Home Weather</div>
                   </div>
                 </section>
+                ${this._renderHeaderTempPill()}
                 <section class="status-card">
-                  <div class="pill"><span class="status-dot"></span>Live</div>
-                  <div class="pill">v${this._version ?? "—"}</div>
                   <div class="pill pill-muted pill-update-hide-narrow" id="update-status-pill">${this._updateStatus === "available" ? "Update available" : "Latest"}</div>
                 </section>
                 <button class="icon-btn" id="alerts-btn" aria-label="Alerts" style="display:flex;align-items:center;gap:6px;padding:0 10px;width:auto;min-width:40px;">
@@ -1606,16 +1737,17 @@ class HomeWeatherPanel extends HTMLElement {
         const mediaPlayers = this._settings.media_players || [];
         const mp = mediaPlayers[idx];
         if (!mp || !mp.entity_id) return;
-        
+
         const ttsEntity = mp.tts_entity_id || this._settings.tts?.engine;
         if (!ttsEntity) {
           alert("Please select a TTS entity first.");
           return;
         }
-        
+
+        const originalLabel = btn.textContent;
         btn.textContent = "Testing...";
         btn.disabled = true;
-        
+
         try {
           // Parse options JSON if it exists
           let optionsObj = {};
@@ -1630,7 +1762,7 @@ class HomeWeatherPanel extends HTMLElement {
               optionsObj = mp.options;
             }
           }
-          
+
           const wsData = {
             type: "home_weather/test_tts",
             media_player_entity_id: mp.entity_id,
@@ -1639,79 +1771,104 @@ class HomeWeatherPanel extends HTMLElement {
             volume: mp.volume || 0.6,
             cache: mp.cache || false,
           };
-          
+
           // Only add language if non-empty
           if (mp.language && mp.language.trim()) {
             wsData.language = mp.language.trim();
           }
-          
+
           // Only add options if non-empty object
           if (optionsObj && Object.keys(optionsObj).length > 0) {
             wsData.options = optionsObj;
           }
-          
-          await this._hass.callWS(wsData);
+
+          const result = await this._hass.callWS(wsData);
+          const requestId = (result && result.request_id) || "";
+          if (requestId) {
+            this._trackTtsRequest(requestId, btn, originalLabel);
+            // Fallback in case no status event arrives within 10s
+            const fallback = setTimeout(() => {
+              if (this._pendingTtsRequests && this._pendingTtsRequests.has(requestId)) {
+                this._pendingTtsRequests.delete(requestId);
+                if (this.shadowRoot && this.shadowRoot.contains(btn)) {
+                  btn.textContent = originalLabel;
+                  btn.disabled = false;
+                }
+              }
+            }, 10000);
+            const pending = this._pendingTtsRequests.get(requestId);
+            if (pending) pending.fallbackTimer = fallback;
+          } else {
+            // No request_id correlation: reset after short delay
+            setTimeout(() => {
+              if (this.shadowRoot && this.shadowRoot.contains(btn)) {
+                btn.textContent = originalLabel;
+                btn.disabled = false;
+              }
+            }, 2500);
+          }
         } catch (e) {
           console.error("Test TTS failed:", e);
           alert("Test TTS failed: " + e.message);
-        } finally {
-          btn.textContent = "Test TTS";
+          btn.textContent = originalLabel;
           btn.disabled = false;
         }
       });
     });
     
-    // Test Forecast button
-    const testForecastBtn = s.getElementById("test-forecast-btn");
-    if (testForecastBtn) {
-      testForecastBtn.addEventListener("click", async () => {
-        const originalLabel = testForecastBtn.textContent;
-        testForecastBtn.textContent = "Starting...";
-        testForecastBtn.disabled = true;
-        try {
-          await this._hass.callWS({ type: "home_weather/test_forecast" });
-          testForecastBtn.textContent = "Queued";
-        } catch (e) {
-          console.error("Test forecast failed:", e);
-          alert("Test forecast failed: " + e.message);
-          testForecastBtn.textContent = originalLabel;
-        } finally {
-          testForecastBtn.disabled = false;
-          if (testForecastBtn.textContent === "Queued") {
-            setTimeout(() => {
-              if (testForecastBtn.textContent === "Queued") {
-                testForecastBtn.textContent = originalLabel;
-              }
-            }, 2500);
-          }
-        }
-      });
-    }
-
-    // Generic helper to wire any test-trigger button to a WebSocket command.
-    const wireTestButton = (btnId, wsType, busyLabel = "Sending…") => {
-      const btn = s.getElementById(btnId);
+    // Shared helper: wire a test button to a WS command and reflect real TTS
+    // playback status (sent/failed/skipped) via the home_weather_tts_status
+    // event instead of a blind "Queued" label.
+    const wireStatusTestButton = (btn, wsType, busyLabel = "Sending\u2026") => {
       if (!btn) return;
       btn.addEventListener("click", async () => {
         const originalLabel = btn.textContent;
         btn.textContent = busyLabel;
         btn.disabled = true;
         try {
-          await this._hass.callWS({ type: wsType });
-          btn.textContent = "Queued";
+          const result = await this._hass.callWS({ type: wsType });
+          const requestId = (result && result.request_id) || "";
+          if (requestId) {
+            this._trackTtsRequest(requestId, btn, originalLabel);
+            // Fallback: if no status event arrives in 12s, reset label.
+            const fallback = setTimeout(() => {
+              if (this._pendingTtsRequests && this._pendingTtsRequests.has(requestId)) {
+                this._pendingTtsRequests.delete(requestId);
+                if (this.shadowRoot && this.shadowRoot.contains(btn)) {
+                  btn.textContent = originalLabel;
+                  btn.disabled = false;
+                }
+              }
+            }, 12000);
+            const pending = this._pendingTtsRequests.get(requestId);
+            if (pending) pending.fallbackTimer = fallback;
+          } else {
+            // No correlation id: keep old behavior as a safe fallback.
+            btn.textContent = "Queued";
+            setTimeout(() => {
+              if (this.shadowRoot && this.shadowRoot.contains(btn) && btn.textContent === "Queued") {
+                btn.textContent = originalLabel;
+                btn.disabled = false;
+              }
+            }, 2500);
+          }
         } catch (e) {
           console.error(`${wsType} failed:`, e);
           alert(`${originalLabel} failed: ${(e && e.message) || e}`);
           btn.textContent = originalLabel;
-        } finally {
           btn.disabled = false;
-          if (btn.textContent === "Queued") {
-            setTimeout(() => {
-              if (btn.textContent === "Queued") btn.textContent = originalLabel;
-            }, 2500);
-          }
         }
       });
+    };
+
+    // Test Forecast button
+    const testForecastBtn = s.getElementById("test-forecast-btn");
+    wireStatusTestButton(testForecastBtn, "home_weather/test_forecast", "Starting\u2026");
+
+    // Generic helper to wire any test-trigger button to a WebSocket command.
+    const wireTestButton = (btnId, wsType, busyLabel = "Sending\u2026") => {
+      const btn = s.getElementById(btnId);
+      wireStatusTestButton(btn, wsType, busyLabel);
     };
 
     wireTestButton("test-current-change-btn", "home_weather/test_current_change");

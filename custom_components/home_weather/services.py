@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from typing import Any
 
 import voluptuous as vol
@@ -10,6 +11,7 @@ from homeassistant.components.webhook import async_generate_url
 from homeassistant.core import HomeAssistant, callback
 
 from .const import DOMAIN, WEBHOOK_LAST_TRIGGERED_KEY
+from .tts_notifications import _fire_tts_status
 from .tts_triggers import media_players_with_tts
 
 _LOGGER = logging.getLogger(__name__)
@@ -210,7 +212,8 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
         cache = msg.get("cache", True)
         language = msg.get("language", "")
         options = msg.get("options", {})
-        
+        request_id = uuid.uuid4().hex
+
         try:
             # Set volume
             await hass.services.async_call(
@@ -222,24 +225,24 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
                 },
                 blocking=False,
             )
-            
+
             # Build TTS service data - only include non-empty optional fields
             service_data: dict[str, Any] = {
                 "media_player_entity_id": media_player,
                 "message": message,
                 "cache": cache,
             }
-            
+
             # Only add language if non-empty
             if language and isinstance(language, str) and language.strip():
                 service_data["language"] = language.strip()
-            
+
             # Only add options if non-empty dict
             if options and isinstance(options, dict) and len(options) > 0:
                 service_data["options"] = options
-            
+
             _LOGGER.debug("Test TTS service data: %s", service_data)
-            
+
             await hass.services.async_call(
                 "tts",
                 "speak",
@@ -247,10 +250,20 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
                 target={"entity_id": tts_entity},
                 blocking=False,
             )
-            
-            connection.send_result(msg["id"], {"success": True})
+
+            _fire_tts_status(
+                hass, "sent",
+                request_id=request_id, entity_id=media_player,
+                message_preview=message, alert_kind="test_tts",
+            )
+            connection.send_result(msg["id"], {"success": True, "request_id": request_id})
         except Exception as e:
             _LOGGER.error("Test TTS failed: %s", e)
+            _fire_tts_status(
+                hass, "failed",
+                request_id=request_id, entity_id=media_player,
+                reason=str(e), alert_kind="test_tts",
+            )
             connection.send_error(msg["id"], "tts_failed", str(e))
 
     @websocket_api.websocket_command(
@@ -293,15 +306,17 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
                 connection.send_error(msg["id"], "not_configured", "Weather not configured")
                 return
 
+            request_id = uuid.uuid4().hex
+
             async def _run_test() -> None:
                 try:
-                    await trigger_manager.fire_test_scheduled_forecast()
-                    _LOGGER.info("Test forecast TTS queued successfully")
+                    await trigger_manager.fire_test_scheduled_forecast(request_id=request_id)
+                    _LOGGER.info("Test forecast TTS queued successfully (request_id=%s)", request_id)
                 except Exception as err:
                     _LOGGER.error("Test forecast background task failed: %s", err, exc_info=True)
 
             hass.async_create_task(_run_test())
-            connection.send_result(msg["id"], {"success": True, "status": "started"})
+            connection.send_result(msg["id"], {"success": True, "status": "started", "request_id": request_id})
         except Exception as e:
             _LOGGER.error("Test forecast failed: %s", e)
             connection.send_error(msg["id"], "forecast_failed", str(e))
@@ -345,15 +360,17 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
                 connection.send_error(msg["id"], "not_configured", "Weather not configured")
                 return
 
+            request_id = uuid.uuid4().hex
+
             async def _run_test() -> None:
                 try:
-                    await trigger_manager.fire_test_current_change()
-                    _LOGGER.info("Test current-change TTS queued successfully")
+                    await trigger_manager.fire_test_current_change(request_id=request_id)
+                    _LOGGER.info("Test current-change TTS queued successfully (request_id=%s)", request_id)
                 except Exception as err:
                     _LOGGER.error("Test current-change background task failed: %s", err, exc_info=True)
 
             hass.async_create_task(_run_test())
-            connection.send_result(msg["id"], {"success": True, "status": "started"})
+            connection.send_result(msg["id"], {"success": True, "status": "started", "request_id": request_id})
         except Exception as e:
             _LOGGER.error("Test current change failed: %s", e)
             connection.send_error(msg["id"], "current_change_failed", str(e))
@@ -390,14 +407,16 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
                 connection.send_error(msg["id"], "method_missing", method_name)
                 return
 
+            request_id = uuid.uuid4().hex
+
             async def _run() -> None:
                 try:
-                    await method()
+                    await method(request_id=request_id)
                 except Exception as err:
                     _LOGGER.error("%s background task failed: %s", method_name, err, exc_info=True)
 
             hass.async_create_task(_run())
-            connection.send_result(msg["id"], {"success": True, "status": "started"})
+            connection.send_result(msg["id"], {"success": True, "status": "started", "request_id": request_id})
 
         _handler.__name__ = f"handle_{method_name}"
         return _handler
@@ -526,7 +545,11 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
         from pathlib import Path
         import json
         manifest_path = Path(__file__).parent / "manifest.json"
-        manifest = json.loads(manifest_path.read_text())
+        # Disk read must happen off the event loop.
+        manifest_text = await hass.async_add_executor_job(
+            manifest_path.read_text
+        )
+        manifest = json.loads(manifest_text)
         connection.send_result(msg["id"], {"version": manifest.get("version", "0.0")})
 
     @websocket_api.websocket_command({"type": "home_weather/list_www_sounds"})
@@ -538,13 +561,16 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
         from pathlib import Path
         comp_path = Path(__file__).parent
         sounds_dir = comp_path / "www" / "sounds"
-        sounds_dir.mkdir(parents=True, exist_ok=True)
-        allowed = frozenset({".mp3", ".wav", ".ogg"})
-        sounds = [
-            f.name for f in sounds_dir.iterdir()
-            if f.is_file() and f.suffix.lower() in allowed
-        ]
-        sounds.sort()
+
+        def _list() -> list[str]:
+            sounds_dir.mkdir(parents=True, exist_ok=True)
+            allowed = frozenset({".mp3", ".wav", ".ogg"})
+            return [
+                f.name for f in sounds_dir.iterdir()
+                if f.is_file() and f.suffix.lower() in allowed
+            ]
+
+        sounds = sorted(await hass.async_add_executor_job(_list))
         connection.send_result(msg["id"], {"sounds": sounds})
 
     websocket_api.async_register_command(hass, handle_get_config)

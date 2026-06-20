@@ -26,6 +26,8 @@ from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN, WEBHOOK_LAST_TRIGGERED_KEY
 from .tts_notifications import (
+    TTS_STATUS_EVENT,
+    _fire_tts_status,
     build_scheduled_forecast,
     build_current_change_message,
     build_upcoming_change_message,
@@ -133,6 +135,23 @@ def media_players_with_tts(media_players: list[dict[str, Any]]) -> list[dict[str
     ]
 
 
+def _weather_data_usable(weather_data: dict[str, Any] | None) -> bool:
+    """Return True when weather_data has enough payload to build a TTS message.
+
+    The coordinator returns a non-empty dict even when configured=False, so a
+    truthy check is not enough — we need actual current/hourly/daily payload.
+    """
+    if not weather_data:
+        return False
+    if weather_data.get("configured") is False:
+        return False
+    return bool(
+        weather_data.get("current")
+        or weather_data.get("hourly_forecast")
+        or weather_data.get("daily_forecast")
+    )
+
+
 class TTSTriggerManager:
     """Manage all TTS triggers for the Home Weather integration."""
 
@@ -227,7 +246,13 @@ class TTSTriggerManager:
         _LOGGER.info("TTS triggers unloaded")
 
     async def _resolve_weather_data(self, *, refresh: bool = True) -> dict[str, Any]:
-        """Refresh and return the best available weather data for TTS."""
+        """Refresh and return the best available weather data for TTS.
+
+        Coordinator data may be empty/stale (configured: False) when the
+        weather entity is mid-refresh or hasn't run yet. We always attempt a
+        live-state fallback so TTS for non-sunrise alerts isn't silently
+        dropped just because the coordinator cache is cold.
+        """
         if refresh and self._refresh_weather_data:
             try:
                 await asyncio.wait_for(self._refresh_weather_data(), timeout=15.0)
@@ -237,17 +262,39 @@ class TTSTriggerManager:
                 _LOGGER.warning("Weather refresh failed before TTS: %s", err)
 
         weather_data = self._get_weather_data() or {}
-        if weather_data.get("configured") is not False:
+        configured = weather_data.get("configured") is not False
+        has_payload = bool(
+            weather_data.get("current")
+            or weather_data.get("hourly_forecast")
+            or weather_data.get("daily_forecast")
+        )
+
+        if configured and has_payload:
             return weather_data
 
+        # Coordinator cache is cold/empty: fall back to live entity state so
+        # alerts still play. Sunrise/sunset don't need this, but every other
+        # alert path does.
         weather_entity = self._get_config().get("weather_entity")
         if not weather_entity:
+            _LOGGER.warning(
+                "Weather data unavailable (configured=%s, has_payload=%s) and no weather_entity configured",
+                configured, has_payload,
+            )
             return weather_data
 
         fallback = build_weather_data_from_state(self.hass, weather_entity)
         if fallback.get("configured"):
-            _LOGGER.debug("Using live weather entity state for TTS fallback")
+            _LOGGER.info(
+                "Using live weather entity state for TTS fallback (coordinator cache was cold)"
+            )
             return fallback
+
+        _LOGGER.warning(
+            "Weather data unavailable: coordinator configured=%s has_payload=%s, "
+            "fallback entity %s also unavailable",
+            configured, has_payload, weather_entity,
+        )
         return weather_data
 
     async def _setup_time_based_trigger(self, tts_config: dict[str, Any]) -> None:
@@ -360,11 +407,11 @@ class TTSTriggerManager:
         self._unsub_callbacks.append(unsub)
         _LOGGER.info("Current change trigger set up for %s", weather_entity)
 
-    async def fire_test_scheduled_forecast(self) -> None:
+    async def fire_test_scheduled_forecast(self, *, request_id: str | None = None) -> None:
         """Play a scheduled forecast on all configured media players."""
-        await self._fire_scheduled_forecast(refresh_weather=False)
+        await self._fire_scheduled_forecast(refresh_weather=False, request_id=request_id)
 
-    async def fire_test_current_change(self) -> None:
+    async def fire_test_current_change(self, *, request_id: str | None = None) -> None:
         """Play a sample current-change alert on all configured media players."""
         weather_data = await self._resolve_weather_data(refresh=False)
         current = weather_data.get("current") or {}
@@ -373,15 +420,21 @@ class TTSTriggerManager:
             "previous conditions",
             new_condition,
             refresh_weather=False,
+            request_id=request_id,
         )
 
-    async def fire_test_upcoming_change(self) -> None:
+    async def fire_test_upcoming_change(self, *, request_id: str | None = None) -> None:
         """Play a sample upcoming-precipitation alert."""
         config = self._get_config()
         tts_config = config.get("tts") or {}
         media_players = media_players_with_tts(config.get("media_players", []))
         if not media_players:
             _LOGGER.warning("No media players with TTS configured for upcoming-change test")
+            _fire_tts_status(
+                self.hass, "skipped",
+                request_id=request_id, reason="No media players with TTS configured",
+                alert_kind="upcoming_change",
+            )
             return
 
         weather_data = await self._resolve_weather_data(refresh=False)
@@ -414,10 +467,13 @@ class TTSTriggerManager:
                 continue
 
         message = build_upcoming_change_message(precip_kind, minutes_until, probability)
-        await send_tts_with_ai_rewrite(self.hass, media_players, tts_config, message)
+        await send_tts_with_ai_rewrite(
+            self.hass, media_players, tts_config, message,
+            request_id=request_id, alert_kind="upcoming_change",
+        )
         _LOGGER.info("Test upcoming-change TTS dispatched")
 
-    async def fire_test_sensor_triggered(self) -> None:
+    async def fire_test_sensor_triggered(self, *, request_id: str | None = None) -> None:
         """Trigger a sensor forecast on the first configured sensor target."""
         config = self._get_config()
         sensor_triggers = (config.get("tts") or {}).get("sensor_triggers") or []
@@ -426,9 +482,11 @@ class TTSTriggerManager:
             if trig.get("entity_id"):
                 target = trig.get("media_player", "") or ""
                 break
-        await self._fire_scheduled_forecast(target_media_player=target, refresh_weather=False)
+        await self._fire_scheduled_forecast(
+            target_media_player=target, refresh_weather=False, request_id=request_id,
+        )
 
-    async def fire_test_webhook(self) -> None:
+    async def fire_test_webhook(self, *, request_id: str | None = None) -> None:
         """Trigger the first configured webhook forecast (or all if none)."""
         config = self._get_config()
         webhooks = (config.get("tts") or {}).get("webhooks") or []
@@ -439,38 +497,53 @@ class TTSTriggerManager:
                 name = wh.get("personal_name") or ""
                 target = wh.get("media_player") or ""
                 break
-        await self._fire_webhook_forecast(name, None, target_media_player=target)
+        await self._fire_webhook_forecast(name, None, target_media_player=target, request_id=request_id)
 
-    async def fire_test_sunrise(self) -> None:
+    async def fire_test_sunrise(self, *, request_id: str | None = None) -> None:
         """Speak the sunrise upcoming announcement on all media players."""
         config = self._get_config()
         media_players = media_players_with_tts(config.get("media_players", []))
         if not media_players:
             _LOGGER.warning("No media players with TTS configured for sunrise test")
+            _fire_tts_status(
+                self.hass, "skipped",
+                request_id=request_id, reason="No media players with TTS configured",
+                alert_kind="sunrise",
+            )
             return
         mins = int(((config.get("sun_alerts") or {}).get("sunrise_tts") or {}).get("minutes_before", 15))
         msg = build_sunrise_upcoming_message(mins)
-        await send_tts(self.hass, media_players, msg)
+        await send_tts(self.hass, media_players, msg, request_id=request_id, alert_kind="sunrise")
         _LOGGER.info("Test sunrise TTS dispatched")
 
-    async def fire_test_sunset(self) -> None:
+    async def fire_test_sunset(self, *, request_id: str | None = None) -> None:
         """Speak the sunset upcoming announcement on all media players."""
         config = self._get_config()
         media_players = media_players_with_tts(config.get("media_players", []))
         if not media_players:
             _LOGGER.warning("No media players with TTS configured for sunset test")
+            _fire_tts_status(
+                self.hass, "skipped",
+                request_id=request_id, reason="No media players with TTS configured",
+                alert_kind="sunset",
+            )
             return
         mins = int(((config.get("sun_alerts") or {}).get("sunset_tts") or {}).get("minutes_before", 15))
         msg = build_sunset_upcoming_message(mins)
-        await send_tts(self.hass, media_players, msg)
+        await send_tts(self.hass, media_players, msg, request_id=request_id, alert_kind="sunset")
         _LOGGER.info("Test sunset TTS dispatched")
 
-    async def fire_test_nws_alert(self) -> None:
+    async def fire_test_nws_alert(self, *, request_id: str | None = None) -> None:
         """Play the configured NWS siren/TTS using a fake alert payload."""
         config = self._get_config()
         media_players = media_players_with_tts(config.get("media_players", []))
         if not media_players:
             _LOGGER.warning("No media players with TTS configured for NWS test")
+            _fire_tts_status(
+                self.hass, "skipped",
+                request_id=request_id, reason="No media players with TTS configured",
+                alert_kind="nws_alert",
+            )
             return
         sample = {
             "event": "Test Alert",
@@ -478,7 +551,7 @@ class TTSTriggerManager:
                 "This is a Home Weather test alert. No active warnings are in effect."
             ),
         }
-        await play_nws_alert_notification(self.hass, config, sample, media_players)
+        await play_nws_alert_notification(self.hass, config, sample, media_players, request_id=request_id)
         _LOGGER.info("Test NWS alert dispatched")
 
     async def _setup_upcoming_change_trigger(self, tts_config: dict[str, Any]) -> None:
@@ -896,7 +969,11 @@ class TTSTriggerManager:
         if not hasattr(self, "_nws_known_alert_ids"):
             self._nws_known_alert_ids: set[str] = set()
 
+        @callback
         def _poll(now: datetime) -> None:
+            # Must run on the event loop: async_track_time_interval runs
+            # non-callback functions in the executor, where async_create_task
+            # is not thread-safe and the coroutine would never be awaited.
             self.hass.async_create_task(self._check_nws_alerts_async(config))
 
         unsub = async_track_time_interval(self.hass, _poll, timedelta(minutes=5))
@@ -965,6 +1042,7 @@ class TTSTriggerManager:
         target_media_player: str = "",
         *,
         refresh_weather: bool = True,
+        request_id: str | None = None,
     ) -> None:
         """Fire a scheduled forecast TTS.
         
@@ -972,6 +1050,7 @@ class TTSTriggerManager:
             target_media_player: If specified, only send to this media player.
                                If empty, send to all configured media players.
             refresh_weather: Whether to refresh coordinator data before building message.
+            request_id: Optional correlation id for TTS status events.
         """
         config = self._get_config()
         weather_data = await self._resolve_weather_data(refresh=refresh_weather)
@@ -980,10 +1059,20 @@ class TTSTriggerManager:
 
         if not media_players:
             _LOGGER.warning("No media players with TTS configured, skipping scheduled TTS")
+            _fire_tts_status(
+                self.hass, "skipped",
+                request_id=request_id, reason="No media players with TTS configured",
+                alert_kind="scheduled_forecast",
+            )
             return
 
-        if not weather_data:
+        if not _weather_data_usable(weather_data):
             _LOGGER.warning("Weather data unavailable, skipping scheduled TTS")
+            _fire_tts_status(
+                self.hass, "skipped",
+                request_id=request_id, reason="Weather data unavailable",
+                alert_kind="scheduled_forecast",
+            )
             return
 
         # Filter to specific media player if specified
@@ -991,6 +1080,11 @@ class TTSTriggerManager:
             media_players = [mp for mp in media_players if mp.get("entity_id") == target_media_player]
             if not media_players:
                 _LOGGER.warning("Target media player %s not found in config", target_media_player)
+                _fire_tts_status(
+                    self.hass, "skipped",
+                    request_id=request_id, reason=f"Target media player {target_media_player} not found",
+                    alert_kind="scheduled_forecast",
+                )
                 return
         
         message = build_scheduled_forecast(weather_data, config)
@@ -1004,6 +1098,8 @@ class TTSTriggerManager:
             media_players,
             tts_config,
             message,
+            request_id=request_id,
+            alert_kind="scheduled_forecast",
         )
         _LOGGER.info("Scheduled forecast TTS sent to %s", target_media_player or "all players")
 
@@ -1013,6 +1109,7 @@ class TTSTriggerManager:
         new_condition: str,
         *,
         refresh_weather: bool = True,
+        request_id: str | None = None,
     ) -> None:
         """Fire a current change alert TTS."""
         config = self._get_config()
@@ -1023,10 +1120,20 @@ class TTSTriggerManager:
 
         if not media_players:
             _LOGGER.warning("No media players with TTS configured, skipping current change TTS")
+            _fire_tts_status(
+                self.hass, "skipped",
+                request_id=request_id, reason="No media players with TTS configured",
+                alert_kind="current_change",
+            )
             return
         
-        if not weather_data:
+        if not _weather_data_usable(weather_data):
             _LOGGER.warning("Weather data unavailable, skipping current change TTS")
+            _fire_tts_status(
+                self.hass, "skipped",
+                request_id=request_id, reason="Weather data unavailable",
+                alert_kind="current_change",
+            )
             return
         
         message = build_current_change_message(old_condition, new_condition, weather_data)
@@ -1036,6 +1143,8 @@ class TTSTriggerManager:
             tts_config,
             message,
             volume_override=volume,
+            request_id=request_id,
+            alert_kind="current_change",
         )
         _LOGGER.info("Current change TTS sent: %s -> %s", old_condition, new_condition)
 
@@ -1049,7 +1158,7 @@ class TTSTriggerManager:
         if not media_players:
             return
 
-        if not weather_data:
+        if not _weather_data_usable(weather_data):
             return
         
         hourly = weather_data.get("hourly_forecast", [])
@@ -1101,6 +1210,7 @@ class TTSTriggerManager:
                     tts_config,
                     message,
                     volume_override=volume,
+                    alert_kind="upcoming_change",
                 )
                 _LOGGER.info("Upcoming precip TTS sent: %s in %d minutes", precip_kind, minutes_until)
                 break  # Only alert for the first upcoming precip
@@ -1109,7 +1219,14 @@ class TTSTriggerManager:
         cutoff_key = (now - timedelta(hours=2)).strftime("%Y-%m-%d-%H")
         self._upcoming_alert_fired = {k for k in self._upcoming_alert_fired if k > cutoff_key}
 
-    async def _fire_webhook_forecast(self, name: str, volume: float | None, target_media_player: str = "") -> None:
+    async def _fire_webhook_forecast(
+        self,
+        name: str,
+        volume: float | None,
+        target_media_player: str = "",
+        *,
+        request_id: str | None = None,
+    ) -> None:
         """Fire a webhook-triggered forecast.
         
         Args:
@@ -1117,6 +1234,7 @@ class TTSTriggerManager:
             volume: Optional volume override
             target_media_player: If specified, only send to this media player.
                                If empty, send to all configured media players.
+            request_id: Optional correlation id for TTS status events.
         """
         _LOGGER.info("_fire_webhook_forecast called with name=%s, volume=%s, target=%s", name, volume, target_media_player)
         
@@ -1129,10 +1247,20 @@ class TTSTriggerManager:
         
         if not media_players:
             _LOGGER.warning("No media players configured, cannot send TTS")
+            _fire_tts_status(
+                self.hass, "skipped",
+                request_id=request_id, reason="No media players configured",
+                alert_kind="webhook",
+            )
             return
         
-        if not weather_data:
+        if not _weather_data_usable(weather_data):
             _LOGGER.warning("Weather data unavailable, skipping webhook TTS")
+            _fire_tts_status(
+                self.hass, "skipped",
+                request_id=request_id, reason="Weather data unavailable",
+                alert_kind="webhook",
+            )
             return
         
         # Filter to specific media player if specified
@@ -1140,6 +1268,11 @@ class TTSTriggerManager:
             media_players = [mp for mp in media_players if mp.get("entity_id") == target_media_player]
             if not media_players:
                 _LOGGER.warning("Target media player %s not found in config", target_media_player)
+                _fire_tts_status(
+                    self.hass, "skipped",
+                    request_id=request_id, reason=f"Target media player {target_media_player} not found",
+                    alert_kind="webhook",
+                )
                 return
         
         message = build_webhook_message(name, weather_data, config)
@@ -1151,5 +1284,7 @@ class TTSTriggerManager:
             tts_config,
             message,
             volume_override=volume,
+            request_id=request_id,
+            alert_kind="webhook",
         )
         _LOGGER.info("Webhook forecast TTS sent for %s to %s", name or "unnamed user", target_media_player or "all players")
