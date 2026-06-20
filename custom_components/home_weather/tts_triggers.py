@@ -16,6 +16,7 @@ from datetime import datetime, timedelta
 from typing import Any, Callable
 
 from homeassistant.core import HomeAssistant, Event, callback
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.event import (
     async_track_time_change,
     async_track_time_interval,
@@ -52,9 +53,10 @@ _TTS_TRIGGER_FLAGS: tuple[str, ...] = (
 
 
 def _is_tts_active(tts_config: dict[str, Any]) -> bool:
-    """Return True when any TTS-related trigger should be registered."""
-    if tts_config.get("enabled", False):
-        return True
+    """Return True when any TTS trigger type is enabled.
+
+    Each alert section manages itself; there is no master TTS switch.
+    """
     return any(tts_config.get(flag, False) for flag in _TTS_TRIGGER_FLAGS)
 
 
@@ -737,9 +739,9 @@ class TTSTriggerManager:
         At sunrise/sunset (±1 min): TTS final message, then trigger automation if enabled.
         """
         sun_alerts = config.get("sun_alerts", {})
-        media_players = config.get("media_players", [])
+        media_players = media_players_with_tts(config.get("media_players", []))
         if not media_players:
-            _LOGGER.warning("No media players for sun alerts TTS, skipping")
+            _LOGGER.warning("No media players with TTS for sun alerts, skipping")
             return
 
         def _parse_sun_time(val: str | None) -> datetime | None:
@@ -766,7 +768,7 @@ class TTSTriggerManager:
     async def _check_sun_alerts_async(self, config: dict[str, Any]) -> None:
         """Check sunrise/sunset and fire TTS/automation as needed."""
         sun_alerts = config.get("sun_alerts", {})
-        media_players = config.get("media_players", [])
+        media_players = media_players_with_tts(config.get("media_players", []))
         if not media_players or not sun_alerts.get("enabled"):
             return
 
@@ -869,20 +871,20 @@ class TTSTriggerManager:
                     await send_tts(self.hass, media_players, msg)
                     _LOGGER.info("Sunset upcoming TTS: %d minutes", mins_until)
 
-        # Reset final-fired for new day (keep keys from last 2 days max)
-        cutoff = (now - timedelta(days=1)).strftime("%Y-%m-%d")
-        self._sun_alerts_final_fired = {k for k in self._sun_alerts_final_fired if k.split("_")[-1] >= cutoff}
-        cutoff_up = (now - timedelta(minutes=60)).strftime("%Y-%m-%d %H:%M")
+        # Expire _sun_alerts_last_upcoming entries older than 2 hours.
+        # (Daily key reset for _sun_alerts_final_fired and _sun_alerts_last_upcoming
+        # is already handled at the top of this method via the today_key filter.)
+        upcoming_cutoff = now - timedelta(hours=2)
         self._sun_alerts_last_upcoming = {
             k: v for k, v in self._sun_alerts_last_upcoming.items()
-            if v.strftime("%Y-%m-%d %H:%M") >= cutoff_up[:10]
+            if v >= upcoming_cutoff
         }
 
     async def _setup_nws_alerts_trigger(self, config: dict[str, Any]) -> None:
         """Poll NWS API every 5 minutes; play sound + TTS when new active alert appears."""
-        media_players = config.get("media_players", [])
+        media_players = media_players_with_tts(config.get("media_players", []))
         if not media_players:
-            _LOGGER.warning("NWS alerts enabled but no media players configured")
+            _LOGGER.warning("NWS alerts enabled but no media players with TTS configured")
             return
 
         lat = self.hass.config.latitude
@@ -905,7 +907,7 @@ class TTSTriggerManager:
     async def _check_nws_alerts_async(self, config: dict[str, Any]) -> None:
         """Fetch NWS alerts and fire notification for newly seen active alerts."""
         nws = config.get("nws_alerts", {})
-        media_players = config.get("media_players", [])
+        media_players = media_players_with_tts(config.get("media_players", []))
         if not nws.get("enabled") or not media_players:
             return
 
@@ -918,7 +920,7 @@ class TTSTriggerManager:
         known = getattr(self, "_nws_known_alert_ids", set())
 
         try:
-            session = self.hass.helpers.aiohttp_client.async_get_clientsession(self.hass)
+            session = async_get_clientsession(self.hass)
             async with session.get(url) as resp:
                 if resp.status != 200:
                     _LOGGER.warning("NWS API returned %s", resp.status)
@@ -980,8 +982,8 @@ class TTSTriggerManager:
             _LOGGER.warning("No media players with TTS configured, skipping scheduled TTS")
             return
 
-        if not weather_data or weather_data.get("configured") is False:
-            _LOGGER.warning("Weather not configured or data unavailable, skipping scheduled TTS")
+        if not weather_data:
+            _LOGGER.warning("Weather data unavailable, skipping scheduled TTS")
             return
 
         # Filter to specific media player if specified
@@ -1023,8 +1025,8 @@ class TTSTriggerManager:
             _LOGGER.warning("No media players with TTS configured, skipping current change TTS")
             return
         
-        if not weather_data or weather_data.get("configured") is False:
-            _LOGGER.warning("Weather not configured or data unavailable, skipping current change TTS")
+        if not weather_data:
+            _LOGGER.warning("Weather data unavailable, skipping current change TTS")
             return
         
         message = build_current_change_message(old_condition, new_condition, weather_data)
@@ -1040,14 +1042,14 @@ class TTSTriggerManager:
     async def _check_upcoming_precip(self, minutes_before: int, threshold: int) -> None:
         """Check for upcoming precipitation and fire alert if needed."""
         config = self._get_config()
-        weather_data = self._get_weather_data()
+        weather_data = await self._resolve_weather_data(refresh=False)
         tts_config = config.get("tts", {})
-        media_players = config.get("media_players", [])
-        
+        media_players = media_players_with_tts(config.get("media_players", []))
+
         if not media_players:
             return
-        
-        if not weather_data or weather_data.get("configured") is False:
+
+        if not weather_data:
             return
         
         hourly = weather_data.get("hourly_forecast", [])
@@ -1119,19 +1121,18 @@ class TTSTriggerManager:
         _LOGGER.info("_fire_webhook_forecast called with name=%s, volume=%s, target=%s", name, volume, target_media_player)
         
         config = self._get_config()
-        weather_data = self._get_weather_data()
+        weather_data = await self._resolve_weather_data(refresh=True)
         tts_config = config.get("tts", {})
-        media_players = config.get("media_players", [])
+        media_players = media_players_with_tts(config.get("media_players", []))
         
-        _LOGGER.debug("Config has %d media players, tts enabled: %s", 
-                      len(media_players), tts_config.get("enabled"))
+        _LOGGER.debug("Config has %d media players with TTS configured", len(media_players))
         
         if not media_players:
             _LOGGER.warning("No media players configured, cannot send TTS")
             return
         
-        if not weather_data or weather_data.get("configured") is False:
-            _LOGGER.warning("Weather not configured or data unavailable, skipping webhook TTS")
+        if not weather_data:
+            _LOGGER.warning("Weather data unavailable, skipping webhook TTS")
             return
         
         # Filter to specific media player if specified

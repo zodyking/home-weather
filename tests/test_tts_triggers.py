@@ -13,36 +13,51 @@ from custom_components.home_weather.tts_triggers import (
 )
 
 
-def test_is_tts_active_master_switch():
-    assert _is_tts_active({"enabled": True}) is True
+def test_is_tts_active_sub_toggle_time_based():
+    """Master TTS switch no longer exists; any per-type flag enables TTS."""
+    assert _is_tts_active({"enable_time_based": True}) is True
 
 
-def test_is_tts_active_sub_toggle_without_master():
-    assert _is_tts_active({"enabled": False, "enable_time_based": True}) is True
-    assert _is_tts_active({"enabled": False, "enable_current_change": True}) is True
+def test_is_tts_active_sub_toggle_current_change():
+    assert _is_tts_active({"enable_current_change": True}) is True
+
+
+def test_is_tts_active_master_switch_ignored():
+    """The `enabled` key is no longer consulted; setting it True with no
+    per-type flag does NOT activate TTS."""
+    assert _is_tts_active({"enabled": True}) is False
 
 
 def test_is_tts_active_all_off():
-    assert _is_tts_active({"enabled": False}) is False
+    assert _is_tts_active({}) is False
 
 
 def test_is_alerts_active_picks_up_sun_alerts():
     assert _is_alerts_active({
-        "tts": {"enabled": False},
+        "tts": {},
         "sun_alerts": {"enabled": True},
     }) is True
 
 
 def test_is_alerts_active_picks_up_nws_alerts():
     assert _is_alerts_active({
-        "tts": {"enabled": False},
+        "tts": {},
         "nws_alerts": {"enabled": True},
+    }) is True
+
+
+def test_is_alerts_active_picks_up_tts_sub_toggle():
+    """A per-type TTS flag (with no master switch) activates alerts."""
+    assert _is_alerts_active({
+        "tts": {"enable_time_based": True},
+        "sun_alerts": {"enabled": False},
+        "nws_alerts": {"enabled": False},
     }) is True
 
 
 def test_is_alerts_active_returns_false_when_nothing_on():
     assert _is_alerts_active({
-        "tts": {"enabled": False},
+        "tts": {},
         "sun_alerts": {"enabled": False},
         "nws_alerts": {"enabled": False},
     }) is False
@@ -87,4 +102,102 @@ def test_build_weather_data_from_state_missing_entity():
                 return None
 
     assert build_weather_data_from_state(_Hass(), "weather.home") == {"configured": False}
+
+
+# ---------------------------------------------------------------------------
+# Regression tests for the master-gate removal + unified player filtering.
+# ---------------------------------------------------------------------------
+
+def test_setup_registers_time_based_trigger_without_master_switch():
+    """Regression: with `tts.enabled` absent but `enable_time_based=True`,
+    async_setup must still register the time-based trigger."""
+    from unittest.mock import AsyncMock, patch
+
+    from custom_components.home_weather.tts_triggers import TTSTriggerManager
+
+    config = {
+        "weather_entity": "weather.home",
+        "tts": {"enable_time_based": True, "enabled": False},
+        "media_players": [{"entity_id": "media_player.kitchen", "tts_entity_id": "tts.google"}],
+    }
+    manager = TTSTriggerManager(
+        hass=SimpleNamespace(),
+        get_config=lambda: config,
+        get_weather_data=lambda: {"configured": True},
+        refresh_weather_data=None,
+    )
+
+    with patch.object(
+        manager, "_setup_time_based_trigger", new=AsyncMock()
+    ) as mock_setup:
+        import asyncio
+
+        asyncio.get_event_loop().run_until_complete(manager.async_setup())
+
+    mock_setup.assert_awaited_once()
+
+
+def test_setup_skips_time_based_when_no_sub_toggle_even_if_enabled_true():
+    """Regression: the legacy `enabled: True` master flag alone must NOT
+    cause time-based setup (no per-type flag is on)."""
+    from unittest.mock import AsyncMock, patch
+
+    from custom_components.home_weather.tts_triggers import TTSTriggerManager
+
+    config = {
+        "weather_entity": "weather.home",
+        "tts": {"enabled": True},  # master flag, but no per-type flag
+        "media_players": [{"entity_id": "media_player.kitchen", "tts_entity_id": "tts.google"}],
+    }
+    manager = TTSTriggerManager(
+        hass=SimpleNamespace(),
+        get_config=lambda: config,
+        get_weather_data=lambda: {"configured": True},
+        refresh_weather_data=None,
+    )
+
+    with patch.object(
+        manager, "_setup_time_based_trigger", new=AsyncMock()
+    ) as mock_setup:
+        import asyncio
+
+        asyncio.get_event_loop().run_until_complete(manager.async_setup())
+
+    mock_setup.assert_not_awaited()
+
+
+def test_sun_alerts_setup_uses_filtered_player_list():
+    """Regression: sun alerts must use media_players_with_tts() (same as the
+    scheduled forecast path), not the raw media_players list. A player
+    missing tts_entity_id should cause setup to skip, not silently attempt
+    a broken call."""
+    from unittest.mock import AsyncMock, patch
+
+    from custom_components.home_weather.tts_triggers import TTSTriggerManager
+
+    # One player without a tts_entity_id (would be dropped by the filter).
+    config = {
+        "sun_alerts": {"enabled": True},
+        "media_players": [{"entity_id": "media_player.kitchen", "tts_entity_id": ""}],
+    }
+    manager = TTSTriggerManager(
+        hass=SimpleNamespace(),
+        get_config=lambda: config,
+        get_weather_data=lambda: {"configured": True},
+        refresh_weather_data=None,
+    )
+
+    with patch(
+        "custom_components.home_weather.tts_triggers.async_track_time_interval",
+        new=AsyncMock(),
+    ) as mock_track:
+        import asyncio
+
+        asyncio.get_event_loop().run_until_complete(
+            manager._setup_sun_alerts_trigger(config)
+        )
+
+    # No time interval registered because no player has TTS configured.
+    mock_track.assert_not_called()
+
 

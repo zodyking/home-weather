@@ -10,29 +10,9 @@ from homeassistant.components.webhook import async_generate_url
 from homeassistant.core import HomeAssistant, callback
 
 from .const import DOMAIN, WEBHOOK_LAST_TRIGGERED_KEY
+from .tts_triggers import media_players_with_tts
 
 _LOGGER = logging.getLogger(__name__)
-
-
-def _ensure_tts_enabled_for_triggers(config: dict[str, Any]) -> dict[str, Any]:
-    """Auto-enable the master TTS switch when any trigger toggle is on."""
-    tts = dict(config.get("tts") or {})
-    if tts.get("enabled"):
-        return config
-    if any(
-        tts.get(flag, False)
-        for flag in (
-            "enable_time_based",
-            "enable_current_change",
-            "enable_upcoming_change",
-            "enable_sensor_triggered",
-            "enable_webhook",
-            "enable_voice_satellite",
-        )
-    ):
-        tts["enabled"] = True
-        config = {**config, "tts": tts}
-    return config
 
 
 def _get_entry_data(hass: HomeAssistant) -> dict[str, Any] | None:
@@ -43,15 +23,6 @@ def _get_entry_data(hass: HomeAssistant) -> dict[str, Any] | None:
         if isinstance(data, dict) and data.get("storage"):
             return data
     return None
-
-
-def _media_players_with_tts(media_players: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Return media players that have both entity and TTS entity configured."""
-    return [
-        mp
-        for mp in media_players
-        if mp.get("entity_id") and mp.get("tts_entity_id")
-    ]
 
 
 @callback
@@ -120,7 +91,6 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
 
         try:
             config = msg.get("config", {})
-            config = _ensure_tts_enabled_for_triggers(config)
             await storage.async_save(config)
             if coordinator:
                 await coordinator.async_request_refresh()
@@ -310,7 +280,7 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
 
         try:
             config = await storage.async_get()
-            media_players = _media_players_with_tts(config.get("media_players", []))
+            media_players = media_players_with_tts(config.get("media_players", []))
             if not media_players:
                 connection.send_error(
                     msg["id"],
@@ -362,7 +332,7 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
 
         try:
             config = await storage.async_get()
-            media_players = _media_players_with_tts(config.get("media_players", []))
+            media_players = media_players_with_tts(config.get("media_players", []))
             if not media_players:
                 connection.send_error(
                     msg["id"],
@@ -405,7 +375,7 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
                 connection.send_error(msg["id"], "unavailable", "Trigger manager not available")
                 return
             config = await storage.async_get()
-            media_players = _media_players_with_tts(config.get("media_players", []))
+            media_players = media_players_with_tts(config.get("media_players", []))
             if not media_players:
                 connection.send_error(
                     msg["id"], "no_media_players",

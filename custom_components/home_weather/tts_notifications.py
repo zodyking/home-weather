@@ -94,7 +94,7 @@ def _get_greeting_with_time() -> str:
 
 def _get_greeting() -> str:
     """Get time-appropriate greeting."""
-    hour = datetime.now().hour
+    hour = dt_util.now().hour
     if 5 <= hour < 12:
         return "Good morning"
     elif 12 <= hour < 17:
@@ -209,7 +209,7 @@ def _get_upcoming_precipitation(hourly: list[dict], threshold: int = 30) -> list
     return upcoming
 
 
-def _get_upcoming_high_winds(hourly: list[dict], speed_threshold: int = 15, gust_threshold: int = 25) -> list[dict]:
+def _get_upcoming_high_winds(hourly: list[dict], speed_threshold: int = 15, gust_threshold: int = 20) -> list[dict]:
     """Find upcoming high wind events in the next 12 hours (future only)."""
     now = dt_util.now()
     upcoming = []
@@ -458,7 +458,7 @@ def build_sunset_upcoming_message(minutes_until: int) -> str:
     Format: 'Good evening, the time is currently {time}. The sun is going to
     set in {minutes} minutes.'
     """
-    hour = datetime.now().hour
+    hour = dt_util.now().hour
     greeting = "Good evening" if hour < 21 else "Good night"
     time_spoken = _spell_time(dt_util.now())
     mins = _spell_number(minutes_until)
@@ -472,7 +472,7 @@ def build_sunset_final_message(automation_triggered: bool) -> str:
     Format: 'Good evening, the time is currently {time}. The sun has set.'
     + if automation: 'Your sun set automation has been triggered.'
     """
-    hour = datetime.now().hour
+    hour = dt_util.now().hour
     greeting = "Good evening" if hour < 21 else "Good night"
     time_spoken = _spell_time(dt_util.now())
     msg = f"{greeting}, the time is currently {time_spoken}. The sun has set."

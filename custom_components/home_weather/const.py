@@ -28,11 +28,8 @@ DEFAULT_CONFIG: Final = {
         "conversation_commands": "What is the weather\nWhats the weather",
         # Precip/forecast settings
         "precip_threshold": 30,
-        "hours_ahead": 24,
-        "hourly_segments_count": 3,
         "wind_speed_threshold": 15,
         "wind_gust_threshold": 20,
-        "daily_forecast_days": 3,
         # AI rewrite
         "use_ai_rewrite": False,
         "ai_task_entity": "",

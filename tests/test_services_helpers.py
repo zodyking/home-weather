@@ -1,27 +1,7 @@
 """Unit tests for WebSocket service helpers."""
 from __future__ import annotations
 
-from custom_components.home_weather.services import (
-    _ensure_tts_enabled_for_triggers,
-    _media_players_with_tts,
-)
-
-
-def test_ensure_tts_enabled_for_triggers_auto_enables():
-    config = {
-        "tts": {
-            "enabled": False,
-            "enable_time_based": True,
-        }
-    }
-    updated = _ensure_tts_enabled_for_triggers(config)
-    assert updated["tts"]["enabled"] is True
-
-
-def test_ensure_tts_enabled_for_triggers_leaves_disabled_when_nothing_on():
-    config = {"tts": {"enabled": False}}
-    updated = _ensure_tts_enabled_for_triggers(config)
-    assert updated["tts"]["enabled"] is False
+from custom_components.home_weather.services import media_players_with_tts
 
 
 def test_media_players_with_tts_filters_incomplete_entries():
@@ -30,5 +10,13 @@ def test_media_players_with_tts_filters_incomplete_entries():
         {"entity_id": "media_player.bedroom", "tts_entity_id": ""},
         {"entity_id": "", "tts_entity_id": "tts.google"},
     ]
-    result = _media_players_with_tts(players)
+    result = media_players_with_tts(players)
     assert result == [{"entity_id": "media_player.kitchen", "tts_entity_id": "tts.google"}]
+
+
+def test_media_players_with_tts_imported_from_tts_triggers():
+    """The helper lives in tts_triggers; services re-exports it under the
+    public (no-underscore) name so callers share one implementation."""
+    from custom_components.home_weather import services, tts_triggers
+
+    assert services.media_players_with_tts is tts_triggers.media_players_with_tts
