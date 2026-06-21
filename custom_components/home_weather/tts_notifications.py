@@ -10,10 +10,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from datetime import datetime, timedelta
 from typing import Any
+from urllib.parse import quote
 
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.network import get_url
 from homeassistant.util import dt as dt_util
 
 from .const import NUMBER_WORDS
@@ -672,6 +675,126 @@ async def send_tts(
             )
 
 
+def _build_ai_rewrite_instructions(prompt: str, message: str) -> str:
+    """Build instructions for ai_task.generate_data."""
+    system = (prompt or "").strip() or (
+        "You are a friendly meteorologist. Rewrite this weather message in a "
+        "natural, conversational way for spoken text-to-speech."
+    )
+    return (
+        f"{system}\n\n"
+        "Return only the rewritten spoken message with no markdown, quotes, "
+        "or extra commentary.\n\n"
+        f"Original message:\n{message}"
+    )
+
+
+def _extract_ai_task_text(result: Any) -> str | None:
+    """Parse text from ai_task.generate_data response."""
+    if not result:
+        return None
+    if isinstance(result, str):
+        text = result.strip()
+        return text or None
+    if not isinstance(result, dict):
+        return None
+
+    data = result.get("data")
+    if isinstance(data, str):
+        text = data.strip()
+        return text or None
+    if isinstance(data, dict):
+        for key in ("text", "message", "output", "result"):
+            val = data.get(key)
+            if isinstance(val, str) and val.strip():
+                return val.strip()
+
+    for key in ("output", "text", "result"):
+        val = result.get(key)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    return None
+
+
+async def apply_ai_rewrite(
+    hass: HomeAssistant,
+    tts_config: dict[str, Any],
+    message: str,
+    *,
+    request_id: str | None = None,
+    alert_kind: str = "",
+) -> str:
+    """Rewrite a TTS message via ai_task when enabled; return original on skip/failure."""
+    use_ai = tts_config.get("use_ai_rewrite", False)
+    ai_entity = (tts_config.get("ai_task_entity") or "").strip()
+    ai_prompt = tts_config.get("ai_rewrite_prompt", "")
+
+    if not use_ai:
+        return message
+    if not ai_entity:
+        _LOGGER.warning(
+            "AI rewrite enabled but no ai_task_entity configured, using original message"
+        )
+        return message
+
+    try:
+        result = await asyncio.wait_for(
+            hass.services.async_call(
+                "ai_task",
+                "generate_data",
+                {
+                    "entity_id": ai_entity,
+                    "task_name": "home_weather_tts_rewrite",
+                    "instructions": _build_ai_rewrite_instructions(ai_prompt, message),
+                },
+                blocking=True,
+                return_response=True,
+            ),
+            timeout=30.0,
+        )
+        rewritten = _extract_ai_task_text(result)
+        if rewritten:
+            preview = rewritten[:80] + ("..." if len(rewritten) > 80 else "")
+            _LOGGER.info("AI rewrote TTS message: %s", preview)
+            _fire_tts_status(
+                hass, "ai_rewrite",
+                request_id=request_id,
+                message_preview=rewritten,
+                alert_kind=alert_kind,
+            )
+            return rewritten
+        _LOGGER.warning(
+            "AI rewrite returned no usable text, using original message"
+        )
+    except asyncio.TimeoutError:
+        _LOGGER.warning("AI rewrite timed out, using original message")
+    except Exception as exc:
+        _LOGGER.warning("AI rewrite failed, using original message: %s", exc)
+
+    return message
+
+
+async def dispatch_tts(
+    hass: HomeAssistant,
+    media_players_config: list[dict[str, Any]],
+    tts_config: dict[str, Any],
+    message: str,
+    volume_override: float | None = None,
+    *,
+    request_id: str | None = None,
+    alert_kind: str = "",
+) -> None:
+    """Apply optional AI rewrite, then send TTS to configured media players."""
+    final_message = await apply_ai_rewrite(
+        hass, tts_config, message,
+        request_id=request_id, alert_kind=alert_kind,
+    )
+    await send_tts(
+        hass, media_players_config, final_message, volume_override,
+        request_id=request_id, alert_kind=alert_kind,
+    )
+
+
 async def send_tts_with_ai_rewrite(
     hass: HomeAssistant,
     media_players_config: list[dict[str, Any]],
@@ -683,48 +806,110 @@ async def send_tts_with_ai_rewrite(
     alert_kind: str = "",
 ) -> None:
     """Send TTS with optional AI rewrite of the message."""
-    use_ai = tts_config.get("use_ai_rewrite", False)
-    ai_entity = tts_config.get("ai_task_entity", "")
-    ai_prompt = tts_config.get("ai_rewrite_prompt", "")
-    
-    final_message = message
-    
-    if use_ai and ai_entity:
-        try:
-            result = await asyncio.wait_for(
-                hass.services.async_call(
-                    "ai_task",
-                    "generate_data",
-                    {
-                        "entity_id": ai_entity,
-                        "task_type": "text",
-                        "input_data": {
-                            "original_message": message,
-                            "prompt": ai_prompt,
-                        },
-                    },
-                    blocking=True,
-                    return_response=True,
-                ),
-                timeout=20.0,
-            )
-            
-            if result and isinstance(result, dict):
-                rewritten = result.get("output") or result.get("text") or result.get("result")
-                if rewritten and isinstance(rewritten, str):
-                    final_message = rewritten
-                    _LOGGER.debug("AI rewrote TTS message")
-        except asyncio.TimeoutError:
-            _LOGGER.warning("AI rewrite timed out, using original message")
-        except Exception as e:
-            _LOGGER.warning("AI rewrite failed, using original message: %s", e)
-    elif use_ai and not ai_entity:
-        _LOGGER.warning("AI rewrite enabled but no ai_task_entity configured, using original message")
-    
-    await send_tts(
-        hass, media_players_config, final_message, volume_override,
+    await dispatch_tts(
+        hass, media_players_config, tts_config, message, volume_override,
         request_id=request_id, alert_kind=alert_kind,
     )
+
+
+def format_nws_alert_description(raw: str) -> str:
+    """Convert NWS bullet-style descriptions into readable prose."""
+    if not raw or not raw.strip():
+        return ""
+
+    text = raw.strip()
+    sections: list[str] = []
+
+    for chunk in re.split(r"\n\s*\*\s*", "\n" + text):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        if "..." in chunk:
+            head, _, tail = chunk.partition("...")
+            label = head.strip().rstrip(".").title()
+            body = " ".join(tail.split())
+            if label and body:
+                sentence = body if body.endswith(".") else f"{body}."
+                sections.append(f"{label}: {sentence}")
+            elif body:
+                sections.append(body if body.endswith(".") else f"{body}.")
+        else:
+            clean = re.sub(r"\*+\s*", "", chunk)
+            clean = " ".join(clean.split())
+            if clean:
+                sections.append(clean if clean.endswith(".") else f"{clean}.")
+
+    if sections:
+        return " ".join(sections)
+
+    fallback = re.sub(r"\*+\s*", "", text).replace("...", ". ")
+    return " ".join(fallback.split())
+
+
+def format_nws_alert_for_tts(
+    alert_properties: dict[str, Any],
+    *,
+    max_length: int = 800,
+) -> str:
+    """Build a spoken NWS alert message without bullet markers or ellipses."""
+    event = (alert_properties.get("event") or "Weather Alert").strip()
+    desc = format_nws_alert_description(alert_properties.get("description") or "")
+    if desc:
+        msg = f"National Weather Service {event}. {desc}"
+    else:
+        msg = f"National Weather Service {event}."
+    if len(msg) <= max_length:
+        return msg
+    trimmed = msg[: max_length - 1].rsplit(".", 1)[0]
+    return f"{trimmed}." if trimmed else msg[:max_length]
+
+
+def _get_hass_base_url(hass: HomeAssistant) -> str:
+    """Resolve a URL media players can reach for /local/ assets."""
+    try:
+        return get_url(
+            hass,
+            prefer_external=False,
+            allow_internal=True,
+            allow_external=True,
+        ).rstrip("/")
+    except Exception:
+        pass
+    try:
+        for candidate in (
+            hass.config.internal_url,
+            hass.config.external_url,
+            hass.config.api.base_url,
+        ):
+            if candidate:
+                return str(candidate).rstrip("/")
+    except Exception:
+        pass
+    return ""
+
+
+async def _wait_for_media_player_idle(
+    hass: HomeAssistant,
+    entity_id: str,
+    *,
+    timeout: float = 120.0,
+    poll_interval: float = 0.5,
+) -> bool:
+    """Wait until a media player finishes playing alert audio."""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    await asyncio.sleep(0.3)
+
+    while loop.time() < deadline:
+        state = hass.states.get(entity_id)
+        if state is None:
+            return False
+        if state.state not in ("playing", "buffering"):
+            return True
+        await asyncio.sleep(poll_interval)
+
+    _LOGGER.warning("Timed out waiting for %s to finish playback", entity_id)
+    return False
 
 
 async def play_nws_alert_notification(
@@ -740,10 +925,12 @@ async def play_nws_alert_notification(
     sound_file = (nws.get("sound_file") or "").strip()
     sound_vol = max(0, min(1, float(nws.get("sound_volume", 0.8))))
     tts_vol = max(0, min(1, float(nws.get("tts_volume", 0.9))))
-    desc = (alert_properties.get("description") or "").strip()
-    msg = f"Weather Alert from National Weather Service! {desc}" if desc else "Weather Alert from National Weather Service!"
-    if len(msg) > 500:
-        msg = msg[:497] + "..."
+    msg = format_nws_alert_for_tts(alert_properties)
+    tts_config = config.get("tts", {})
+    msg = await apply_ai_rewrite(
+        hass, tts_config, msg,
+        request_id=request_id, alert_kind="nws_alert",
+    )
     if not media_players_config:
         _fire_tts_status(
             hass, "skipped",
@@ -751,11 +938,13 @@ async def play_nws_alert_notification(
             alert_kind="nws_alert",
         )
         return
-    base_url = ""
-    try:
-        base_url = (hass.config.api.base_url or "").rstrip("/")
-    except Exception:
-        pass
+
+    base_url = _get_hass_base_url(hass)
+    if sound_file and not base_url:
+        _LOGGER.warning(
+            "NWS alert sound configured but no Home Assistant URL is available"
+        )
+
     for mp in media_players_config:
         eid = mp.get("entity_id")
         if not eid:
@@ -767,20 +956,29 @@ async def play_nws_alert_notification(
                 blocking=True,
             )
             if sound_file and base_url:
+                sound_url = (
+                    f"{base_url}/local/home_weather/sounds/{quote(sound_file)}"
+                )
+                _LOGGER.debug("Playing NWS alert sound on %s: %s", eid, sound_url)
                 await hass.services.async_call(
                     "media_player", "play_media",
                     {
                         "entity_id": eid,
                         "media_content_type": "music",
-                        "media_content_id": f"{base_url}/local/home_weather/sounds/{sound_file}",
+                        "media_content_id": sound_url,
                     },
                     blocking=True,
                 )
-                await asyncio.sleep(5)
+                await _wait_for_media_player_idle(hass, eid)
+
             await hass.services.async_call(
                 "media_player", "volume_set",
                 {"entity_id": eid, "volume_level": tts_vol},
                 blocking=True,
+            )
+            await send_tts(
+                hass, [mp], msg, volume_override=tts_vol,
+                request_id=request_id, alert_kind="nws_alert",
             )
         except Exception as exc:
             _LOGGER.warning("NWS alert playback failed for %s: %s", eid, exc)
@@ -789,7 +987,3 @@ async def play_nws_alert_notification(
                 request_id=request_id, entity_id=eid,
                 reason=str(exc), alert_kind="nws_alert",
             )
-    await send_tts(
-        hass, media_players_config, msg, volume_override=tts_vol,
-        request_id=request_id, alert_kind="nws_alert",
-    )

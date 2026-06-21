@@ -36,8 +36,7 @@ from .tts_notifications import (
     build_sunrise_final_message,
     build_sunset_upcoming_message,
     build_sunset_final_message,
-    send_tts,
-    send_tts_with_ai_rewrite,
+    dispatch_tts,
     play_nws_alert_notification,
 )
 
@@ -467,7 +466,7 @@ class TTSTriggerManager:
                 continue
 
         message = build_upcoming_change_message(precip_kind, minutes_until, probability)
-        await send_tts_with_ai_rewrite(
+        await dispatch_tts(
             self.hass, media_players, tts_config, message,
             request_id=request_id, alert_kind="upcoming_change",
         )
@@ -511,9 +510,13 @@ class TTSTriggerManager:
                 alert_kind="sunrise",
             )
             return
+        tts_config = config.get("tts", {})
         mins = int(((config.get("sun_alerts") or {}).get("sunrise_tts") or {}).get("minutes_before", 15))
         msg = build_sunrise_upcoming_message(mins)
-        await send_tts(self.hass, media_players, msg, request_id=request_id, alert_kind="sunrise")
+        await dispatch_tts(
+            self.hass, media_players, tts_config, msg,
+            request_id=request_id, alert_kind="sunrise",
+        )
         _LOGGER.info("Test sunrise TTS dispatched")
 
     async def fire_test_sunset(self, *, request_id: str | None = None) -> None:
@@ -528,9 +531,13 @@ class TTSTriggerManager:
                 alert_kind="sunset",
             )
             return
+        tts_config = config.get("tts", {})
         mins = int(((config.get("sun_alerts") or {}).get("sunset_tts") or {}).get("minutes_before", 15))
         msg = build_sunset_upcoming_message(mins)
-        await send_tts(self.hass, media_players, msg, request_id=request_id, alert_kind="sunset")
+        await dispatch_tts(
+            self.hass, media_players, tts_config, msg,
+            request_id=request_id, alert_kind="sunset",
+        )
         _LOGGER.info("Test sunset TTS dispatched")
 
     async def fire_test_nws_alert(self, *, request_id: str | None = None) -> None:
@@ -548,7 +555,8 @@ class TTSTriggerManager:
         sample = {
             "event": "Test Alert",
             "description": (
-                "This is a Home Weather test alert. No active warnings are in effect."
+                "* WHAT...This is a Home Weather test alert.\n\n"
+                "* IMPACTS...No active warnings are in effect."
             ),
         }
         await play_nws_alert_notification(self.hass, config, sample, media_players, request_id=request_id)
@@ -841,6 +849,7 @@ class TTSTriggerManager:
     async def _check_sun_alerts_async(self, config: dict[str, Any]) -> None:
         """Check sunrise/sunset and fire TTS/automation as needed."""
         sun_alerts = config.get("sun_alerts", {})
+        tts_config = config.get("tts", {})
         media_players = media_players_with_tts(config.get("media_players", []))
         if not media_players or not sun_alerts.get("enabled"):
             return
@@ -895,7 +904,10 @@ class TTSTriggerManager:
                         except Exception as e:
                             _LOGGER.warning("Sunrise automation failed: %s", e)
                     msg = build_sunrise_final_message(automation_triggered)
-                    await send_tts(self.hass, media_players, msg)
+                    await dispatch_tts(
+                        self.hass, media_players, tts_config, msg,
+                        alert_kind="sunrise",
+                    )
                     _LOGGER.info("Sunrise final TTS sent")
             elif window_start <= now < next_rising:
                 mins_until = int((next_rising - now).total_seconds() / 60)
@@ -903,7 +915,10 @@ class TTSTriggerManager:
                 if last is None or (now - last).total_seconds() >= interval * 60:
                     self._sun_alerts_last_upcoming[event_key_up] = now
                     msg = build_sunrise_upcoming_message(mins_until)
-                    await send_tts(self.hass, media_players, msg)
+                    await dispatch_tts(
+                        self.hass, media_players, tts_config, msg,
+                        alert_kind="sunrise",
+                    )
                     _LOGGER.info("Sunrise upcoming TTS: %d minutes", mins_until)
 
         # Sunset TTS and automation
@@ -933,7 +948,10 @@ class TTSTriggerManager:
                         except Exception as e:
                             _LOGGER.warning("Sunset automation failed: %s", e)
                     msg = build_sunset_final_message(automation_triggered)
-                    await send_tts(self.hass, media_players, msg)
+                    await dispatch_tts(
+                        self.hass, media_players, tts_config, msg,
+                        alert_kind="sunset",
+                    )
                     _LOGGER.info("Sunset final TTS sent")
             elif window_start <= now < next_setting:
                 mins_until = int((next_setting - now).total_seconds() / 60)
@@ -941,7 +959,10 @@ class TTSTriggerManager:
                 if last is None or (now - last).total_seconds() >= interval * 60:
                     self._sun_alerts_last_upcoming[event_key_up] = now
                     msg = build_sunset_upcoming_message(mins_until)
-                    await send_tts(self.hass, media_players, msg)
+                    await dispatch_tts(
+                        self.hass, media_players, tts_config, msg,
+                        alert_kind="sunset",
+                    )
                     _LOGGER.info("Sunset upcoming TTS: %d minutes", mins_until)
 
         # Expire _sun_alerts_last_upcoming entries older than 2 hours.
@@ -1093,7 +1114,7 @@ class TTSTriggerManager:
             len(message),
             (message[:100] + "...") if len(message) > 100 else message,
         )
-        await send_tts_with_ai_rewrite(
+        await dispatch_tts(
             self.hass,
             media_players,
             tts_config,
@@ -1137,7 +1158,7 @@ class TTSTriggerManager:
             return
         
         message = build_current_change_message(old_condition, new_condition, weather_data)
-        await send_tts_with_ai_rewrite(
+        await dispatch_tts(
             self.hass,
             media_players,
             tts_config,
@@ -1204,7 +1225,7 @@ class TTSTriggerManager:
                 volume = None  # Volume controlled per media player
                 message = build_upcoming_change_message(precip_kind, minutes_until, precip_prob)
                 
-                await send_tts_with_ai_rewrite(
+                await dispatch_tts(
                     self.hass,
                     media_players,
                     tts_config,
@@ -1278,7 +1299,7 @@ class TTSTriggerManager:
         message = build_webhook_message(name, weather_data, config)
         _LOGGER.debug("Built TTS message: %s", message[:100] if message else "empty")
         
-        await send_tts_with_ai_rewrite(
+        await dispatch_tts(
             self.hass,
             media_players,
             tts_config,
