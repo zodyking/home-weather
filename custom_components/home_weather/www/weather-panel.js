@@ -12,6 +12,7 @@ class HomeWeatherPanel extends HTMLElement {
     this._currentView = "forecast";
     this._forecastView = "7day";
     this._mapsMode = "storms";
+    this._mapsWindRadii = false;
     this._chartMetric = "temp";
     this._selectedForecast = null; // { type: "hour"|"day", index: number }
     this._useFahrenheit = true;
@@ -2266,18 +2267,30 @@ class HomeWeatherPanel extends HTMLElement {
         }
 
         /* Maps & Weather page */
+        .maps-view {
+          height: 100vh;
+          display: flex;
+          flex-direction: column;
+          overflow: hidden;
+        }
         .maps-view .settings-body {
-          padding: clamp(12px, 2vw, 18px);
-          max-width: 1180px;
-          margin: 0 auto;
+          flex: 1;
+          min-height: 0;
+          padding: 0;
+          max-width: none;
+          margin: 0;
           width: 100%;
           box-sizing: border-box;
+          display: flex;
+          flex-direction: column;
         }
         .maps-page {
           display: flex;
           flex-direction: column;
-          gap: var(--space-3);
+          flex: 1;
+          min-height: 0;
           width: 100%;
+          height: 100%;
         }
         .maps-toolbar {
           display: flex;
@@ -2285,33 +2298,96 @@ class HomeWeatherPanel extends HTMLElement {
           justify-content: space-between;
           gap: var(--space-2);
           flex-wrap: wrap;
+          flex-shrink: 0;
+          padding: var(--space-2) var(--space-3);
+          border-bottom: 1px solid var(--card-border);
+          background: var(--card-background-color);
         }
         .maps-mode-switcher { flex-shrink: 0; }
+        .maps-toolbar-actions {
+          display: flex;
+          align-items: center;
+          gap: var(--space-2);
+          flex-wrap: wrap;
+          margin-left: auto;
+        }
+        .maps-toolbar-toggle {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          font-size: var(--fs-xs);
+          color: var(--secondary-text-color);
+          cursor: pointer;
+          user-select: none;
+          white-space: nowrap;
+        }
+        .maps-toolbar-toggle input { accent-color: var(--panel-accent); }
+        .maps-toolbar-btn {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          min-width: 36px;
+          min-height: 36px;
+          padding: 0 10px;
+          border: 1px solid var(--card-border);
+          border-radius: var(--radius-sm);
+          background: var(--secondary-background-color);
+          color: var(--primary-text-color);
+          cursor: pointer;
+          font-size: var(--fs-xs);
+        }
+        .maps-toolbar-btn:hover { background: var(--card-border); }
+        .maps-toolbar-meta {
+          font-size: var(--fs-xs);
+          color: var(--muted);
+          white-space: nowrap;
+        }
         .maps-stage {
           position: relative;
+          flex: 1;
+          min-height: 0;
           width: 100%;
-          min-height: clamp(320px, 42vh, 460px);
         }
         .maps-view-panel,
-        .maps-windy-view {
+        .maps-windy-view,
+        .maps-trends-panel {
           display: none;
           width: 100%;
           height: 100%;
-          min-height: clamp(320px, 42vh, 460px);
+          min-height: 0;
         }
         .maps-view-panel.active,
-        .maps-windy-view.active { display: block; }
+        .maps-windy-view.active,
+        .maps-trends-panel.active { display: block; }
+        .maps-trends-panel.active {
+          display: flex;
+          flex-direction: column;
+          padding: var(--space-3);
+          box-sizing: border-box;
+          gap: var(--space-2);
+        }
+        .maps-trends-panel .maps-trends-title {
+          font-size: var(--fs-h2);
+          font-weight: 700;
+          letter-spacing: -0.01em;
+        }
+        .maps-trends-panel .maps-trends-sub {
+          font-size: var(--fs-xs);
+          color: var(--muted);
+          margin-top: 2px;
+        }
         #hurricane-tracker-root {
           width: 100%;
-          min-height: clamp(320px, 42vh, 460px);
+          height: 100%;
+          min-height: 0;
         }
         .maps-windy-frame {
           width: 100%;
-          height: clamp(320px, 42vh, 460px);
-          min-height: clamp(320px, 42vh, 460px);
-          border-radius: var(--radius-md);
+          height: 100%;
+          min-height: 0;
+          border-radius: 0;
           overflow: hidden;
-          border: 1px solid var(--card-border);
+          border: none;
           background: var(--secondary-background-color);
         }
         .maps-windy-frame iframe {
@@ -2320,26 +2396,14 @@ class HomeWeatherPanel extends HTMLElement {
           border: none;
           display: block;
         }
-        .maps-trends-card {
-          padding: var(--space-4);
-          display: flex;
-          flex-direction: column;
-          gap: var(--space-3);
-        }
-        .maps-trends-head {
-          display: flex;
-          align-items: flex-start;
-          justify-content: space-between;
-          gap: var(--space-2);
-          flex-wrap: wrap;
-        }
         .maps-chart-container {
-          min-height: clamp(220px, 28vw, 320px);
+          flex: 1;
+          min-height: 0;
           width: 100%;
         }
         @media (max-width: 640px) {
-          .maps-trends-head { flex-direction: column; align-items: stretch; }
-          .maps-trends-head .metric-switcher { justify-content: flex-start; }
+          .maps-toolbar { flex-direction: column; align-items: stretch; }
+          .maps-toolbar-actions { margin-left: 0; justify-content: space-between; }
         }
 
         /* Metric switcher */
@@ -3021,15 +3085,29 @@ class HomeWeatherPanel extends HTMLElement {
           this._render();
         });
       });
-      s.querySelectorAll(".maps-page .metric-switcher button[data-chart-metric]").forEach((btn) => {
+      s.querySelectorAll(".maps-toolbar-actions .metric-switcher button[data-chart-metric]").forEach((btn) => {
         btn.addEventListener("click", () => {
           this._chartMetric = btn.dataset.chartMetric || "temp";
-          s.querySelectorAll(".maps-page .metric-switcher button[data-chart-metric]").forEach((b) => b.classList.toggle("active", b === btn));
+          s.querySelectorAll(".maps-toolbar-actions .metric-switcher button[data-chart-metric]").forEach((b) => b.classList.toggle("active", b === btn));
           this._initApexChart();
         });
       });
+      s.getElementById("maps-wind-radii-toggle")?.addEventListener("change", (e) => {
+        this._mapsWindRadii = !!e.target.checked;
+        this._hurricaneTracker?.setShowWindRadii(this._mapsWindRadii);
+      });
+      s.getElementById("maps-hazards-refresh")?.addEventListener("click", async () => {
+        const btn = s.getElementById("maps-hazards-refresh");
+        if (btn) btn.disabled = true;
+        try {
+          await this._hurricaneTracker?.refresh();
+          this._updateMapsHazardsMeta();
+        } finally {
+          if (btn) btn.disabled = false;
+        }
+      });
       if (this._mapsMode === "storms") this._initHurricaneTracker();
-      this._initApexChart();
+      if (this._mapsMode === "trends") this._initApexChart();
     }
   }
 
@@ -3503,6 +3581,7 @@ class HomeWeatherPanel extends HTMLElement {
       { id: "radar", label: "Radar" },
       { id: "wind", label: "Wind" },
       { id: "rain", label: "Rain" },
+      { id: "trends", label: "Trends" },
     ];
     const windyModes = ["radar", "wind", "rain"];
     const windyPanels = windyModes.map((mode) => {
@@ -3515,32 +3594,55 @@ class HomeWeatherPanel extends HTMLElement {
         </div>`;
     }).join("");
 
+    const hazardsActions = this._mapsMode === "storms" ? `
+      <div class="maps-toolbar-actions">
+        <label class="maps-toolbar-toggle">
+          <input type="checkbox" id="maps-wind-radii-toggle" ${this._mapsWindRadii ? "checked" : ""}/>
+          Wind radii
+        </label>
+        <button type="button" class="maps-toolbar-btn" id="maps-hazards-refresh" title="Refresh hazard data">Refresh</button>
+        <span class="maps-toolbar-meta" id="maps-hazards-updated">Updated —</span>
+      </div>` : "";
+
+    const trendsActions = this._mapsMode === "trends" ? `
+      <div class="maps-toolbar-actions">
+        <div class="metric-switcher">
+          ${Object.entries(metricLabels).map(([key, label]) => `<button type="button" class="${chartMetric === key ? "active" : ""}" data-chart-metric="${key}">${label}</button>`).join("")}
+        </div>
+      </div>` : "";
+
     return `
       <section class="maps-page">
         <div class="maps-toolbar">
           <div class="maps-mode-switcher switcher">
             ${modes.map((m) => `<button type="button" class="${this._mapsMode === m.id ? "active" : ""}" data-maps-mode="${m.id}">${m.label}</button>`).join("")}
           </div>
+          ${hazardsActions}
+          ${trendsActions}
         </div>
         <div class="maps-stage">
           <div class="maps-view-panel ${this._mapsMode === "storms" ? "active" : ""}" data-maps-mode="storms">
             <div id="hurricane-tracker-root"></div>
           </div>
           ${windyPanels}
-        </div>
-        <article class="glass card maps-trends-card">
-          <div class="maps-trends-head">
+          <div class="maps-trends-panel ${this._mapsMode === "trends" ? "active" : ""}" data-maps-mode="trends">
             <div>
-              <div class="card-title">Hourly trends</div>
-              <div class="card-sub">Next 24 hours from your weather entity</div>
+              <div class="maps-trends-title">Hourly trends</div>
+              <div class="maps-trends-sub">Next 24 hours from your weather entity</div>
             </div>
-            <div class="metric-switcher">
-              ${Object.entries(metricLabels).map(([key, label]) => `<button type="button" class="${chartMetric === key ? "active" : ""}" data-chart-metric="${key}">${label}</button>`).join("")}
-            </div>
+            <div class="chart-container maps-chart-container" id="maps-apex-chart"></div>
           </div>
-          <div class="chart-container maps-chart-container" id="maps-apex-chart"></div>
-        </article>
+        </div>
       </section>`;
+  }
+
+  _updateMapsHazardsMeta() {
+    const s = this.shadowRoot;
+    if (!s) return;
+    const el = s.getElementById("maps-hazards-updated");
+    if (!el) return;
+    const updated = this._hurricaneTracker?.getLastUpdated?.();
+    el.textContent = updated ? `Updated ${updated}` : "Updated —";
   }
 
   _loadHurricaneTrackerScript() {
@@ -3579,6 +3681,8 @@ class HomeWeatherPanel extends HTMLElement {
         embedded: true,
       });
       await this._hurricaneTracker.init(root);
+      this._hurricaneTracker.setShowWindRadii(this._mapsWindRadii);
+      this._updateMapsHazardsMeta();
     } catch (err) {
       root.innerHTML = `<div class="error" style="padding:24px;text-align:center;">Failed to load hurricane tracker: ${String(err.message || err)}</div>`;
     }
@@ -4011,10 +4115,12 @@ class HomeWeatherPanel extends HTMLElement {
       if (!container) return;
       container.innerHTML = "";
 
+      const chartHeight = Math.max(280, (container.clientHeight || 400) - 8);
+
       const opts = {
         chart: {
           type: "line",
-          height: 320,
+          height: chartHeight,
           background: "transparent",
           toolbar: { show: false },
           zoom: { enabled: false },
