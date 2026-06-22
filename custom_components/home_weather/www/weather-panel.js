@@ -1147,13 +1147,17 @@ class HomeWeatherPanel extends HTMLElement {
           align-items: center;
           gap: var(--space-2) var(--space-3);
           min-width: 0;
-          padding: calc(var(--space-1) + var(--safe-top)) calc(var(--space-3) + var(--safe-right)) var(--space-1) calc(var(--space-3) + var(--safe-left));
-          background: rgba(28, 28, 28, 0.72);
+          box-sizing: border-box;
+          height: var(--header-height, 64px);
+          min-height: var(--header-height, 64px);
+          max-height: var(--header-height, 64px);
+          padding: 0 calc(var(--space-3) + var(--safe-right)) 0 calc(var(--space-3) + var(--safe-left));
+          background: var(--app-header-background-color, rgba(28, 28, 28, 0.72));
           backdrop-filter: blur(14px) saturate(140%);
           -webkit-backdrop-filter: blur(14px) saturate(140%);
-          border-bottom: 1px solid var(--hw-border);
+          border-bottom: var(--app-header-border-bottom, 1px solid var(--hw-border));
         }
-        .topbar .icon-btn { flex-shrink: 0; width: 44px; min-width: 44px; height: 44px; }
+        .topbar .icon-btn { flex-shrink: 0; width: 40px; min-width: 40px; height: 40px; min-height: 40px; }
         .title-card { flex: 1; min-width: 0; display: flex; align-items: center; padding: 0 var(--space-2) 0 0; background: transparent; border: none; box-shadow: none; border-radius: 0; }
         .title-wrap { min-width: 0; flex: 1; overflow: hidden; }
         .eyebrow { color: var(--hw-muted); font-size: var(--fs-eyebrow); letter-spacing: 0.14em; text-transform: uppercase; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
