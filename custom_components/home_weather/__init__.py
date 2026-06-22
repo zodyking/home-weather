@@ -116,20 +116,27 @@ async def _register_panel(hass: HomeAssistant) -> None:
 
         # Register panel using panel_custom (same API as Home Energy)
         from homeassistant.components import panel_custom
-        from homeassistant.components.frontend import DATA_PANELS
+        from homeassistant.components.frontend import DATA_PANELS, async_remove_panel
 
-        if PANEL_URL_PATH not in hass.data.get(DATA_PANELS, {}):
-            await panel_custom.async_register_panel(
-                hass,
-                webcomponent_name="home-weather-panel",
-                frontend_url_path=PANEL_URL_PATH,
-                sidebar_title=PANEL_TITLE,
-                sidebar_icon=PANEL_ICON,
-                module_url=f"{panel_url}/weather-panel.js?v={panel_version}",
-                embed_iframe=False,
-                require_admin=False,
-            )
-            _LOGGER.info("Registered Home Weather panel at /%s", PANEL_URL_PATH)
+        module_url = f"{panel_url}/weather-panel.js?v={panel_version}"
+        if PANEL_URL_PATH in hass.data.get(DATA_PANELS, {}):
+            async_remove_panel(hass, PANEL_URL_PATH)
+
+        await panel_custom.async_register_panel(
+            hass,
+            webcomponent_name="home-weather-panel",
+            frontend_url_path=PANEL_URL_PATH,
+            sidebar_title=PANEL_TITLE,
+            sidebar_icon=PANEL_ICON,
+            module_url=module_url,
+            embed_iframe=False,
+            require_admin=False,
+        )
+        _LOGGER.info(
+            "Registered Home Weather panel at /%s (v%s)",
+            PANEL_URL_PATH,
+            panel_version,
+        )
 
     except Exception as e:
         _LOGGER.error("Failed to register panel: %s", e)
