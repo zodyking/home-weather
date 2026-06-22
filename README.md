@@ -54,19 +54,9 @@ Everything is configured in the panel — weather entity, TTS players, triggers,
 - TTS + media players (for announcements)
 - `panel_custom` enabled if the sidebar entry is missing
 
-## Troubleshooting
+## Issues
 
-| Issue | Fix |
-|-------|-----|
-| Panel missing from sidebar | Add `panel_custom` in `configuration.yaml`, restart HA |
-| No weather data | Confirm entity in Settings; entity must expose forecasts |
-| TTS silent | Configure TTS engine + media players; use Test TTS in Settings |
-| NWS siren won't play | Place `.wav` files in `config/media/home_weather/sounds/` |
-| Hurricane map empty | No active storms, or NOAA/NHC feed temporarily unavailable |
-
-## License
-
-MIT — see [LICENSE](LICENSE).
+Found a bug or want a feature? [Open an issue](https://github.com/zodyking/home-weather/issues).
 
 ## Credits
 

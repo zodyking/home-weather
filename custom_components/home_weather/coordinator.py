@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.sun import is_day
+from homeassistant.helpers.sun import is_up
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
@@ -27,9 +27,11 @@ def _parse_forecast_dt(value: str | datetime | None) -> datetime | None:
 
 def _is_night(hass: HomeAssistant, when: datetime | None) -> bool:
     if when is None:
-        when = dt_util.now()
+        utc_when = dt_util.utcnow()
+    else:
+        utc_when = dt_util.as_utc(when)
     try:
-        return not is_day(hass, when)
+        return not is_up(hass, utc_when)
     except Exception:
         return False
 

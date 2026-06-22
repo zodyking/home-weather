@@ -1,0 +1,92 @@
+name: Bug Report
+description: Report a bug or unexpected behavior
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Please fill out the sections below.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe the bug
+      description: What happened?
+      placeholder: Tell us what went wrong...
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: How can we reproduce this?
+      placeholder: |
+        1. Open Home Weather
+        2. ...
+        3. See error
+    validations:
+      required: true
+
+  - type: input
+    id: ha-version
+    attributes:
+      label: Home Assistant version
+      placeholder: "2024.1.0"
+    validations:
+      required: true
+
+  - type: input
+    id: integration-version
+    attributes:
+      label: Integration version
+      placeholder: "1.0.11"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: installation
+    attributes:
+      label: Installation method
+      options:
+        - HACS
+        - Manual
+    validations:
+      required: true
+
+  - type: dropdown
+    id: issue-area
+    attributes:
+      label: Problem area
+      options:
+        - Weather Panel
+        - TTS / Announcements
+        - NWS Alerts
+        - Hurricane Tracker
+        - Configuration / Setup
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Paste logs from Settings → System → Logs (filter by `home_weather`).
+      render: shell
+      placeholder: Paste logs here...
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues and did not find a duplicate
+          required: true
+        - label: I am on the latest integration version
+          required: true
+        - label: I restarted Home Assistant after updating
+          required: true
