@@ -31,6 +31,7 @@ class HomeWeatherPanel extends HTMLElement {
     this._version = null;
     this._updateStatus = "latest";  // "latest" | "available" | "checking"
     this._updateCheckInterval = null;
+    this._clockTimeout = null;
   }
 
   get _isNarrow() {
@@ -72,6 +73,7 @@ class HomeWeatherPanel extends HTMLElement {
       this._loadConfig();
     }
     this._startUpdateCheckPoll();
+    this._startAtmosphereClock();
     // Subscribe to webhook triggered events for real-time status updates
     this._subscribeToWebhookEvents();
     // Subscribe to TTS status events for real playback feedback
@@ -80,6 +82,7 @@ class HomeWeatherPanel extends HTMLElement {
 
   disconnectedCallback() {
     this._stopUpdateCheckPoll();
+    this._stopAtmosphereClock();
     if (this._mediaQuery && this._onMediaChange) {
       this._mediaQuery.removeEventListener("change", this._onMediaChange);
     }
@@ -326,6 +329,42 @@ class HomeWeatherPanel extends HTMLElement {
     if (this._updateCheckInterval) {
       clearInterval(this._updateCheckInterval);
       this._updateCheckInterval = null;
+    }
+  }
+
+  _formatAtmosphereDateTime(date = new Date()) {
+    const timeStr = date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    const dateStr = date.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" });
+    return `${timeStr} · ${dateStr}`;
+  }
+
+  _updateAtmosphereClock() {
+    const s = this.shadowRoot;
+    if (!s) return;
+    const el = s.querySelector(".atmosphere-datetime");
+    if (!el) return;
+    const text = this._formatAtmosphereDateTime();
+    if (el.textContent !== text) el.textContent = text;
+  }
+
+  _startAtmosphereClock() {
+    this._stopAtmosphereClock();
+    this._updateAtmosphereClock();
+    const scheduleTick = () => {
+      this._updateAtmosphereClock();
+      const now = new Date();
+      const msUntilNextMinute = (60 - now.getSeconds()) * 1000 - now.getMilliseconds() + 50;
+      this._clockTimeout = setTimeout(scheduleTick, msUntilNextMinute);
+    };
+    const now = new Date();
+    const msUntilNextMinute = (60 - now.getSeconds()) * 1000 - now.getMilliseconds() + 50;
+    this._clockTimeout = setTimeout(scheduleTick, msUntilNextMinute);
+  }
+
+  _stopAtmosphereClock() {
+    if (this._clockTimeout) {
+      clearTimeout(this._clockTimeout);
+      this._clockTimeout = null;
     }
   }
 
@@ -2419,6 +2458,40 @@ class HomeWeatherPanel extends HTMLElement {
           width: 100%;
           box-sizing: border-box;
         }
+        .hurricanes-view {
+          min-height: 100vh;
+          height: 100vh;
+          max-height: 100vh;
+          overflow: hidden;
+          position: relative;
+          padding: 0;
+        }
+        .hurricanes-view .topbar {
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          z-index: 700;
+          background: linear-gradient(180deg, rgba(17, 17, 17, 0.94) 0%, rgba(17, 17, 17, 0.72) 55%, transparent 100%);
+          border-bottom: none;
+          pointer-events: none;
+        }
+        .hurricanes-view .topbar > * {
+          pointer-events: auto;
+        }
+        .hurricanes-page {
+          position: absolute;
+          inset: 0;
+          width: 100%;
+          height: 100%;
+          padding: 0;
+          margin: 0;
+          max-width: none;
+        }
+        #hurricane-tracker-root {
+          width: 100%;
+          height: 100%;
+        }
         .hamburger { display: none; padding: 8px; background: transparent; border: none; cursor: pointer; color: var(--primary-text-color); border-radius: 8px; }
         .hamburger:hover { background: var(--secondary-background-color); }
         .hamburger svg { width: 24px; height: 24px; display: block; }
@@ -2800,11 +2873,9 @@ class HomeWeatherPanel extends HTMLElement {
             </div>
           </div>`
           : this._currentView === "hurricanes"
-            ? `<div class="settings-view ${this._isNarrow ? "narrow" : ""}">
+            ? `<div class="settings-view hurricanes-view ${this._isNarrow ? "narrow" : ""}">
             ${this._renderPanelHeader("Hurricane Tracker", "")}
-            <div class="settings-body">
             ${this._renderContent()}
-            </div>
           </div>`
           : `<div class="hud-wrapper">
             <div class="weather-app">
@@ -2938,6 +3009,7 @@ class HomeWeatherPanel extends HTMLElement {
         btn.addEventListener("click", () => { this._fetchData(); });
       });
       this._initAtmosphereParticles();
+      this._updateAtmosphereClock();
     } else if (this._currentView === "alerts") {
       this._destroyAtmosphereParticles();
       s.querySelectorAll("[data-alert-toggle], [data-alert-expand]").forEach((el) => {
@@ -3548,8 +3620,7 @@ class HomeWeatherPanel extends HTMLElement {
 
     const moon = this._getMoonPhase(now);
 
-    const timeStr = now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-    const dateStr = now.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" });
+    const atmosphereDateTime = this._formatAtmosphereDateTime(now);
 
     const { lat, lon } = this._getHomeCoordinates();
     const windyUrl = `https://embed.windy.com/embed.html?type=map&location=coordinates&metricRain=in&metricTemp=°F&metricWind=mph&zoom=8&overlay=radar&product=radar&level=surface&lat=${lat}&lon=${lon}&pressure=true&message=true&play=1`;
@@ -3618,7 +3689,7 @@ class HomeWeatherPanel extends HTMLElement {
                     <span class="atmosphere-temp">${String(temp).replace(/</g, "&lt;")}</span><span class="atmosphere-unit">°</span>
                   </div>
                   <div class="atmosphere-condition">${condLabel}</div>
-                  <div class="atmosphere-datetime">${esc(timeStr)} · ${esc(dateStr)}</div>
+                  <div class="atmosphere-datetime">${esc(atmosphereDateTime)}</div>
                 </div>
               </div>
               ${hiloHtml}
@@ -4614,7 +4685,6 @@ class HomeWeatherPanel extends HTMLElement {
                 <option value="">None</option>
                 ${(this._wwwSounds || []).map((f) => `<option value="${f}" ${nwsAlerts.sound_file === f ? "selected" : ""}>${f}</option>`).join("")}
               </select>
-              <p class="form-hint">Place <strong>.wav</strong> files in <code>config/media/home_weather/sounds/</code> (copied automatically on setup). Convert existing .mp3 with the <code>scripts/convert_alert_sounds.py</code> helper.</p>
             </div>
             <div class="form-row-inline">
               <div class="form-group">

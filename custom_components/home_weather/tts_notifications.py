@@ -12,8 +12,8 @@ import asyncio
 import logging
 import re
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any
-from urllib.parse import quote
 
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
@@ -25,7 +25,11 @@ from .condition_labels import (
     precip_already_matches_upcoming,
 )
 from .const import NUMBER_WORDS, NWS_SOUNDS_SUBPATH
-from .sounds_setup import normalize_nws_sound_filename, sound_file_exists
+from .sounds_setup import (
+    build_nws_local_media_id,
+    normalize_nws_sound_filename,
+    resolve_nws_playable_sound,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -1020,12 +1024,13 @@ def format_active_nws_alerts_for_tts(
     return f"{trimmed}." if trimmed else msg[:max_length]
 
 
-def nws_media_playback(sound_file: str) -> tuple[str, str]:
-    """Return media-source playback URI and content type for an NWS siren file."""
-    filename = normalize_nws_sound_filename(sound_file)
-    encoded = quote(filename)
-    media_id = f"media-source://media_source/local/{NWS_SOUNDS_SUBPATH}/{encoded}"
-    return media_id, "music"
+def nws_local_playback(media_path: Path) -> tuple[str, str]:
+    """Return /local/ playback URI and content type for an NWS siren file."""
+    import mimetypes
+
+    media_id = build_nws_local_media_id(media_path.name)
+    mime_type, _ = mimetypes.guess_type(str(media_path))
+    return media_id, mime_type or "music"
 
 
 async def play_nws_siren(
@@ -1037,13 +1042,16 @@ async def play_nws_siren(
 ) -> None:
     """Play the configured NWS siren on all media players via /local/ www path."""
     nws = config.get("nws_alerts", {})
-    sound_file = normalize_nws_sound_filename(nws.get("sound_file") or "")
-    if not sound_file or not media_players_config:
+    sound_file_raw = nws.get("sound_file") or ""
+    if not normalize_nws_sound_filename(sound_file_raw) or not media_players_config:
         return
 
-    if not sound_file_exists(hass, sound_file):
-        reason = f"Sound file not found in config/media/{NWS_SOUNDS_SUBPATH}/"
-        _LOGGER.warning("NWS siren file missing: %s", sound_file)
+    media_path = await hass.async_add_executor_job(
+        resolve_nws_playable_sound, hass, sound_file_raw
+    )
+    if not media_path:
+        reason = f"Sound file not found in config/www/{NWS_SOUNDS_SUBPATH}/"
+        _LOGGER.warning("NWS siren file missing: %s", normalize_nws_sound_filename(sound_file_raw))
         _fire_tts_status(
             hass,
             "failed",
@@ -1053,8 +1061,8 @@ async def play_nws_siren(
         )
         return
 
+    media_id, media_type = nws_local_playback(media_path)
     sound_vol = max(0, min(1, float(nws.get("sound_volume", 0.8))))
-    media_id, media_type = nws_media_playback(sound_file)
 
     for mp in media_players_config:
         eid = mp.get("entity_id")

@@ -6,6 +6,7 @@
 
   const STORM_COLORS = ["#e53935", "#fb8c00", "#8e24aa", "#1e88e5", "#43a047"];
   const REFRESH_MS = 15 * 60 * 1000;
+  const DARK_TILE_URL = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
   // Contiguous United States bounds (default map view).
   const USA_BOUNDS = Object.freeze([
     [24.396308, -124.848974],
@@ -55,46 +56,215 @@
       const style = document.createElement("style");
       style.id = "hurricane-tracker-styles";
       style.textContent = `
-        .hurricane-layout { display: flex; gap: 16px; padding: clamp(12px, 2vw, 18px); max-width: 1200px; margin: 0 auto; width: 100%; box-sizing: border-box; }
-        .hurricane-map-wrap { flex: 1 1 60%; min-width: 0; position: relative; }
-        .hurricane-map { width: 100%; min-height: 420px; height: 52vh; border-radius: var(--radius-lg, 12px); overflow: hidden; border: 1px solid var(--card-border, rgba(255,255,255,0.12)); background: var(--card-background-color, #1c1c1c); }
+        .hurricane-layout {
+          position: relative;
+          width: 100%;
+          height: 100%;
+          min-height: 100%;
+          padding: 0;
+          margin: 0;
+          max-width: none;
+          box-sizing: border-box;
+        }
+        .hurricane-map-wrap {
+          position: absolute;
+          inset: 0;
+        }
+        .hurricane-map {
+          width: 100%;
+          height: 100%;
+          min-height: 100%;
+          border-radius: 0;
+          overflow: hidden;
+          border: none;
+          background: #111111;
+        }
         .hurricane-map-empty-banner {
           position: absolute;
-          top: 12px;
-          left: 12px;
-          right: 12px;
+          top: 72px;
+          left: 16px;
+          right: min(340px, calc(100% - 32px));
           z-index: 500;
           padding: 10px 14px;
-          border-radius: 8px;
+          border-radius: 10px;
           font-size: 13px;
           line-height: 1.45;
-          color: var(--secondary-text-color, #9b9b9b);
+          color: #cfd8dc;
           background: rgba(17, 17, 17, 0.82);
           border: 1px solid rgba(255,255,255,0.12);
+          backdrop-filter: blur(10px);
           pointer-events: none;
         }
-        .hw-outlook-label { background: rgba(0,0,0,0.72); color: #ffb74d; border: none; border-radius: 4px; padding: 2px 6px; font-size: 10px; font-weight: 600; }
-        .hurricane-status { flex: 0 0 280px; background: var(--card-background-color, #1c1c1c); border: 1px solid var(--card-border, rgba(255,255,255,0.12)); border-radius: var(--radius-lg, 12px); padding: 16px; display: flex; flex-direction: column; gap: 12px; }
-        .hurricane-status.is-threat-high { border-color: rgba(244,67,54,0.55); box-shadow: 0 0 0 1px rgba(244,67,54,0.25); }
-        .hurricane-status.is-threat-watch { border-color: rgba(255,152,0,0.45); }
-        .hurricane-status h3 { margin: 0; font-size: 16px; font-weight: 600; color: var(--primary-text-color); }
-        .hurricane-stat { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; color: var(--secondary-text-color); }
-        .hurricane-stat strong { color: var(--primary-text-color); font-weight: 600; text-align: right; }
+        .hurricane-status {
+          position: absolute;
+          top: 72px;
+          right: 16px;
+          bottom: 16px;
+          width: min(300px, calc(100% - 32px));
+          max-height: calc(100% - 88px);
+          overflow-y: auto;
+          z-index: 600;
+          background: rgba(17, 20, 28, 0.88);
+          border: 1px solid rgba(255,255,255,0.12);
+          border-radius: 14px;
+          padding: 16px;
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+          backdrop-filter: blur(14px);
+          box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+        }
+        .hurricane-status.is-threat-high {
+          border-color: rgba(244,67,54,0.55);
+          box-shadow: 0 0 0 1px rgba(244,67,54,0.25), 0 12px 40px rgba(0, 0, 0, 0.45);
+        }
+        .hurricane-status.is-threat-watch {
+          border-color: rgba(255,152,0,0.45);
+        }
+        .hurricane-status h3 {
+          margin: 0;
+          font-size: 16px;
+          font-weight: 600;
+          color: #e1e1e1;
+        }
+        .hurricane-stat {
+          display: flex;
+          justify-content: space-between;
+          gap: 8px;
+          font-size: 13px;
+          color: #9b9b9b;
+        }
+        .hurricane-stat strong {
+          color: #e1e1e1;
+          font-weight: 600;
+          text-align: right;
+        }
         .hurricane-stat.is-warning strong { color: #ff9800; }
         .hurricane-stat.is-danger strong { color: #f44336; }
-        .hurricane-banner { padding: 10px 12px; border-radius: 8px; font-size: 12px; background: rgba(255,152,0,0.15); color: #ffb74d; border: 1px solid rgba(255,152,0,0.35); }
-        .hurricane-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 48px 16px; color: var(--secondary-text-color); text-align: center; }
-        .hurricane-toggle { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--secondary-text-color); cursor: pointer; }
-        .hurricane-toggle input { accent-color: var(--panel-accent, #03a9f4); }
-        .hurricane-loading { padding: 48px; text-align: center; color: var(--secondary-text-color); }
-        .leaflet-container { font-family: inherit; background: #0d1117; }
-        .hw-forecast-label { background: rgba(0,0,0,0.72); color: #fff; border: none; border-radius: 4px; padding: 2px 6px; font-size: 11px; font-weight: 600; }
-        .hw-home-marker.in-cone { filter: drop-shadow(0 0 6px rgba(244,67,54,0.9)); animation: hw-pulse 1.5s ease-in-out infinite; }
+        .hurricane-banner {
+          padding: 10px 12px;
+          border-radius: 8px;
+          font-size: 12px;
+          background: rgba(255,152,0,0.15);
+          color: #ffb74d;
+          border: 1px solid rgba(255,152,0,0.35);
+        }
+        .hurricane-empty {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          gap: 12px;
+          padding: 48px 16px;
+          color: #9b9b9b;
+          text-align: center;
+        }
+        .hurricane-toggle {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          font-size: 13px;
+          color: #9b9b9b;
+          cursor: pointer;
+        }
+        .hurricane-toggle input { accent-color: #03a9f4; }
+        .hurricane-loading {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          height: 100%;
+          color: #9b9b9b;
+          text-align: center;
+        }
+        .leaflet-container {
+          font-family: inherit;
+          background: #111111;
+        }
+        .leaflet-control-zoom a {
+          background: rgba(28, 28, 28, 0.92);
+          color: #e1e1e1;
+          border-color: rgba(255,255,255,0.12);
+        }
+        .leaflet-control-zoom a:hover {
+          background: rgba(40, 40, 40, 0.96);
+          color: #fff;
+        }
+        .leaflet-bar {
+          border: 1px solid rgba(255,255,255,0.12);
+          box-shadow: 0 4px 16px rgba(0,0,0,0.35);
+        }
+        .leaflet-control-attribution {
+          background: rgba(17, 17, 17, 0.72) !important;
+          color: #9b9b9b !important;
+          backdrop-filter: blur(6px);
+        }
+        .leaflet-control-attribution a { color: #90caf9 !important; }
+        .hw-forecast-label,
+        .hw-outlook-label,
+        .hw-storm-track-label {
+          background: rgba(17, 20, 28, 0.88);
+          color: #fff;
+          border: 1px solid rgba(255,255,255,0.12);
+          border-radius: 6px;
+          padding: 3px 8px;
+          font-size: 11px;
+          font-weight: 600;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.35);
+          backdrop-filter: blur(8px);
+        }
+        .hw-outlook-label { color: #ffb74d; }
+        .hw-storm-track-label { color: #eceff1; font-size: 12px; }
+        .hw-storm-marker-wrap {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 6px;
+          text-align: center;
+          transform: translate(-50%, -50%);
+        }
+        .hw-storm-name {
+          background: rgba(17, 20, 28, 0.92);
+          color: #fff;
+          border: 1px solid rgba(255,255,255,0.14);
+          border-left: 3px solid var(--storm-color, #e53935);
+          border-radius: 8px;
+          padding: 5px 10px;
+          font-size: 12px;
+          font-weight: 700;
+          line-height: 1.25;
+          white-space: nowrap;
+          box-shadow: 0 6px 18px rgba(0,0,0,0.4);
+          backdrop-filter: blur(10px);
+        }
+        .hw-storm-meta {
+          display: block;
+          margin-top: 2px;
+          font-size: 10px;
+          font-weight: 500;
+          color: #b0bec5;
+        }
+        .hw-storm-icon {
+          filter: drop-shadow(0 2px 6px rgba(0,0,0,0.45));
+        }
+        .hw-home-marker.in-cone {
+          filter: drop-shadow(0 0 6px rgba(244,67,54,0.9));
+          animation: hw-pulse 1.5s ease-in-out infinite;
+        }
         @keyframes hw-pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.08); } }
         @media (max-width: 768px) {
-          .hurricane-layout { flex-direction: column; }
-          .hurricane-status { flex: 1 1 auto; }
-          .hurricane-map { height: 45vh; min-height: 320px; }
+          .hurricane-status {
+            top: auto;
+            left: 12px;
+            right: 12px;
+            bottom: 12px;
+            width: auto;
+            max-height: min(46vh, 360px);
+          }
+          .hurricane-map-empty-banner {
+            top: 68px;
+            left: 12px;
+            right: 12px;
+          }
         }
       `;
       this._shadow.appendChild(style);
@@ -196,11 +366,85 @@
         .replace(/"/g, "&quot;");
     }
 
+    _formatStormLabel(storm) {
+      const name = (storm.name || "Unnamed Storm").trim();
+      const meta = [];
+      if (storm.category != null && Number(storm.category) > 0) {
+        meta.push(`Cat ${storm.category}`);
+      }
+      if (storm.maxWindMph != null) {
+        meta.push(`${Math.round(Number(storm.maxWindMph))} mph`);
+      }
+      return { name, meta: meta.join(" · ") };
+    }
+
+    _formatOutlookLabel(props, fallback) {
+      const name =
+        props.stormname ||
+        props.storm_name ||
+        props.name ||
+        props.disturbance ||
+        props.disturb ||
+        props.area ||
+        fallback;
+      const prob = props.prob2day || props.prob7day;
+      if (prob && !String(name).includes("%")) {
+        return `${name} (${prob})`;
+      }
+      return String(name || fallback);
+    }
+
+    _getFeatureCenterLatLng(feature) {
+      const L = global.L;
+      if (!feature) return null;
+      if (global.turf) {
+        try {
+          const center = global.turf.center(feature);
+          const [lon, lat] = center.geometry.coordinates;
+          return [lat, lon];
+        } catch (_) {
+          /* fall through */
+        }
+      }
+      const geom = feature.geometry || {};
+      if (geom.type === "Point" && geom.coordinates?.length >= 2) {
+        return [geom.coordinates[1], geom.coordinates[0]];
+      }
+      if (L?.geoJSON) {
+        try {
+          const layer = L.geoJSON(feature);
+          const bounds = layer.getBounds?.();
+          if (bounds?.isValid?.()) {
+            const c = bounds.getCenter();
+            return [c.lat, c.lng];
+          }
+        } catch (_) {
+          /* fall through */
+        }
+      }
+      return null;
+    }
+
+    _addMapLabel(lat, lon, text, className, direction, offset) {
+      const L = global.L;
+      if (!L || lat == null || lon == null || !text) return;
+      L.marker([lat, lon], {
+        icon: L.divIcon({
+          className: "hw-map-label-anchor",
+          html: `<div class="${className}">${this._esc(text)}</div>`,
+          iconSize: [0, 0],
+          iconAnchor: [0, 0],
+        }),
+        interactive: false,
+        zIndexOffset: 400,
+      }).addTo(this._layerGroup);
+    }
+
     _renderError() {
       if (!this._root) return;
       this._root.innerHTML = `
         <section class="hurricane-layout">
-          <div class="hurricane-empty" style="width:100%">
+          <div class="hurricane-empty" style="width:100%;height:100%">
             <p>Failed to load hurricane data.</p>
             <p>${this._esc(this._error)}</p>
             <button class="btn btn-primary" data-hurricane-refresh>Retry</button>
@@ -256,18 +500,17 @@
           <button class="btn btn-secondary" data-hurricane-refresh style="margin-top:4px">Refresh</button>
         </aside>`;
 
-      const mapSection = `
-        <div class="hurricane-map-wrap">
-          <div id="hurricane-map" class="hurricane-map"></div>
-          ${storms.length === 0
-            ? `<div class="hurricane-map-empty-banner"><strong>No active tropical cyclones.</strong> Showing NHC outlook and development areas. Data updates every 6 hours (every 3 hours near landfall).</div>`
-            : ""}
-        </div>`;
+      const emptyBanner = storms.length === 0
+        ? `<div class="hurricane-map-empty-banner"><strong>No active tropical cyclones.</strong> Showing NHC outlook and development areas. Data updates every 6 hours (every 3 hours near landfall).</div>`
+        : "";
 
       this._root.innerHTML = `
         <section class="hurricane-layout">
-          ${mapSection}
-          ${statusPanel}
+          <div class="hurricane-map-wrap">
+            <div id="hurricane-map" class="hurricane-map"></div>
+            ${emptyBanner}
+            ${statusPanel}
+          </div>
         </section>`;
       this._renderMap();
     }
@@ -288,13 +531,16 @@
       if (!mapEl || !global.L || this._mapInitialized) return mapEl;
 
       this._map = global.L.map(mapEl, {
-        zoomControl: true,
+        zoomControl: false,
         attributionControl: true,
       });
-      global.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      global.L.tileLayer(DARK_TILE_URL, {
         maxZoom: 19,
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+        subdomains: "abcd",
+        attribution:
+          '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
       }).addTo(this._map);
+      global.L.control.zoom({ position: "bottomleft" }).addTo(this._map);
       this._layerGroup = global.L.layerGroup().addTo(this._map);
       this._mapInitialized = true;
       this._map.fitBounds(this._getUsaBounds(), { padding: [24, 24] });
@@ -343,7 +589,7 @@
 
       if (stormBounds.length > 0) {
         const combined = global.L.latLngBounds(stormBounds).extend(usa);
-        this._map.fitBounds(combined, { padding: [32, 32] });
+        this._map.fitBounds(combined, { padding: [48, 48] });
       } else {
         this._map.fitBounds(usa, { padding: [24, 24] });
       }
@@ -380,6 +626,11 @@
               props.risk7day ? `7-day risk: ${props.risk7day}` : "",
             ].filter(Boolean).join("<br/>");
             if (label) layer.bindPopup(`<strong>Potential development</strong><br/>${label}`);
+            const center = this._getFeatureCenterLatLng(feature);
+            if (center) {
+              const mapLabel = this._formatOutlookLabel(props, "Development area");
+              this._addMapLabel(center[0], center[1], mapLabel, "hw-outlook-label");
+            }
           },
         }).addTo(this._layerGroup).eachLayer((layer) => {
           if (layer.getBounds) bounds.push(layer.getBounds());
@@ -431,12 +682,20 @@
           props.risk7day ? `7-day risk: ${this._esc(props.risk7day)}` : "",
         ].filter(Boolean).join("<br/>");
         marker.bindPopup(popup);
+        const mapLabel = this._formatOutlookLabel(props, title);
+        marker.bindTooltip(mapLabel, {
+          permanent: true,
+          direction: "top",
+          className: "hw-outlook-label",
+          offset: [0, -8],
+        });
         bounds.push([lat, lon]);
       });
     }
 
     _drawStorm(storm, color, bounds) {
       const L = global.L;
+      const labelInfo = this._formatStormLabel(storm);
 
       if (storm.cone?.coordinates) {
         const coneLayer = L.geoJSON(storm.cone, {
@@ -469,6 +728,19 @@
         const latlngs = storm.track.coordinates.map((c) => [c[1], c[0]]);
         L.polyline(latlngs, { color, weight: 4, opacity: 0.9 }).addTo(this._layerGroup);
         latlngs.forEach((ll) => bounds.push(ll));
+        if (latlngs.length > 0) {
+          const [trackLat, trackLon] = latlngs[latlngs.length - 1];
+          L.marker([trackLat, trackLon], {
+            icon: L.divIcon({
+              className: "hw-map-label-anchor",
+              html: `<div class="hw-storm-track-label" style="border-left:3px solid ${color}">${this._esc(labelInfo.name)}</div>`,
+              iconSize: [0, 0],
+              iconAnchor: [0, 0],
+            }),
+            interactive: false,
+            zIndexOffset: 350,
+          }).addTo(this._layerGroup);
+        }
       }
 
       if (storm.pastTrack?.coordinates?.length) {
@@ -506,7 +778,7 @@
 
       (storm.forecastPoints || []).forEach((pt) => {
         if (pt.lat == null || pt.lon == null) return;
-        const label = pt.hour != null ? `${pt.hour}H` : "";
+        const hourLabel = pt.hour != null ? `${pt.hour}H` : "";
         const marker = L.circleMarker([pt.lat, pt.lon], {
           radius: 5,
           color: "#fff",
@@ -514,8 +786,8 @@
           fillColor: color,
           fillOpacity: 0.95,
         }).addTo(this._layerGroup);
-        if (label) {
-          marker.bindTooltip(label, {
+        if (hourLabel) {
+          marker.bindTooltip(hourLabel, {
             permanent: true,
             direction: "right",
             className: "hw-forecast-label",
@@ -527,11 +799,19 @@
 
       const pos = storm.currentPosition;
       if (pos?.lat != null && pos?.lon != null) {
+        const metaHtml = labelInfo.meta
+          ? `<span class="hw-storm-meta">${this._esc(labelInfo.meta)}</span>`
+          : "";
         const stormIcon = L.divIcon({
           className: "hw-storm-marker",
-          html: `<img src="/local/home_weather/icons/hurricane.svg" width="32" height="32" alt="" />`,
-          iconSize: [32, 32],
-          iconAnchor: [16, 16],
+          html: `
+            <div class="hw-storm-marker-wrap" style="--storm-color:${color}">
+              <div class="hw-storm-name">${this._esc(labelInfo.name)}${metaHtml}</div>
+              <img class="hw-storm-icon" src="/local/home_weather/icons/hurricane.svg" width="32" height="32" alt="" />
+            </div>
+          `,
+          iconSize: [32, 48],
+          iconAnchor: [16, 40],
         });
         const popup = `
           <strong>${this._esc(storm.name)}</strong><br/>
@@ -545,6 +825,12 @@
           .bindPopup(popup)
           .addTo(this._layerGroup);
         bounds.push([pos.lat, pos.lon]);
+      } else if (storm.cone) {
+        const center = this._getFeatureCenterLatLng({ type: "Feature", geometry: storm.cone, properties: {} });
+        if (center) {
+          this._addMapLabel(center[0], center[1], labelInfo.name, "hw-storm-track-label");
+          bounds.push(center);
+        }
       }
     }
   }

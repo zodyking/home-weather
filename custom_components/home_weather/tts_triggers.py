@@ -600,7 +600,7 @@ class TTSTriggerManager:
             _fire_tts_status(
                 self.hass, "failed",
                 request_id=request_id,
-                reason="Sound file not found in config/media/home_weather/sounds/",
+                reason="Sound file not found in config/www/home_weather/sounds/",
                 alert_kind="nws_siren",
             )
             return

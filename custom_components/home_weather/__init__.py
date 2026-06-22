@@ -86,7 +86,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def _ensure_nws_sounds(hass: HomeAssistant) -> None:
-    """Create config/media/home_weather/sounds and copy bundled defaults."""
+    """Create config/www/home_weather/sounds and copy bundled defaults."""
     from .sounds_setup import ensure_nws_sounds_dir
 
     await hass.async_add_executor_job(ensure_nws_sounds_dir, hass)

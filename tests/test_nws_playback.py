@@ -5,15 +5,17 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 from custom_components.home_weather.sounds_setup import (
-    get_nws_media_dir,
-    list_nws_sound_files,
+    build_nws_local_media_id,
+    get_nws_sounds_dir,
     list_nws_sounds_merged,
+    list_nws_wav_files,
     normalize_nws_sound_filename,
+    resolve_nws_playable_sound,
     resolve_nws_sound_path,
 )
 from custom_components.home_weather.tts_notifications import (
     format_active_nws_alerts_for_tts,
-    nws_media_playback,
+    nws_local_playback,
 )
 
 RIP_CURRENT = {
@@ -31,21 +33,35 @@ FLOOD = {
 }
 
 
-def test_nws_media_playback_wav_uri_and_mime():
-    media_id, media_type = nws_media_playback("weather-warning.wav")
-    assert media_id == "media-source://media_source/local/home_weather/sounds/weather-warning.wav"
-    assert media_type == "music"
+def _mock_hass(tmp_path):
+    hass = MagicMock()
+    hass.config.path.side_effect = lambda key: str(tmp_path / key)
+    return hass
 
 
-def test_nws_media_playback_mp3_mime():
-    media_id, media_type = nws_media_playback("alert.mp3")
-    assert media_id == "media-source://media_source/local/home_weather/sounds/alert.mp3"
-    assert media_type == "music"
+def test_nws_local_playback_wav_uri_and_mime(tmp_path):
+    www_dir = tmp_path / "www" / "home_weather" / "sounds"
+    www_dir.mkdir(parents=True)
+    sound = www_dir / "weather-warning.wav"
+    sound.write_bytes(b"x")
+
+    media_id, media_type = nws_local_playback(sound)
+    assert media_id == "/local/home_weather/sounds/weather-warning.wav"
+    assert media_type == "audio/wav"
 
 
-def test_nws_media_playback_encodes_spaces():
-    media_id, _ = nws_media_playback("weather warning 1.wav")
-    assert media_id == "media-source://media_source/local/home_weather/sounds/weather%20warning%201.wav"
+def test_nws_local_playback_preserves_spaces(tmp_path):
+    www_dir = tmp_path / "www" / "home_weather" / "sounds"
+    www_dir.mkdir(parents=True)
+    sound = www_dir / "weather warning 1.wav"
+    sound.write_bytes(b"x")
+
+    media_id, _ = nws_local_playback(sound)
+    assert media_id == "/local/home_weather/sounds/weather warning 1.wav"
+
+
+def test_build_nws_local_media_id():
+    assert build_nws_local_media_id("alert.wav") == "/local/home_weather/sounds/alert.wav"
 
 
 def test_normalize_nws_sound_filename_strips_media_prefix():
@@ -75,99 +91,64 @@ def test_format_active_nws_alerts_combined_summary():
     assert "What:" not in result
 
 
-def test_list_nws_sound_files_prefers_wav(tmp_path):
+def test_list_nws_wav_files_ignores_non_wav(tmp_path):
     (tmp_path / "alert.mp3").write_bytes(b"x")
     (tmp_path / "siren.wav").write_bytes(b"x")
     (tmp_path / "other.ogg").write_bytes(b"x")
-    files = list_nws_sound_files(tmp_path)
-    assert files[0] == "siren.wav"
-    assert set(files) == {"siren.wav", "alert.mp3", "other.ogg"}
+    files = list_nws_wav_files(tmp_path)
+    assert files == ["siren.wav"]
 
 
-def test_list_nws_sound_files_hides_mp3_when_wav_exists(tmp_path):
-    (tmp_path / "alert.mp3").write_bytes(b"x")
-    (tmp_path / "alert.wav").write_bytes(b"y")
-    files = list_nws_sound_files(tmp_path)
-    assert files == ["alert.wav"]
-
-
-def test_resolve_nws_sound_path_prefers_media_dir(tmp_path, monkeypatch):
+def test_resolve_nws_sound_path_prefers_www_dir(tmp_path, monkeypatch):
     bundle = tmp_path / "bundle"
-    media_dir = tmp_path / "media" / "home_weather" / "sounds"
-    legacy_www = tmp_path / "www" / "home_weather" / "sounds"
+    www_dir = tmp_path / "www" / "home_weather" / "sounds"
     bundle.mkdir(parents=True)
-    media_dir.mkdir(parents=True)
-    legacy_www.mkdir(parents=True)
+    www_dir.mkdir(parents=True)
     (bundle / "alert.wav").write_bytes(b"x")
-    (media_dir / "alert.wav").write_bytes(b"y")
-    (legacy_www / "alert.wav").write_bytes(b"z")
+    (www_dir / "alert.wav").write_bytes(b"y")
 
-    hass = MagicMock()
-    hass.config.path.side_effect = lambda key: str(tmp_path / key)
-
+    hass = _mock_hass(tmp_path)
     monkeypatch.setattr(
         "custom_components.home_weather.sounds_setup.get_bundle_sounds_dir",
         lambda: bundle,
     )
 
     resolved = resolve_nws_sound_path(hass, "alert.wav")
-    assert resolved == media_dir / "alert.wav"
+    assert resolved == www_dir / "alert.wav"
 
 
-def test_resolve_nws_sound_path_falls_back_to_legacy_www(tmp_path, monkeypatch):
+def test_resolve_nws_sound_path_falls_back_to_bundle(tmp_path, monkeypatch):
     bundle = tmp_path / "bundle"
-    legacy_www = tmp_path / "www" / "home_weather" / "sounds"
+    www_dir = tmp_path / "www" / "home_weather" / "sounds"
     bundle.mkdir(parents=True)
-    legacy_www.mkdir(parents=True)
-    (legacy_www / "alert.wav").write_bytes(b"x")
+    www_dir.mkdir(parents=True)
+    (bundle / "alert.wav").write_bytes(b"x")
 
-    hass = MagicMock()
-    hass.config.path.side_effect = lambda key: str(tmp_path / key)
-
+    hass = _mock_hass(tmp_path)
     monkeypatch.setattr(
         "custom_components.home_weather.sounds_setup.get_bundle_sounds_dir",
         lambda: bundle,
     )
 
     resolved = resolve_nws_sound_path(hass, "/local/home_weather/sounds/alert.wav")
-    assert resolved == legacy_www / "alert.wav"
-
-
-def test_resolve_nws_sound_path_falls_back_to_bundle(tmp_path, monkeypatch):
-    bundle = tmp_path / "bundle"
-    media_dir = tmp_path / "media" / "home_weather" / "sounds"
-    bundle.mkdir(parents=True)
-    media_dir.mkdir(parents=True)
-    (bundle / "alert.wav").write_bytes(b"x")
-
-    hass = MagicMock()
-    hass.config.path.side_effect = lambda key: str(tmp_path / key)
-
-    monkeypatch.setattr(
-        "custom_components.home_weather.sounds_setup.get_bundle_sounds_dir",
-        lambda: bundle,
-    )
-
-    resolved = resolve_nws_sound_path(hass, "/media/home_weather/sounds/alert.wav")
     assert resolved == bundle / "alert.wav"
 
 
-def test_list_nws_sounds_merged_lists_media_dir_only(tmp_path, monkeypatch):
+def test_list_nws_sounds_merged_lists_www_wav_only(tmp_path, monkeypatch):
     bundle = tmp_path / "bundle"
+    www_dir = tmp_path / "www" / "home_weather" / "sounds"
     media_dir = tmp_path / "media" / "home_weather" / "sounds"
-    legacy_www = tmp_path / "www" / "home_weather" / "sounds"
     bundle.mkdir(parents=True)
+    www_dir.mkdir(parents=True)
     media_dir.mkdir(parents=True)
-    legacy_www.mkdir(parents=True)
     (bundle / "one.wav").write_bytes(b"x")
     (bundle / "two.wav").write_bytes(b"x")
-    (legacy_www / "legacy-only.wav").write_bytes(b"x")
-    (media_dir / "two.wav").write_bytes(b"y")
-    (media_dir / "three.wav").write_bytes(b"z")
+    (media_dir / "media-only.wav").write_bytes(b"x")
+    (www_dir / "two.wav").write_bytes(b"y")
+    (www_dir / "three.wav").write_bytes(b"z")
+    (www_dir / "legacy.mp3").write_bytes(b"m")
 
-    hass = MagicMock()
-    hass.config.path.side_effect = lambda key: str(tmp_path / key)
-
+    hass = _mock_hass(tmp_path)
     monkeypatch.setattr(
         "custom_components.home_weather.sounds_setup.get_bundle_sounds_dir",
         lambda: bundle,
@@ -175,7 +156,43 @@ def test_list_nws_sounds_merged_lists_media_dir_only(tmp_path, monkeypatch):
 
     files = list_nws_sounds_merged(hass)
     assert files == ["three.wav", "two.wav"]
-    assert get_nws_media_dir(hass) == media_dir
+    assert get_nws_sounds_dir(hass) == www_dir
+
+
+def test_resolve_nws_playable_sound_prefers_wav_over_mp3_config(tmp_path, monkeypatch):
+    bundle = tmp_path / "bundle"
+    www_dir = tmp_path / "www" / "home_weather" / "sounds"
+    bundle.mkdir(parents=True)
+    www_dir.mkdir(parents=True)
+    (www_dir / "weather warning 1.wav").write_bytes(b"x")
+
+    hass = _mock_hass(tmp_path)
+    monkeypatch.setattr(
+        "custom_components.home_weather.sounds_setup.get_bundle_sounds_dir",
+        lambda: bundle,
+    )
+
+    resolved = resolve_nws_playable_sound(hass, "weather warning 1.mp3")
+    assert resolved == www_dir / "weather warning 1.wav"
+
+
+def test_ensure_nws_sounds_dir_seeds_bundle_to_www(tmp_path, monkeypatch):
+    bundle = tmp_path / "bundle"
+    www_dir = tmp_path / "www" / "home_weather" / "sounds"
+    bundle.mkdir(parents=True)
+    (bundle / "weather warning 1.wav").write_bytes(b"x")
+
+    hass = _mock_hass(tmp_path)
+    monkeypatch.setattr(
+        "custom_components.home_weather.sounds_setup.get_bundle_sounds_dir",
+        lambda: bundle,
+    )
+
+    from custom_components.home_weather.sounds_setup import ensure_nws_sounds_dir
+
+    result = ensure_nws_sounds_dir(hass)
+    assert result == www_dir
+    assert (www_dir / "weather warning 1.wav").is_file()
 
 
 def test_bootstrap_logic_documentation():

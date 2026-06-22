@@ -561,7 +561,7 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
     async def handle_list_www_sounds(
         hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
     ) -> None:
-        """List audio files in config/media/home_weather/sounds/."""
+        """List .wav files in config/www/home_weather/sounds/."""
         from .sounds_setup import ensure_nws_sounds_dir, list_nws_sounds_merged
 
         await hass.async_add_executor_job(ensure_nws_sounds_dir, hass)

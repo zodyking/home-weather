@@ -1,4 +1,4 @@
-"""Setup helpers for NWS alert sound files in Home Assistant media storage."""
+"""Setup helpers for NWS alert sound files in Home Assistant www storage."""
 from __future__ import annotations
 
 import logging
@@ -11,7 +11,7 @@ from .const import NWS_SOUNDS_SUBPATH
 
 _LOGGER = logging.getLogger(__name__)
 
-_AUDIO_SUFFIXES = frozenset({".wav", ".mp3", ".ogg", ".flac"})
+_WAV_SUFFIX = ".wav"
 
 
 def get_bundle_sounds_dir() -> Path:
@@ -19,14 +19,14 @@ def get_bundle_sounds_dir() -> Path:
     return Path(__file__).parent / "www" / "sounds"
 
 
-def get_nws_media_dir(hass: HomeAssistant) -> Path:
-    """Return config/media/home_weather/sounds path (media_source local)."""
-    return Path(hass.config.path("media")) / Path(NWS_SOUNDS_SUBPATH)
-
-
 def get_nws_sounds_dir(hass: HomeAssistant) -> Path:
-    """Return legacy config/www/home_weather/sounds path."""
+    """Return config/www/home_weather/sounds path (served at /local/)."""
     return Path(hass.config.path("www")) / Path(NWS_SOUNDS_SUBPATH)
+
+
+def _get_legacy_media_dir(hass: HomeAssistant) -> Path:
+    """Return old config/media/home_weather/sounds path for one-time migration."""
+    return Path(hass.config.path("media")) / Path(NWS_SOUNDS_SUBPATH)
 
 
 def normalize_nws_sound_filename(sound_file: str) -> str:
@@ -36,6 +36,7 @@ def normalize_nws_sound_filename(sound_file: str) -> str:
         return ""
     prefixes = (
         "media-source://media_source/local/home_weather/sounds/",
+        "media-source://media_source/home_weather/sounds/",
         "media-source://media_source/local/",
         "/local/home_weather/sounds/",
         "/media/local/home_weather/sounds/",
@@ -53,60 +54,83 @@ def normalize_nws_sound_filename(sound_file: str) -> str:
     return Path(lowered).name
 
 
-def _iter_sound_files(sounds_dir: Path) -> list[str]:
+def _iter_wav_files(sounds_dir: Path) -> list[str]:
     if not sounds_dir.is_dir():
         return []
     return [
         f.name
         for f in sounds_dir.iterdir()
-        if f.is_file() and f.suffix.lower() in _AUDIO_SUFFIXES
+        if f.is_file() and f.suffix.lower() == _WAV_SUFFIX
     ]
 
 
-def _sort_sound_files(files: list[str]) -> list[str]:
-    return sorted(files, key=lambda name: (0 if name.lower().endswith(".wav") else 1, name.lower()))
-
-
-def _filter_listed_sounds(files: list[str]) -> list[str]:
-    """Prefer .wav over other formats that share the same stem."""
-    stems_with_wav = {Path(name).stem.lower() for name in files if name.lower().endswith(".wav")}
-    return [
-        name
-        for name in files
-        if name.lower().endswith(".wav") or Path(name).stem.lower() not in stems_with_wav
-    ]
-
-
-def list_nws_sound_files(sounds_dir: Path) -> list[str]:
-    """List audio files in a single sounds directory (.wav first)."""
-    return _sort_sound_files(_filter_listed_sounds(_iter_sound_files(sounds_dir)))
+def list_nws_wav_files(sounds_dir: Path) -> list[str]:
+    """List .wav files in a single sounds directory."""
+    return sorted(_iter_wav_files(sounds_dir), key=str.lower)
 
 
 def list_nws_sounds_merged(hass: HomeAssistant) -> list[str]:
-    """List audio files present in config/media/home_weather/sounds/."""
-    return list_nws_sound_files(get_nws_media_dir(hass))
+    """List .wav files present in config/www/home_weather/sounds/."""
+    return list_nws_wav_files(get_nws_sounds_dir(hass))
 
 
 def resolve_nws_sound_path(hass: HomeAssistant, sound_file: str) -> Path | None:
-    """Resolve a sound filename to disk path (media dir, legacy www, then bundle)."""
+    """Resolve a sound filename to disk path (www dir, then bundle)."""
     filename = normalize_nws_sound_filename(sound_file)
     if not filename:
         return None
-    media_path = get_nws_media_dir(hass) / filename
-    if media_path.is_file():
-        return media_path
-    legacy_path = get_nws_sounds_dir(hass) / filename
-    if legacy_path.is_file():
-        return legacy_path
+
+    www_dir = get_nws_sounds_dir(hass)
+    stem = Path(filename).stem.lower()
+    for name in _iter_wav_files(www_dir):
+        if Path(name).stem.lower() == stem:
+            return www_dir / name
+
     bundle_path = get_bundle_sounds_dir() / filename
     if bundle_path.is_file():
         return bundle_path
+    bundle_wav = get_bundle_sounds_dir() / f"{stem}{_WAV_SUFFIX}"
+    if bundle_wav.is_file():
+        return bundle_wav
     return None
 
 
+def resolve_nws_playable_sound(hass: HomeAssistant, sound_file: str) -> Path | None:
+    """Return a .wav file ready for /local/ playback under config/www."""
+    ensure_nws_sounds_dir(hass)
+    filename = normalize_nws_sound_filename(sound_file)
+    if not filename:
+        return None
+
+    www_dir = get_nws_sounds_dir(hass)
+    stem = Path(filename).stem.lower()
+    for name in _iter_wav_files(www_dir):
+        if Path(name).stem.lower() == stem:
+            return www_dir / name
+
+    source = resolve_nws_sound_path(hass, filename)
+    if not source or not source.is_file():
+        return None
+
+    dest = www_dir / source.name
+    if source.resolve() != dest.resolve():
+        try:
+            shutil.copy2(source, dest)
+            _LOGGER.info("Copied NWS alert sound to %s", dest)
+        except OSError as err:
+            _LOGGER.warning("Could not copy sound %s: %s", source.name, err)
+            return None
+    return dest if dest.is_file() else None
+
+
+def build_nws_local_media_id(filename: str) -> str:
+    """Return /local/ media_content_id for an NWS siren .wav file."""
+    return f"/local/{NWS_SOUNDS_SUBPATH}/{filename}"
+
+
 def sound_file_exists(hass: HomeAssistant, sound_file: str) -> bool:
-    """Return True if the sound file exists on disk."""
-    return resolve_nws_sound_path(hass, sound_file) is not None
+    """Return True if the sound can be played from config/www."""
+    return resolve_nws_playable_sound(hass, sound_file) is not None
 
 
 def _copy_sound_if_missing(src: Path, dest: Path) -> None:
@@ -119,39 +143,27 @@ def _copy_sound_if_missing(src: Path, dest: Path) -> None:
         _LOGGER.warning("Could not copy sound %s: %s", src.name, err)
 
 
-def _migrate_legacy_www_sounds(hass: HomeAssistant, target: Path) -> None:
-    legacy = get_nws_sounds_dir(hass)
-    if not legacy.is_dir():
-        return
-    for name in _iter_sound_files(legacy):
-        src = legacy / name
-        if src.is_file():
-            _copy_sound_if_missing(src, target / name)
-
-
 def _seed_bundle_sounds(target: Path) -> None:
     bundle = get_bundle_sounds_dir()
     if not bundle.is_dir():
         return
-
-    copied_stems: set[str] = set()
     for src in sorted(bundle.iterdir(), key=lambda p: p.name.lower()):
-        if not src.is_file() or src.suffix.lower() not in _AUDIO_SUFFIXES:
-            continue
-        stem = src.stem.lower()
-        if src.suffix.lower() == ".wav":
-            copied_stems.add(stem)
-        elif stem in copied_stems:
-            continue
-        if src.suffix.lower() != ".wav" and (bundle / f"{src.stem}.wav").is_file():
-            continue
-        _copy_sound_if_missing(src, target / src.name)
+        if src.is_file() and src.suffix.lower() == _WAV_SUFFIX:
+            _copy_sound_if_missing(src, target / src.name)
+
+
+def _migrate_legacy_media_sounds(hass: HomeAssistant, target: Path) -> None:
+    legacy_media = _get_legacy_media_dir(hass)
+    if not legacy_media.is_dir():
+        return
+    for name in _iter_wav_files(legacy_media):
+        _copy_sound_if_missing(legacy_media / name, target / name)
 
 
 def ensure_nws_sounds_dir(hass: HomeAssistant) -> Path:
-    """Create config/media sounds dir, migrate legacy www files, seed bundled defaults."""
-    target = get_nws_media_dir(hass)
+    """Create config/www sounds dir and copy bundled default .wav files."""
+    target = get_nws_sounds_dir(hass)
     target.mkdir(parents=True, exist_ok=True)
-    _migrate_legacy_www_sounds(hass, target)
+    _migrate_legacy_media_sounds(hass, target)
     _seed_bundle_sounds(target)
     return target
