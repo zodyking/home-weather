@@ -13,6 +13,8 @@ class HomeWeatherPanel extends HTMLElement {
     this._forecastView = "7day";
     this._mapsMode = "storms";
     this._mapsWindRadii = false;
+    this._mapsLayers = { tropical: true, tornado: true, earthquakes: true };
+    this._mapsSort = "newest";
     this._chartMetric = "temp";
     this._selectedForecast = null; // { type: "hour"|"day", index: number }
     this._useFahrenheit = true;
@@ -2342,6 +2344,60 @@ class HomeWeatherPanel extends HTMLElement {
           color: var(--muted);
           white-space: nowrap;
         }
+        .maps-layer-filters {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          flex-wrap: wrap;
+        }
+        .maps-layer-filters button {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          min-height: 32px;
+          padding: 0 10px;
+          border: 1px solid var(--card-border);
+          border-radius: 999px;
+          background: var(--secondary-background-color);
+          color: var(--secondary-text-color);
+          font-size: var(--fs-xs);
+          cursor: pointer;
+          transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+        }
+        .maps-layer-filters button:hover {
+          background: var(--card-border);
+          color: var(--primary-text-color);
+        }
+        .maps-layer-filters button.active {
+          background: rgba(41, 182, 246, 0.16);
+          border-color: rgba(41, 182, 246, 0.45);
+          color: var(--primary-text-color);
+        }
+        .maps-layer-filters button .layer-dot {
+          width: 8px;
+          height: 8px;
+          border-radius: 50%;
+          flex-shrink: 0;
+        }
+        .maps-layer-filters button[data-map-layer="tropical"] .layer-dot { background: #ffb74d; }
+        .maps-layer-filters button[data-map-layer="tornado"] .layer-dot { background: #e040fb; }
+        .maps-layer-filters button[data-map-layer="earthquakes"] .layer-dot { background: #ef5350; }
+        .maps-hazard-sort {
+          min-height: 32px;
+          padding: 0 10px;
+          border: 1px solid var(--card-border);
+          border-radius: var(--radius-sm);
+          background: var(--secondary-background-color);
+          color: var(--primary-text-color);
+          font-size: var(--fs-xs);
+          cursor: pointer;
+        }
+        .maps-toolbar-divider {
+          width: 1px;
+          height: 24px;
+          background: var(--card-border);
+          flex-shrink: 0;
+        }
         .maps-stage {
           position: relative;
           flex: 1;
@@ -3096,6 +3152,20 @@ class HomeWeatherPanel extends HTMLElement {
         this._mapsWindRadii = !!e.target.checked;
         this._hurricaneTracker?.setShowWindRadii(this._mapsWindRadii);
       });
+      s.querySelectorAll(".maps-layer-filters button[data-map-layer]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const layer = btn.dataset.mapLayer;
+          if (!layer) return;
+          this._mapsLayers = { ...this._mapsLayers, [layer]: !this._mapsLayers[layer] };
+          btn.classList.toggle("active", this._mapsLayers[layer]);
+          btn.setAttribute("aria-pressed", String(this._mapsLayers[layer]));
+          this._hurricaneTracker?.setMapLayers(this._mapsLayers);
+        });
+      });
+      s.getElementById("maps-hazard-sort")?.addEventListener("change", (e) => {
+        this._mapsSort = e.target.value || "newest";
+        this._hurricaneTracker?.setMapSort(this._mapsSort);
+      });
       s.getElementById("maps-hazards-refresh")?.addEventListener("click", async () => {
         const btn = s.getElementById("maps-hazards-refresh");
         if (btn) btn.disabled = true;
@@ -3596,10 +3666,21 @@ class HomeWeatherPanel extends HTMLElement {
 
     const hazardsActions = this._mapsMode === "storms" ? `
       <div class="maps-toolbar-actions">
+        <div class="maps-layer-filters" role="group" aria-label="Map layers">
+          <button type="button" class="${this._mapsLayers.tropical ? "active" : ""}" data-map-layer="tropical" aria-pressed="${this._mapsLayers.tropical}"><span class="layer-dot"></span>Tropical</button>
+          <button type="button" class="${this._mapsLayers.tornado ? "active" : ""}" data-map-layer="tornado" aria-pressed="${this._mapsLayers.tornado}"><span class="layer-dot"></span>Tornado</button>
+          <button type="button" class="${this._mapsLayers.earthquakes ? "active" : ""}" data-map-layer="earthquakes" aria-pressed="${this._mapsLayers.earthquakes}"><span class="layer-dot"></span>Earthquakes</button>
+        </div>
+        <span class="maps-toolbar-divider" aria-hidden="true"></span>
         <label class="maps-toolbar-toggle">
           <input type="checkbox" id="maps-wind-radii-toggle" ${this._mapsWindRadii ? "checked" : ""}/>
           Wind radii
         </label>
+        <select class="maps-hazard-sort" id="maps-hazard-sort" title="Sort earthquake markers">
+          <option value="newest" ${this._mapsSort === "newest" ? "selected" : ""}>Newest</option>
+          <option value="magnitude" ${this._mapsSort === "magnitude" ? "selected" : ""}>Magnitude</option>
+          <option value="distance" ${this._mapsSort === "distance" ? "selected" : ""}>Distance</option>
+        </select>
         <button type="button" class="maps-toolbar-btn" id="maps-hazards-refresh" title="Refresh hazard data">Refresh</button>
         <span class="maps-toolbar-meta" id="maps-hazards-updated">Updated —</span>
       </div>` : "";
@@ -3682,6 +3763,8 @@ class HomeWeatherPanel extends HTMLElement {
       });
       await this._hurricaneTracker.init(root);
       this._hurricaneTracker.setShowWindRadii(this._mapsWindRadii);
+      this._hurricaneTracker.setMapLayers(this._mapsLayers);
+      this._hurricaneTracker.setMapSort(this._mapsSort);
       this._updateMapsHazardsMeta();
     } catch (err) {
       root.innerHTML = `<div class="error" style="padding:24px;text-align:center;">Failed to load hurricane tracker: ${String(err.message || err)}</div>`;

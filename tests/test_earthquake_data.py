@@ -162,16 +162,28 @@ def test_missing_geometry_handled_safely():
 
 
 def test_build_coordinator_payload_nearest_first():
-    events = parse_earthquake_features([FAR_EQ, NEAR_EQ], HOME, {**DEFAULT_EQ_CONFIG, "radius_miles": 5000})
-    map_events = parse_earthquake_features_for_map([FAR_EQ, NEAR_EQ, LOW_MAG_EQ], HOME, DEFAULT_EQ_CONFIG)
+    events = parse_earthquake_features([NEAR_EQ], HOME, DEFAULT_EQ_CONFIG)
+    map_events = parse_earthquake_features_for_map([FAR_EQ, LOW_MAG_EQ], HOME, DEFAULT_EQ_CONFIG)
     payload = build_coordinator_payload(events, map_events)
-    assert payload["active_count"] == 2
-    assert payload["map_count"] == 1
+    assert payload["active_count"] == 1
+    assert payload["map_count"] == 2
     assert payload["nearby_active"] is True
     assert payload["primary_event"]["id"] == "us7000abc1"
     assert payload["geojson"]["type"] == "FeatureCollection"
-    assert len(payload["geojson"]["features"]) == 1
-    assert payload["geojson"]["features"][0]["properties"]["nearby"] is True
+    assert len(payload["geojson"]["features"]) == 2
+    nearby_flags = {f["properties"]["id"]: f["properties"]["nearby"] for f in payload["geojson"]["features"]}
+    assert nearby_flags["us7000abc1"] is True
+    assert nearby_flags["us7000abc3"] is False
+
+
+def test_build_coordinator_payload_merges_nearby_live_events():
+    events = parse_earthquake_features([NEAR_EQ], HOME, DEFAULT_EQ_CONFIG)
+    map_events = parse_earthquake_features_for_map([FAR_EQ], HOME, DEFAULT_EQ_CONFIG)
+    payload = build_coordinator_payload(events, map_events)
+    assert payload["active_count"] == 1
+    assert payload["map_count"] == 2
+    ids = {f["properties"]["id"] for f in payload["geojson"]["features"]}
+    assert ids == {"us7000abc1", "us7000abc3"}
 
 
 def test_map_filters_ignore_radius():

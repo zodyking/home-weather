@@ -264,6 +264,23 @@ def build_earthquake_geojson(
     return {"type": "FeatureCollection", "features": features}
 
 
+def merge_map_display_events(
+    nearby_events: list[dict[str, Any]],
+    map_events: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Combine worldwide map events with nearby live events (nearby wins on id clash)."""
+    merged: dict[str, dict[str, Any]] = {}
+    for event in map_events:
+        eq_id = str(event.get("id") or "")
+        if eq_id:
+            merged[eq_id] = event
+    for event in nearby_events:
+        eq_id = str(event.get("id") or "")
+        if eq_id:
+            merged[eq_id] = event
+    return list(merged.values())
+
+
 def build_coordinator_payload(
     events: list[dict[str, Any]],
     map_events: list[dict[str, Any]] | None = None,
@@ -271,7 +288,10 @@ def build_coordinator_payload(
     """Build coordinator payload from nearby and worldwide map earthquakes."""
     nearest = pick_nearest_earthquake(events)
     nearby_ids = {str(e["id"]) for e in events if e.get("id")}
-    display_events = map_events if map_events is not None else events
+    if map_events is None:
+        display_events = events
+    else:
+        display_events = merge_map_display_events(events, map_events)
     return {
         "events": events,
         "map_events": display_events,

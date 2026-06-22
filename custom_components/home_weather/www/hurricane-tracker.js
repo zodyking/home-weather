@@ -34,6 +34,18 @@
       this._lastDetailTier = null;
       this._zoomDebounceTimer = null;
       this._zoomHandlerBound = false;
+      this._mapLayers = { tropical: true, tornado: true, earthquakes: true };
+      this._mapSort = "newest";
+    }
+
+    setMapLayers(layers) {
+      this._mapLayers = { ...this._mapLayers, ...layers };
+      if (this._map && this._layerGroup) this._renderMap();
+    }
+
+    setMapSort(sort) {
+      this._mapSort = sort || "newest";
+      if (this._map && this._layerGroup) this._renderMap();
     }
 
     setShowWindRadii(show) {
@@ -145,15 +157,28 @@
           display: flex;
           align-items: center;
           justify-content: space-between;
+          gap: 8px;
         }
-        .hurricane-status-details summary::-webkit-details-marker { display: none; }
-        .hurricane-status-details summary::after {
-          content: "▸";
+        .hurricane-status-details summary .h-count {
+          margin-left: auto;
+          min-width: 22px;
+          padding: 2px 7px;
+          border-radius: 999px;
+          font-size: 10px;
+          font-weight: 700;
+          letter-spacing: 0;
+          text-transform: none;
+          color: #eceff1;
+          background: rgba(255,255,255,0.1);
+        }
+        .hurricane-status-details summary .h-chevron {
           font-size: 12px;
           color: #78909c;
           transition: transform 0.15s ease;
+          flex-shrink: 0;
         }
-        .hurricane-status-details[open] summary::after {
+        .hurricane-status-details summary::-webkit-details-marker { display: none; }
+        .hurricane-status-details[open] summary .h-chevron {
           transform: rotate(90deg);
         }
         .hurricane-status-details[open] summary {
@@ -224,22 +249,7 @@
           border: none;
           background: #111111;
         }
-        .hurricane-map-empty-banner {
-          position: absolute;
-          top: 12px;
-          left: 12px;
-          right: min(280px, calc(100% - 24px));
-          z-index: 500;
-          padding: 10px 14px;
-          border-radius: 10px;
-          font-size: 13px;
-          line-height: 1.45;
-          color: #cfd8dc;
-          background: rgba(17, 17, 17, 0.82);
-          border: 1px solid rgba(255,255,255,0.12);
-          backdrop-filter: blur(10px);
-          pointer-events: none;
-        }
+        .hurricane-map-empty-banner { display: none; }
         .hurricane-status {
           position: absolute;
           top: 12px;
@@ -736,10 +746,9 @@
       const eqTsunami = eqPrimary.tsunami === 1 ? "Yes" : "No";
 
       const headline = this._buildStatusHeadline(summary, storms);
-      const tropicalOpen = summary.hasOutlookActivity || storms.length > 0
-        || (summary.threatLevel && summary.threatLevel !== "none");
-      const tornadoOpen = tornado.affecting_home || tornadoCount > 0;
-      const eqOpen = earthquake.nearby_active || eqCount > 0;
+      const tropicalCount = (summary.disturbanceCount || 0) + storms.length;
+      const tornadoCountLabel = tornadoCount;
+      const eqCountLabel = eqMapCount;
 
       const tropicalBody = `
             ${summary.hasOutlookActivity ? `
@@ -763,12 +772,12 @@
           <p class="hurricane-status-headline ${headline.className}">${this._esc(headline.text)}</p>
           ${staleBanner}
           <div class="hurricane-stat"><span>Overall tropical threat</span><strong>${this._esc(summary.threatLevel || "none")}</strong></div>
-          <details class="hurricane-status-details" ${tropicalOpen ? "open" : ""}>
-            <summary>Tropical</summary>
+          <details class="hurricane-status-details" open>
+            <summary><span>Tropical</span><span class="h-count">${tropicalCount}</span><span class="h-chevron">▸</span></summary>
             <div class="hurricane-status-details-body">${tropicalBody}</div>
           </details>
-          <details class="hurricane-status-details" ${tornadoOpen ? "open" : ""}>
-            <summary>Tornado Warnings</summary>
+          <details class="hurricane-status-details" open>
+            <summary><span>Tornado Warnings</span><span class="h-count">${tornadoCountLabel}</span><span class="h-chevron">▸</span></summary>
             <div class="hurricane-status-details-body">
               <div class="hurricane-stat"><span>Active warnings</span><strong>${tornadoCount}</strong></div>
               <div class="hurricane-stat ${tornado.affecting_home ? "is-danger" : ""}"><span>Affecting home</span><strong>${tornadoAffecting}</strong></div>
@@ -776,11 +785,11 @@
               <div class="hurricane-stat"><span>Primary alert</span><strong>${this._esc(tornadoHeadline)}</strong></div>
             </div>
           </details>
-          <details class="hurricane-status-details" ${eqOpen ? "open" : ""}>
-            <summary>Earthquakes</summary>
+          <details class="hurricane-status-details" open>
+            <summary><span>Earthquakes</span><span class="h-count">${eqCountLabel}</span><span class="h-chevron">▸</span></summary>
             <div class="hurricane-status-details-body">
               <div class="hurricane-stat"><span>Worldwide on map</span><strong>${eqMapCount}</strong></div>
-              <div class="hurricane-stat"><span>Nearby (within range)</span><strong>${eqCount}</strong></div>
+              <div class="hurricane-stat"><span>Nearby (live feed)</span><strong>${eqCount}</strong></div>
               <div class="hurricane-stat ${earthquake.nearby_active ? "is-warning" : ""}"><span>Nearest</span><strong>${this._esc(eqPlace)}</strong></div>
               <div class="hurricane-stat"><span>Magnitude</span><strong>${eqMag}</strong></div>
               <div class="hurricane-stat"><span>Distance</span><strong>${eqDistance}</strong></div>
@@ -790,18 +799,11 @@
           </details>
         </aside>`;
 
-      const emptyBanner = storms.length === 0 && !summary.hasOutlookActivity
-        ? `<div class="hurricane-map-empty-banner"><strong>No active tropical cyclones.</strong> NHC outlook updates every 6 hours.</div>`
-        : storms.length === 0 && summary.hasOutlookActivity
-          ? `<div class="hurricane-map-empty-banner"><strong>Tropical development possible.</strong> Disturbances and development areas are shown on the map.</div>`
-          : "";
-
       const layoutClass = this._embedded ? "hurricane-layout is-embedded" : "hurricane-layout";
       this._root.innerHTML = `
         <section class="${layoutClass}">
           <div class="hurricane-map-wrap">
             <div id="hurricane-map" class="hurricane-map"></div>
-            ${emptyBanner}
             ${statusPanel}
           </div>
         </section>`;
@@ -866,16 +868,23 @@
       this._homeMarker = null;
 
       const bounds = [];
+      const layers = this._mapLayers || { tropical: true, tornado: true, earthquakes: true };
 
-      this._drawOutlook(outlook, bounds);
+      if (layers.tropical) {
+        this._drawOutlook(outlook, bounds);
+        storms.forEach((storm, idx) => {
+          const color = STORM_COLORS[idx % STORM_COLORS.length];
+          this._drawStorm(storm, color, bounds);
+        });
+      }
 
-      storms.forEach((storm, idx) => {
-        const color = STORM_COLORS[idx % STORM_COLORS.length];
-        this._drawStorm(storm, color, bounds);
-      });
+      if (layers.tornado) {
+        this._drawTornadoWarnings(bounds);
+      }
 
-      this._drawTornadoWarnings(bounds);
-      this._drawEarthquakes(bounds);
+      if (layers.earthquakes) {
+        this._drawEarthquakes(bounds);
+      }
 
       if (home?.lat != null && home?.lon != null) {
         const insideCone = this._data?.summary?.insideCone;
@@ -1201,6 +1210,23 @@
       }
     }
 
+    _sortEarthquakeFeatures(features) {
+      const sort = this._mapSort || "newest";
+      const sorted = [...features];
+      if (sort === "magnitude") {
+        sorted.sort((a, b) => (b.properties?.mag ?? 0) - (a.properties?.mag ?? 0));
+      } else if (sort === "distance") {
+        sorted.sort((a, b) => {
+          const da = a.properties?.distance_miles ?? Number.POSITIVE_INFINITY;
+          const db = b.properties?.distance_miles ?? Number.POSITIVE_INFINITY;
+          return da - db;
+        });
+      } else {
+        sorted.sort((a, b) => (b.properties?.time ?? 0) - (a.properties?.time ?? 0));
+      }
+      return sorted;
+    }
+
     _drawEarthquakes(bounds) {
       const L = global.L;
       const geojson = this._earthquakeData?.geojson;
@@ -1209,8 +1235,9 @@
 
       const tier = this._getDetailTier();
       const primaryId = this._earthquakeData?.primary_event?.id;
+      const features = this._sortEarthquakeFeatures(geojson.features);
 
-      geojson.features.forEach((feature) => {
+      features.forEach((feature) => {
         const props = feature.properties || {};
         const coords = feature.geometry?.coordinates;
         if (!coords || coords.length < 2) return;
@@ -1227,7 +1254,7 @@
         ].filter(Boolean).join(" ");
 
         const popup = `
-          <strong>M${props.mag != null ? props.mag : "?"} Earthquake</strong><br/>
+          <strong>M${props.mag != null ? props.mag : "?"} Earthquake</strong>${props.nearby ? " <em>(live nearby)</em>" : ""}<br/>
           ${this._esc(props.place || "Unknown location")}<br/>
           Depth: ${props.depth_km != null ? Math.round(props.depth_km) + " km" : "—"}<br/>
           Distance: ${props.distance_miles != null ? Math.round(props.distance_miles) + " mi" : "—"}<br/>
