@@ -12,14 +12,13 @@ import asyncio
 import logging
 import re
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any
-from urllib.parse import quote
 
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.network import get_url
 from homeassistant.util import dt as dt_util
 
-from .const import NUMBER_WORDS
+from .const import NUMBER_WORDS, NWS_SOUNDS_WWW_SUBPATH
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -812,13 +811,20 @@ async def send_tts_with_ai_rewrite(
     )
 
 
-def format_nws_alert_description(raw: str) -> str:
-    """Convert NWS bullet-style descriptions into readable prose."""
+def parse_nws_alert_description(raw: str) -> dict[str, str | None]:
+    """Parse NWS bullet-style descriptions into structured fields."""
+    result: dict[str, str | None] = {
+        "what": None,
+        "where": None,
+        "when": None,
+        "impacts": None,
+        "additional": None,
+    }
     if not raw or not raw.strip():
-        return ""
+        return result
 
     text = raw.strip()
-    sections: list[str] = []
+    other: list[str] = []
 
     for chunk in re.split(r"\n\s*\*\s*", "\n" + text):
         chunk = chunk.strip()
@@ -826,24 +832,85 @@ def format_nws_alert_description(raw: str) -> str:
             continue
         if "..." in chunk:
             head, _, tail = chunk.partition("...")
-            label = head.strip().rstrip(".").title()
+            key = head.strip().rstrip(".").lower()
             body = " ".join(tail.split())
-            if label and body:
-                sentence = body if body.endswith(".") else f"{body}."
-                sections.append(f"{label}: {sentence}")
-            elif body:
-                sections.append(body if body.endswith(".") else f"{body}.")
+            if not body:
+                continue
+            if key == "what":
+                result["what"] = body
+            elif key == "where":
+                result["where"] = body
+            elif key == "when":
+                result["when"] = body
+            elif key == "impacts":
+                result["impacts"] = body
+            elif key in ("additional", "additional details"):
+                result["additional"] = body
+            else:
+                other.append(body)
         else:
             clean = re.sub(r"\*+\s*", "", chunk)
             clean = " ".join(clean.split())
             if clean:
-                sections.append(clean if clean.endswith(".") else f"{clean}.")
+                if not result["what"]:
+                    result["what"] = clean
+                else:
+                    other.append(clean)
 
-    if sections:
-        return " ".join(sections)
+    if not any(result.values()) and not other:
+        fallback = re.sub(r"\*+\s*", "", text).replace("...", ". ")
+        fallback = " ".join(fallback.split())
+        if fallback:
+            result["what"] = fallback
 
-    fallback = re.sub(r"\*+\s*", "", text).replace("...", ". ")
-    return " ".join(fallback.split())
+    if other:
+        extra = " ".join(other)
+        result["additional"] = (
+            f"{result['additional']} {extra}".strip()
+            if result.get("additional")
+            else extra
+        ) or None
+
+    return result
+
+
+def _nws_sentence(text: str) -> str:
+    """Ensure text ends with a period for TTS pacing."""
+    text = text.strip()
+    if not text:
+        return ""
+    return text if text.endswith(".") else f"{text}."
+
+
+def _nws_spoken_where(where: str) -> str:
+    where = where.strip()
+    if not where:
+        return ""
+    lower = where.lower()
+    if lower.startswith(("the ", "portions of ", "areas of ")):
+        return _nws_sentence(f"This affects {where}")
+    return _nws_sentence(f"Affecting {where}")
+
+
+def _nws_spoken_when(when: str) -> str:
+    when = when.strip()
+    if not when:
+        return ""
+    lower = when.lower()
+    if lower.startswith(("from ", "through ", "until ", "between ")):
+        return _nws_sentence(f"In effect {when}")
+    return _nws_sentence(when)
+
+
+def format_nws_alert_description(raw: str) -> str:
+    """Convert NWS bullet-style descriptions into readable prose (legacy flat string)."""
+    parsed = parse_nws_alert_description(raw)
+    parts: list[str] = []
+    for key in ("what", "where", "when", "impacts", "additional"):
+        value = parsed.get(key)
+        if value:
+            parts.append(_nws_sentence(value))
+    return " ".join(parts)
 
 
 def format_nws_alert_for_tts(
@@ -851,41 +918,176 @@ def format_nws_alert_for_tts(
     *,
     max_length: int = 800,
 ) -> str:
-    """Build a spoken NWS alert message without bullet markers or ellipses."""
+    """Build a naturally spoken NWS alert message without What/Where/When labels."""
     event = (alert_properties.get("event") or "Weather Alert").strip()
-    desc = format_nws_alert_description(alert_properties.get("description") or "")
-    if desc:
-        msg = f"National Weather Service {event}. {desc}"
-    else:
-        msg = f"National Weather Service {event}."
+    parsed = parse_nws_alert_description(alert_properties.get("description") or "")
+    spoken: list[str] = [f"National Weather Service {event}."]
+
+    if parsed.get("what"):
+        spoken.append(_nws_sentence(parsed["what"]))
+    if parsed.get("where"):
+        spoken.append(_nws_spoken_where(parsed["where"]))
+    if parsed.get("when"):
+        spoken.append(_nws_spoken_when(parsed["when"]))
+    if parsed.get("impacts") and parsed["impacts"] != parsed.get("what"):
+        spoken.append(_nws_sentence(parsed["impacts"]))
+    if parsed.get("additional"):
+        spoken.append(_nws_sentence(parsed["additional"]))
+
+    msg = " ".join(spoken)
     if len(msg) <= max_length:
         return msg
     trimmed = msg[: max_length - 1].rsplit(".", 1)[0]
     return f"{trimmed}." if trimmed else msg[:max_length]
 
 
-def _get_hass_base_url(hass: HomeAssistant) -> str:
-    """Resolve a URL media players can reach for /local/ assets."""
-    try:
-        return get_url(
-            hass,
-            prefer_external=False,
-            allow_internal=True,
-            allow_external=True,
-        ).rstrip("/")
-    except Exception:
-        pass
-    try:
-        for candidate in (
-            hass.config.internal_url,
-            hass.config.external_url,
-            hass.config.api.base_url,
-        ):
-            if candidate:
-                return str(candidate).rstrip("/")
-    except Exception:
-        pass
-    return ""
+def format_active_nws_alerts_for_tts(
+    alerts: list[dict[str, Any]],
+    *,
+    max_length: int = 800,
+) -> str:
+    """Build one combined spoken summary for multiple active NWS alerts."""
+    if not alerts:
+        return ""
+    if len(alerts) == 1:
+        return format_nws_alert_for_tts(alerts[0], max_length=max_length)
+
+    count = len(alerts)
+    noun = "alert" if count == 1 else "alerts"
+    parts: list[str] = [f"You have {count} active weather {noun}."]
+    for alert in alerts:
+        event = (alert.get("event") or "Weather Alert").strip()
+        parsed = parse_nws_alert_description(alert.get("description") or "")
+        summary = (parsed.get("what") or parsed.get("impacts") or event).strip().rstrip(".")
+        parts.append(_nws_sentence(f"{event}: {summary}"))
+
+    msg = " ".join(parts)
+    if len(msg) <= max_length:
+        return msg
+    trimmed = msg[: max_length - 1].rsplit(".", 1)[0]
+    return f"{trimmed}." if trimmed else msg[:max_length]
+
+
+def nws_media_playback(sound_file: str) -> tuple[str, str]:
+    """Return media_source URI and MIME type for an NWS siren file."""
+    filename = sound_file.strip().lstrip("/")
+    media_id = f"media-source://media_source/local/{NWS_SOUNDS_WWW_SUBPATH}/{filename}"
+    ext = Path(filename).suffix.lower()
+    mime_map = {
+        ".wav": "audio/x-wav",
+        ".mp3": "audio/mpeg",
+        ".ogg": "audio/ogg",
+        ".flac": "audio/flac",
+    }
+    return media_id, mime_map.get(ext, "music")
+
+
+async def play_nws_siren(
+    hass: HomeAssistant,
+    config: dict[str, Any],
+    media_players_config: list[dict[str, Any]],
+    *,
+    request_id: str | None = None,
+) -> None:
+    """Play the configured NWS siren on all media players via media_source."""
+    nws = config.get("nws_alerts", {})
+    sound_file = (nws.get("sound_file") or "").strip()
+    if not sound_file or not media_players_config:
+        return
+
+    sound_vol = max(0, min(1, float(nws.get("sound_volume", 0.8))))
+    media_id, media_type = nws_media_playback(sound_file)
+
+    for mp in media_players_config:
+        eid = mp.get("entity_id")
+        if not eid:
+            continue
+        try:
+            await hass.services.async_call(
+                "media_player",
+                "volume_set",
+                {"entity_id": eid, "volume_level": sound_vol},
+                blocking=True,
+            )
+            _LOGGER.debug("Playing NWS siren on %s: %s", eid, media_id)
+            await hass.services.async_call(
+                "media_player",
+                "play_media",
+                {
+                    "entity_id": eid,
+                    "media": {
+                        "media_content_id": media_id,
+                        "media_content_type": media_type,
+                    },
+                },
+                blocking=True,
+            )
+            await _wait_for_media_player_idle(hass, eid)
+        except Exception as exc:
+            _LOGGER.warning("NWS siren playback failed for %s: %s", eid, exc)
+            _fire_tts_status(
+                hass,
+                "failed",
+                request_id=request_id,
+                entity_id=eid,
+                reason=str(exc),
+                alert_kind="nws_siren",
+            )
+
+
+async def replay_active_nws_alerts(
+    hass: HomeAssistant,
+    config: dict[str, Any],
+    media_players_config: list[dict[str, Any]],
+    alerts: list[dict[str, Any]],
+    *,
+    request_id: str | None = None,
+) -> None:
+    """Replay active alerts: siren once, then combined TTS summary."""
+    nws = config.get("nws_alerts", {})
+    if not nws.get("enabled") or not alerts or not media_players_config:
+        return
+    if not nws.get("replay_on_time_based_forecast", True):
+        return
+
+    msg = format_active_nws_alerts_for_tts(alerts)
+    tts_config = config.get("tts", {})
+    msg = await apply_ai_rewrite(
+        hass,
+        tts_config,
+        msg,
+        request_id=request_id,
+        alert_kind="nws_alert_replay",
+    )
+    if not msg.strip():
+        return
+
+    tts_vol = max(0, min(1, float(nws.get("tts_volume", 0.9))))
+    await play_nws_siren(hass, config, media_players_config, request_id=request_id)
+
+    for mp in media_players_config:
+        eid = mp.get("entity_id")
+        if not eid:
+            continue
+        try:
+            await hass.services.async_call(
+                "media_player",
+                "volume_set",
+                {"entity_id": eid, "volume_level": tts_vol},
+                blocking=True,
+            )
+        except Exception as exc:
+            _LOGGER.warning("NWS replay volume_set failed for %s: %s", eid, exc)
+
+    await send_tts(
+        hass,
+        media_players_config,
+        msg,
+        volume_override=tts_vol,
+        request_id=request_id,
+        alert_kind="nws_alert_replay",
+    )
+
 
 
 async def _wait_for_media_player_idle(
@@ -922,8 +1124,6 @@ async def play_nws_alert_notification(
 ) -> None:
     """Play siren sound (if configured) then TTS for an NWS weather alert."""
     nws = config.get("nws_alerts", {})
-    sound_file = (nws.get("sound_file") or "").strip()
-    sound_vol = max(0, min(1, float(nws.get("sound_volume", 0.8))))
     tts_vol = max(0, min(1, float(nws.get("tts_volume", 0.9))))
     msg = format_nws_alert_for_tts(alert_properties)
     tts_config = config.get("tts", {})
@@ -939,38 +1139,13 @@ async def play_nws_alert_notification(
         )
         return
 
-    base_url = _get_hass_base_url(hass)
-    if sound_file and not base_url:
-        _LOGGER.warning(
-            "NWS alert sound configured but no Home Assistant URL is available"
-        )
+    await play_nws_siren(hass, config, media_players_config, request_id=request_id)
 
     for mp in media_players_config:
         eid = mp.get("entity_id")
         if not eid:
             continue
         try:
-            await hass.services.async_call(
-                "media_player", "volume_set",
-                {"entity_id": eid, "volume_level": sound_vol},
-                blocking=True,
-            )
-            if sound_file and base_url:
-                sound_url = (
-                    f"{base_url}/local/home_weather/sounds/{quote(sound_file)}"
-                )
-                _LOGGER.debug("Playing NWS alert sound on %s: %s", eid, sound_url)
-                await hass.services.async_call(
-                    "media_player", "play_media",
-                    {
-                        "entity_id": eid,
-                        "media_content_type": "music",
-                        "media_content_id": sound_url,
-                    },
-                    blocking=True,
-                )
-                await _wait_for_media_player_idle(hass, eid)
-
             await hass.services.async_call(
                 "media_player", "volume_set",
                 {"entity_id": eid, "volume_level": tts_vol},

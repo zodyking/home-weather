@@ -38,6 +38,8 @@ from .tts_notifications import (
     build_sunset_final_message,
     dispatch_tts,
     play_nws_alert_notification,
+    play_nws_siren,
+    replay_active_nws_alerts,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -181,6 +183,8 @@ class TTSTriggerManager:
         self._sun_alerts_final_fired: set[str] = set()  # event_key for sunrise/sunset final
         self._sun_alert_state: dict[str, Any] = {}  # Track sun alert announcements
         self._nws_known_alert_ids: set[str] = set()  # Track NWS alert IDs to detect new alerts
+        self._nws_active_alerts: list[dict[str, Any]] = []
+        self._nws_bootstrapped: bool = False
 
     async def async_setup(self) -> None:
         """Set up all enabled triggers based on config.
@@ -561,6 +565,30 @@ class TTSTriggerManager:
         }
         await play_nws_alert_notification(self.hass, config, sample, media_players, request_id=request_id)
         _LOGGER.info("Test NWS alert dispatched")
+
+    async def fire_test_nws_siren(self, *, request_id: str | None = None) -> None:
+        """Play the configured NWS siren only (no TTS)."""
+        config = self._get_config()
+        media_players = media_players_with_tts(config.get("media_players", []))
+        if not media_players:
+            _LOGGER.warning("No media players with TTS configured for NWS siren test")
+            _fire_tts_status(
+                self.hass, "skipped",
+                request_id=request_id, reason="No media players with TTS configured",
+                alert_kind="nws_siren",
+            )
+            return
+        nws = config.get("nws_alerts", {})
+        if not (nws.get("sound_file") or "").strip():
+            _LOGGER.warning("No NWS siren sound file configured")
+            _fire_tts_status(
+                self.hass, "skipped",
+                request_id=request_id, reason="No siren sound file configured",
+                alert_kind="nws_siren",
+            )
+            return
+        await play_nws_siren(self.hass, config, media_players, request_id=request_id)
+        _LOGGER.info("Test NWS siren dispatched")
 
     async def _setup_upcoming_change_trigger(self, tts_config: dict[str, Any]) -> None:
         """Set up trigger for upcoming precipitation alerts.
@@ -1031,6 +1059,8 @@ class TTSTriggerManager:
         features = data.get("features") or []
         now = dt_util.now()
         active_ids: set[str] = set()
+        active_alerts: list[dict[str, Any]] = []
+        bootstrap = not getattr(self, "_nws_bootstrapped", False)
 
         for feat in features:
             props = feat.get("properties") or {}
@@ -1046,7 +1076,8 @@ class TTSTriggerManager:
                 except Exception:
                     pass
             active_ids.add(aid)
-            if aid not in known:
+            active_alerts.append(props)
+            if not bootstrap and aid not in known:
                 known.add(aid)
                 await play_nws_alert_notification(
                     self.hass,
@@ -1056,6 +1087,15 @@ class TTSTriggerManager:
                 )
                 _LOGGER.info("NWS alert fired: %s", props.get("event", aid))
 
+        if bootstrap:
+            known.update(active_ids)
+            self._nws_bootstrapped = True
+            _LOGGER.debug(
+                "NWS alerts bootstrap: seeded %d active alert IDs without announcing",
+                len(active_ids),
+            )
+
+        self._nws_active_alerts = active_alerts
         self._nws_known_alert_ids = {x for x in known if x in active_ids}
 
     async def _fire_scheduled_forecast(
@@ -1123,6 +1163,33 @@ class TTSTriggerManager:
             alert_kind="scheduled_forecast",
         )
         _LOGGER.info("Scheduled forecast TTS sent to %s", target_media_player or "all players")
+
+        await self._maybe_replay_nws_alerts_after_forecast(
+            config, media_players, request_id=request_id
+        )
+
+    async def _maybe_replay_nws_alerts_after_forecast(
+        self,
+        config: dict[str, Any],
+        media_players: list[dict[str, Any]],
+        *,
+        request_id: str | None = None,
+    ) -> None:
+        """After a time-based forecast, replay active NWS alerts if configured."""
+        nws = config.get("nws_alerts") or {}
+        if not nws.get("enabled") or not nws.get("replay_on_time_based_forecast", True):
+            return
+        alerts = getattr(self, "_nws_active_alerts", [])
+        if not alerts:
+            return
+        await replay_active_nws_alerts(
+            self.hass,
+            config,
+            media_players,
+            alerts,
+            request_id=request_id,
+        )
+        _LOGGER.info("NWS active alert replay after scheduled forecast (%d alerts)", len(alerts))
 
     async def _fire_current_change(
         self,

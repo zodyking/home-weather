@@ -445,6 +445,10 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
         {"type": "home_weather/test_nws_alert"}
     )(_make_alert_test_handler("fire_test_nws_alert", "nws_test_failed", require_weather=False))
 
+    handle_test_nws_siren = websocket_api.websocket_command(
+        {"type": "home_weather/test_nws_siren"}
+    )(_make_alert_test_handler("fire_test_nws_siren", "nws_siren_test_failed", require_weather=False))
+
     @websocket_api.websocket_command(
         {
             "type": "home_weather/get_automations",
@@ -557,20 +561,11 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
     async def handle_list_www_sounds(
         hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
     ) -> None:
-        """List audio files (mp3, wav, ogg) in www/sounds/ directory."""
-        from pathlib import Path
-        comp_path = Path(__file__).parent
-        sounds_dir = comp_path / "www" / "sounds"
+        """List audio files in config/www/home_weather/sounds/."""
+        from .sounds_setup import ensure_nws_sounds_dir, list_nws_sound_files
 
-        def _list() -> list[str]:
-            sounds_dir.mkdir(parents=True, exist_ok=True)
-            allowed = frozenset({".mp3", ".wav", ".ogg"})
-            return [
-                f.name for f in sounds_dir.iterdir()
-                if f.is_file() and f.suffix.lower() in allowed
-            ]
-
-        sounds = sorted(await hass.async_add_executor_job(_list))
+        sounds_dir = await hass.async_add_executor_job(ensure_nws_sounds_dir, hass)
+        sounds = await hass.async_add_executor_job(list_nws_sound_files, sounds_dir)
         connection.send_result(msg["id"], {"sounds": sounds})
 
     websocket_api.async_register_command(hass, handle_get_config)
@@ -586,6 +581,7 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, handle_test_sunrise)
     websocket_api.async_register_command(hass, handle_test_sunset)
     websocket_api.async_register_command(hass, handle_test_nws_alert)
+    websocket_api.async_register_command(hass, handle_test_nws_siren)
     websocket_api.async_register_command(hass, handle_get_automations)
     websocket_api.async_register_command(hass, handle_get_webhook_info)
     websocket_api.async_register_command(hass, handle_get_version)

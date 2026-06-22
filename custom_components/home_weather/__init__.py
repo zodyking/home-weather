@@ -56,6 +56,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     }
 
     async_setup_websocket_api(hass)
+    await _ensure_nws_sounds(hass)
     await _register_panel(hass)
     
     # Set up TTS triggers after everything else is ready
@@ -82,6 +83,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         
         del hass.data[DOMAIN][entry.entry_id]
     return True
+
+
+async def _ensure_nws_sounds(hass: HomeAssistant) -> None:
+    """Create config/www/home_weather/sounds and copy bundled defaults."""
+    from .sounds_setup import ensure_nws_sounds_dir
+
+    await hass.async_add_executor_job(ensure_nws_sounds_dir, hass)
 
 
 async def _register_panel(hass: HomeAssistant) -> None:

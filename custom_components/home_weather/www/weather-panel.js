@@ -14,11 +14,10 @@ class HomeWeatherPanel extends HTMLElement {
     this._radarView = "map";
     this._chartMetric = "temp";
     this._selectedForecast = null; // { type: "hour"|"day", index: number }
-    this._radarCollapsed = false;
+    this._radarCollapsed = true;
     this._useFahrenheit = true;
     this._weatherData = null;
     this._settings = {};
-    this._settingsTab = "weather";
     this._narrow = null;
     this._graphHoverIndex = null;
     this._apexCharts = [];
@@ -310,8 +309,6 @@ class HomeWeatherPanel extends HTMLElement {
           this._updateStatus = "latest";
         }
       }
-      const pill = this.shadowRoot?.getElementById("update-status-pill");
-      if (pill) pill.textContent = this._updateStatus === "available" ? "Update available" : "Latest version";
     } catch (e) {
       this._updateStatus = this._updateStatus === "available" ? "available" : "latest";
     }
@@ -578,7 +575,7 @@ class HomeWeatherPanel extends HTMLElement {
   _syncMediaPlayerFromCard(index) {
     const s = this.shadowRoot;
     if (!s) return;
-    const cards = s.querySelectorAll(".media-player-card");
+    const cards = s.querySelector("#media-player-list")?.querySelectorAll(".media-player-card") || [];
     const card = cards[index];
     if (!card) return;
     const list = [...(this._settings.media_players || [])];
@@ -862,23 +859,32 @@ class HomeWeatherPanel extends HTMLElement {
     const c = (condition || "").toLowerCase();
     const isNight = this._isNightTime(now);
     let mood = "cloudy";
-    if (c.includes("rain") || c.includes("drizzle") || c.includes("thunder")) mood = "rain";
-    else if (c.includes("snow") || c.includes("sleet") || c.includes("flurr")) mood = "snow";
+    if (c.includes("thunder") || c.includes("lightning") || c.includes("storm")) mood = "storm";
+    else if (c.includes("hail")) mood = "hail";
+    else if (c.includes("sleet")) mood = "sleet";
+    else if (c.includes("snow") || c.includes("flurr")) mood = "snow";
+    else if (c.includes("rain") || c.includes("drizzle") || c.includes("shower")) mood = "rain";
     else if (c.includes("fog") || c.includes("mist") || c.includes("haze")) mood = "fog";
-    else if (isNight) mood = "night";
-    else if (c.includes("clear") || c.includes("sunny") || c.includes("fair")) mood = "sunny";
-    else if (c.includes("cloud") || c.includes("overcast") || c.includes("partly")) mood = "cloudy";
+    else if (c.includes("partly")) mood = "partly";
+    else if (c.includes("clear") || c.includes("sunny") || c.includes("fair")) mood = "clear";
+    else if (c.includes("cloud") || c.includes("overcast")) mood = "cloudy";
 
     let cloudOpacity = 0.45;
     if (cloudCoverage != null) {
       cloudOpacity = Math.max(0.12, Math.min(0.95, cloudCoverage / 100));
-    } else if (mood === "sunny") cloudOpacity = 0.15;
-    else if (mood === "cloudy") cloudOpacity = 0.72;
-    else if (mood === "rain" || mood === "snow") cloudOpacity = 0.82;
-    else if (mood === "night") cloudOpacity = 0.35;
+    } else if (mood === "clear") cloudOpacity = isNight ? 0.2 : 0.12;
+    else if (mood === "partly") cloudOpacity = isNight ? 0.4 : 0.35;
+    else if (mood === "cloudy") cloudOpacity = isNight ? 0.78 : 0.72;
+    else if (mood === "rain" || mood === "storm") cloudOpacity = isNight ? 0.88 : 0.82;
+    else if (mood === "snow" || mood === "sleet" || mood === "hail") cloudOpacity = isNight ? 0.85 : 0.78;
+    else if (mood === "fog") cloudOpacity = isNight ? 0.7 : 0.65;
 
-    const className = `atmosphere--${mood}`;
-    return { className, cloudOpacity };
+    const intensity = cloudCoverage != null
+      ? Math.max(0.35, Math.min(1, cloudCoverage / 100))
+      : (mood === "clear" ? 0.3 : mood === "storm" ? 0.9 : 0.65);
+    const timeClass = isNight ? "atmosphere--night" : "atmosphere--day";
+    const className = `atmosphere--${mood} ${timeClass}`;
+    return { className, cloudOpacity, isNight, intensity, mood };
   }
 
   _buildAtmosphereMetrics({
@@ -1188,23 +1194,218 @@ class HomeWeatherPanel extends HTMLElement {
           background-size: 200% 200%;
           animation: atmosphereDrift 28s ease-in-out infinite alternate;
         }
-        .atmosphere--sunny .atmosphere-bg__gradient {
-          background: linear-gradient(145deg, #0d47a1 0%, #1976d2 38%, #ffb74d 100%);
+        /* Clear sky */
+        .atmosphere--clear.atmosphere--day .atmosphere-bg__gradient {
+          background: linear-gradient(160deg, #01579b 0%, #0288d1 35%, #4fc3f7 65%, #fff9c4 100%);
         }
-        .atmosphere--cloudy .atmosphere-bg__gradient {
+        .atmosphere--clear.atmosphere--night .atmosphere-bg__gradient {
+          background: linear-gradient(165deg, #020617 0%, #0f172a 30%, #1e1b4b 60%, #312e81 100%);
+        }
+        /* Partly cloudy */
+        .atmosphere--partly.atmosphere--day .atmosphere-bg__gradient {
+          background: linear-gradient(155deg, #1565c0 0%, #42a5f5 40%, #90caf9 70%, #ffe082 100%);
+        }
+        .atmosphere--partly.atmosphere--night .atmosphere-bg__gradient {
+          background: linear-gradient(165deg, #0a0e17 0%, #1a237e 40%, #283593 70%, #4527a0 100%);
+        }
+        /* Cloudy / overcast */
+        .atmosphere--cloudy.atmosphere--day .atmosphere-bg__gradient {
           background: linear-gradient(160deg, #1c2833 0%, #37474f 42%, #78909c 100%);
         }
-        .atmosphere--rain .atmosphere-bg__gradient {
+        .atmosphere--cloudy.atmosphere--night .atmosphere-bg__gradient {
+          background: linear-gradient(165deg, #0d1117 0%, #1a2332 45%, #2d3748 100%);
+        }
+        /* Rain */
+        .atmosphere--rain.atmosphere--day .atmosphere-bg__gradient {
           background: linear-gradient(165deg, #0d1b2a 0%, #1b263b 45%, #415a77 100%);
         }
-        .atmosphere--snow .atmosphere-bg__gradient {
-          background: linear-gradient(160deg, #1a237e 0%, #546e7a 55%, #cfd8dc 100%);
+        .atmosphere--rain.atmosphere--night .atmosphere-bg__gradient {
+          background: linear-gradient(165deg, #050a10 0%, #0d1b2a 50%, #1b263b 100%);
         }
-        .atmosphere--fog .atmosphere-bg__gradient {
-          background: linear-gradient(180deg, #263238 0%, #607d8b 60%, #90a4ae 100%);
+        /* Storm */
+        .atmosphere--storm.atmosphere--day .atmosphere-bg__gradient {
+          background: linear-gradient(165deg, #0a0f14 0%, #1a2332 35%, #37474f 70%, #546e7a 100%);
         }
-        .atmosphere--night .atmosphere-bg__gradient {
-          background: linear-gradient(165deg, #0a0e17 0%, #1a237e 38%, #4a148c 100%);
+        .atmosphere--storm.atmosphere--night .atmosphere-bg__gradient {
+          background: linear-gradient(165deg, #030508 0%, #0a0f14 40%, #1a2332 100%);
+        }
+        /* Snow */
+        .atmosphere--snow.atmosphere--day .atmosphere-bg__gradient {
+          background: linear-gradient(160deg, #37474f 0%, #78909c 45%, #b0bec5 75%, #eceff1 100%);
+        }
+        .atmosphere--snow.atmosphere--night .atmosphere-bg__gradient {
+          background: linear-gradient(160deg, #1a237e 0%, #37474f 55%, #546e7a 100%);
+        }
+        /* Sleet */
+        .atmosphere--sleet.atmosphere--day .atmosphere-bg__gradient {
+          background: linear-gradient(160deg, #263238 0%, #455a64 50%, #78909c 100%);
+        }
+        .atmosphere--sleet.atmosphere--night .atmosphere-bg__gradient {
+          background: linear-gradient(165deg, #0d1117 0%, #263238 50%, #37474f 100%);
+        }
+        /* Hail */
+        .atmosphere--hail.atmosphere--day .atmosphere-bg__gradient {
+          background: linear-gradient(165deg, #1a2332 0%, #37474f 50%, #607d8b 100%);
+        }
+        .atmosphere--hail.atmosphere--night .atmosphere-bg__gradient {
+          background: linear-gradient(165deg, #0a0f14 0%, #1a2332 60%, #263238 100%);
+        }
+        /* Fog */
+        .atmosphere--fog.atmosphere--day .atmosphere-bg__gradient {
+          background: linear-gradient(180deg, #78909c 0%, #90a4ae 50%, #b0bec5 100%);
+        }
+        .atmosphere--fog.atmosphere--night .atmosphere-bg__gradient {
+          background: linear-gradient(180deg, #263238 0%, #37474f 60%, #455a64 100%);
+        }
+        /* Animation layers */
+        .atmosphere-bg__clouds,
+        .atmosphere-bg__particles,
+        .atmosphere-bg__effects {
+          position: absolute;
+          inset: 0;
+          pointer-events: none;
+          overflow: hidden;
+          opacity: 0;
+        }
+        .atmosphere-bg__clouds::before,
+        .atmosphere-bg__clouds::after {
+          content: "";
+          position: absolute;
+          border-radius: 50%;
+          filter: blur(28px);
+          background: rgba(255, 255, 255, 0.18);
+        }
+        .atmosphere-bg__clouds::before { width: 55%; height: 35%; top: 8%; left: -10%; animation: cloudDriftA 48s ease-in-out infinite alternate; }
+        .atmosphere-bg__clouds::after { width: 45%; height: 30%; top: 18%; right: -8%; animation: cloudDriftB 56s ease-in-out infinite alternate; }
+        .atmosphere--partly .atmosphere-bg__clouds,
+        .atmosphere--cloudy .atmosphere-bg__clouds,
+        .atmosphere--rain .atmosphere-bg__clouds,
+        .atmosphere--storm .atmosphere-bg__clouds,
+        .atmosphere--fog .atmosphere-bg__clouds { opacity: 1; }
+        .atmosphere--cloudy .atmosphere-bg__clouds::before,
+        .atmosphere--cloudy .atmosphere-bg__clouds::after { background: rgba(200, 210, 220, 0.35); filter: blur(36px); }
+        .atmosphere--night .atmosphere-bg__clouds::before,
+        .atmosphere--night .atmosphere-bg__clouds::after { background: rgba(120, 130, 150, 0.22); }
+        /* Rain particles */
+        .atmosphere-bg__particles {
+          background-image: repeating-linear-gradient(
+            175deg,
+            transparent,
+            transparent 4px,
+            rgba(174, 214, 241, 0.35) 4px,
+            rgba(174, 214, 241, 0.35) 5px
+          );
+          background-size: 12px 24px;
+        }
+        .atmosphere--rain .atmosphere-bg__particles,
+        .atmosphere--storm .atmosphere-bg__particles { opacity: calc(0.55 + var(--atmosphere-intensity, 0.6) * 0.35); animation: rainFall 0.75s linear infinite; }
+        .atmosphere--night.atmosphere--rain .atmosphere-bg__particles,
+        .atmosphere--night.atmosphere--storm .atmosphere-bg__particles { background-image: repeating-linear-gradient(175deg, transparent, transparent 4px, rgba(130, 170, 210, 0.4) 4px, rgba(130, 170, 210, 0.4) 5px); }
+        /* Snow particles */
+        .atmosphere--snow .atmosphere-bg__particles,
+        .atmosphere--sleet .atmosphere-bg__particles {
+          background: none;
+          opacity: calc(0.6 + var(--atmosphere-intensity, 0.6) * 0.3);
+        }
+        .atmosphere--snow .atmosphere-bg__particles::before,
+        .atmosphere--sleet .atmosphere-bg__particles::before {
+          content: "";
+          position: absolute;
+          inset: -20% 0 0 0;
+          background-image:
+            radial-gradient(2px 2px at 10% 15%, rgba(255,255,255,0.9) 50%, transparent 50%),
+            radial-gradient(2px 2px at 25% 35%, rgba(255,255,255,0.85) 50%, transparent 50%),
+            radial-gradient(1.5px 1.5px at 40% 10%, rgba(255,255,255,0.8) 50%, transparent 50%),
+            radial-gradient(2px 2px at 55% 45%, rgba(255,255,255,0.9) 50%, transparent 50%),
+            radial-gradient(1.5px 1.5px at 70% 20%, rgba(255,255,255,0.75) 50%, transparent 50%),
+            radial-gradient(2px 2px at 85% 55%, rgba(255,255,255,0.85) 50%, transparent 50%),
+            radial-gradient(1.5px 1.5px at 15% 70%, rgba(255,255,255,0.8) 50%, transparent 50%),
+            radial-gradient(2px 2px at 35% 85%, rgba(255,255,255,0.9) 50%, transparent 50%),
+            radial-gradient(1.5px 1.5px at 60% 75%, rgba(255,255,255,0.7) 50%, transparent 50%),
+            radial-gradient(2px 2px at 90% 80%, rgba(255,255,255,0.85) 50%, transparent 50%);
+          background-size: 100% 100%;
+          animation: snowDrift 5s linear infinite;
+        }
+        .atmosphere--sleet .atmosphere-bg__particles {
+          background-image: repeating-linear-gradient(175deg, transparent, transparent 6px, rgba(200,220,240,0.25) 6px, rgba(200,220,240,0.25) 7px);
+          background-size: 14px 28px;
+          animation: rainFall 1.1s linear infinite;
+        }
+        .atmosphere--sleet .atmosphere-bg__particles::before { opacity: 0.5; animation-duration: 4s; }
+        /* Hail particles */
+        .atmosphere--hail .atmosphere-bg__particles {
+          background-image: repeating-linear-gradient(178deg, transparent, transparent 8px, rgba(220,230,240,0.55) 8px, rgba(220,230,240,0.55) 10px);
+          background-size: 16px 32px;
+          opacity: calc(0.65 + var(--atmosphere-intensity, 0.6) * 0.25);
+          animation: hailFall 0.45s linear infinite;
+        }
+        /* Clear day sun */
+        .atmosphere--clear.atmosphere--day .atmosphere-bg__effects {
+          opacity: 1;
+          background: radial-gradient(circle at 22% 20%, rgba(255, 236, 179, 0.55) 0%, rgba(255, 193, 7, 0.15) 18%, transparent 42%);
+        }
+        .atmosphere--clear.atmosphere--day .atmosphere-bg__effects::before {
+          content: "";
+          position: absolute;
+          top: 6%;
+          left: 14%;
+          width: 80px;
+          height: 80px;
+          border-radius: 50%;
+          background: radial-gradient(circle, rgba(255, 249, 196, 0.9) 0%, rgba(255, 193, 7, 0.4) 40%, transparent 70%);
+          animation: sunPulse 6s ease-in-out infinite;
+        }
+        .atmosphere--clear.atmosphere--day .atmosphere-bg__effects::after {
+          content: "";
+          position: absolute;
+          top: 2%;
+          left: 10%;
+          width: 120px;
+          height: 120px;
+          background: conic-gradient(from 0deg, transparent 0deg, rgba(255,236,179,0.12) 15deg, transparent 30deg, rgba(255,236,179,0.1) 45deg, transparent 60deg, rgba(255,236,179,0.12) 75deg, transparent 90deg);
+          animation: sunRays 30s linear infinite;
+          border-radius: 50%;
+        }
+        /* Clear / partly night stars */
+        .atmosphere--clear.atmosphere--night .atmosphere-bg__effects,
+        .atmosphere--partly.atmosphere--night .atmosphere-bg__effects {
+          opacity: 1;
+          background-image:
+            radial-gradient(1px 1px at 12% 18%, rgba(255,255,255,0.9) 50%, transparent 50%),
+            radial-gradient(1px 1px at 28% 8%, rgba(255,255,255,0.7) 50%, transparent 50%),
+            radial-gradient(1.5px 1.5px at 45% 22%, rgba(255,255,255,0.85) 50%, transparent 50%),
+            radial-gradient(1px 1px at 62% 12%, rgba(255,255,255,0.6) 50%, transparent 50%),
+            radial-gradient(1px 1px at 78% 28%, rgba(255,255,255,0.75) 50%, transparent 50%),
+            radial-gradient(1.5px 1.5px at 88% 15%, rgba(255,255,255,0.8) 50%, transparent 50%),
+            radial-gradient(1px 1px at 18% 42%, rgba(255,255,255,0.55) 50%, transparent 50%),
+            radial-gradient(1px 1px at 55% 38%, rgba(255,255,255,0.65) 50%, transparent 50%),
+            radial-gradient(1px 1px at 72% 48%, rgba(255,255,255,0.5) 50%, transparent 50%);
+          animation: starTwinkle 4s ease-in-out infinite alternate;
+        }
+        .atmosphere--clear.atmosphere--night .atmosphere-bg__effects::before,
+        .atmosphere--partly.atmosphere--night .atmosphere-bg__effects::before {
+          content: "";
+          position: absolute;
+          top: 10%;
+          right: 18%;
+          width: 48px;
+          height: 48px;
+          border-radius: 50%;
+          background: radial-gradient(circle, rgba(236, 239, 241, 0.85) 0%, rgba(236, 239, 241, 0.2) 45%, transparent 70%);
+          box-shadow: 0 0 24px rgba(236, 239, 241, 0.25);
+        }
+        /* Storm lightning */
+        .atmosphere--storm .atmosphere-bg__effects {
+          opacity: 0;
+          background: rgba(255, 255, 255, 0.75);
+          animation: lightningFlash 6s ease-in-out infinite;
+        }
+        /* Fog wisps */
+        .atmosphere--fog .atmosphere-bg__effects {
+          opacity: 1;
+          background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.08) 30%, rgba(255,255,255,0.14) 50%, rgba(255,255,255,0.08) 70%, transparent 100%);
+          background-size: 200% 100%;
+          animation: fogRoll 14s ease-in-out infinite;
         }
         .atmosphere-bg__veil {
           position: absolute;
@@ -1249,6 +1450,21 @@ class HomeWeatherPanel extends HTMLElement {
             gap: var(--space-5);
           }
         }
+        @media (max-width: 1099px) {
+          .atmosphere-eyebrow { text-align: center; width: 100%; }
+          .atmosphere-hero { align-items: stretch; width: 100%; }
+          .atmosphere-hero-main {
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+          }
+          .atmosphere-headline { text-align: center; width: 100%; }
+          .atmosphere-temp-row { justify-content: center; }
+          .atmosphere-hilo { max-width: none; align-self: stretch; }
+        }
+        @media (min-width: 1100px) {
+          .atmosphere-hilo { max-width: 420px; }
+        }
         .atmosphere-icon { display: flex; align-items: center; flex-shrink: 0; }
         .atmosphere-icon .weather-icon img {
           width: clamp(88px, 24vw, 128px);
@@ -1286,7 +1502,7 @@ class HomeWeatherPanel extends HTMLElement {
           color: rgba(255, 255, 255, 0.72);
           margin-top: var(--space-1);
         }
-        .atmosphere-hilo { width: 100%; max-width: 420px; }
+        .atmosphere-hilo { width: 100%; }
         .atmosphere-hilo-labels {
           display: flex;
           justify-content: space-between;
@@ -1468,13 +1684,18 @@ class HomeWeatherPanel extends HTMLElement {
 
         /* Radar card (collapsible) */
         .radar-card { display: flex; flex-direction: column; min-width: 0; }
-        .radar-card .radar-body { flex: 1 0 auto; min-height: 280px; display: flex; flex-direction: column; position: relative; }
+        .radar-card > .collapsible-header { align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); }
+        .radar-card .collapsible-header-left { flex: 1; min-width: 0; }
+        .radar-card .collapsible-header .switcher { flex-shrink: 0; margin-left: auto; }
+        .radar-card .collapsible-subtitle { display: none; }
+        .radar-card .radar-body { flex: 1 0 auto; min-height: 200px; display: flex; flex-direction: column; position: relative; }
         .radar-card .radar-view { display: none; flex: 1; min-height: 0; flex-direction: column; }
         .radar-card .radar-view.active { display: flex; }
-        .windy-map-container { flex: 1; min-height: clamp(200px, 40vw, 380px); min-width: 0; position: relative; aspect-ratio: 16/10; max-height: 100%; border-radius: var(--radius-md); overflow: hidden; border: 1px solid var(--card-border); background: var(--secondary-background-color); }
+        .windy-map-container { flex: 1; min-height: clamp(180px, 32vw, 260px); min-width: 0; position: relative; aspect-ratio: 16/10; max-height: 100%; border-radius: var(--radius-md); overflow: hidden; border: 1px solid var(--card-border); background: var(--secondary-background-color); }
         .windy-map-container iframe { width: 100%; height: 100%; border: none; display: block; }
         .windy-skeleton { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: var(--fs-small); }
-        .chart-container { flex: 1; min-height: clamp(220px, 36vw, 360px); min-width: 0; width: 100%; }
+        .chart-container { flex: 1; min-height: clamp(180px, 28vw, 240px); min-width: 0; width: 100%; }
+        .radar-card .forecast-top { margin-bottom: var(--space-2); justify-content: flex-end; }
 
         /* Metric switcher */
         .metric-switcher { display: flex; align-items: center; gap: var(--space-1); background: var(--secondary-background-color); border: 1px solid var(--card-border); border-radius: 999px; padding: var(--space-1); flex-wrap: wrap; }
@@ -1563,6 +1784,46 @@ class HomeWeatherPanel extends HTMLElement {
           0% { background-position: 0% 40%; }
           100% { background-position: 100% 60%; }
         }
+        @keyframes cloudDriftA {
+          0% { transform: translateX(0) translateY(0); }
+          100% { transform: translateX(12%) translateY(4px); }
+        }
+        @keyframes cloudDriftB {
+          0% { transform: translateX(0) translateY(0); }
+          100% { transform: translateX(-10%) translateY(-3px); }
+        }
+        @keyframes rainFall {
+          0% { background-position: 0 0; }
+          100% { background-position: -12px 24px; }
+        }
+        @keyframes hailFall {
+          0% { background-position: 0 0; }
+          100% { background-position: -8px 32px; }
+        }
+        @keyframes snowDrift {
+          0% { transform: translateY(0); opacity: 0.85; }
+          100% { transform: translateY(28px); opacity: 1; }
+        }
+        @keyframes sunPulse {
+          0%, 100% { transform: scale(1); opacity: 0.9; }
+          50% { transform: scale(1.08); opacity: 1; }
+        }
+        @keyframes sunRays {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+        @keyframes starTwinkle {
+          0% { opacity: 0.7; }
+          100% { opacity: 1; }
+        }
+        @keyframes lightningFlash {
+          0%, 89%, 91%, 93%, 100% { opacity: 0; }
+          90%, 92% { opacity: 0.55; }
+        }
+        @keyframes fogRoll {
+          0% { background-position: 0% 0; }
+          100% { background-position: 100% 0; }
+        }
         @keyframes cloudVeilPulse {
           0%, 100% { opacity: calc(var(--atmosphere-cloud, 0.45) * 0.85); }
           50% { opacity: var(--atmosphere-cloud, 0.45); }
@@ -1581,6 +1842,14 @@ class HomeWeatherPanel extends HTMLElement {
         @media (prefers-reduced-motion: reduce) {
           .atmosphere-bg__gradient { animation: none; }
           .atmosphere-bg__veil { animation: none; }
+          .atmosphere-bg__clouds::before,
+          .atmosphere-bg__clouds::after,
+          .atmosphere-bg__particles,
+          .atmosphere-bg__effects,
+          .atmosphere-bg__effects::before,
+          .atmosphere-bg__effects::after,
+          .atmosphere-bg__particles::before { animation: none; }
+          .atmosphere--storm .atmosphere-bg__effects { animation: none; opacity: 0; }
           .metric-glass { animation: none; opacity: 1; transform: none; }
           .metric-glass:hover { transform: none; }
           .metric-uv-fill { animation: none; }
@@ -1602,28 +1871,22 @@ class HomeWeatherPanel extends HTMLElement {
         .hamburger svg { width: 24px; height: 24px; display: block; }
         @media (max-width: 768px) { .hamburger { display: block; } }
         .narrow .hamburger { display: block; }
-        .nav-tabs { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px; background: var(--secondary-background-color); border: 1px solid var(--card-border); border-radius: 999px; width: fit-content; max-width: 100%; }
-        .nav-tab { padding: 8px 16px; background: transparent; border: none; border-radius: 999px; color: var(--secondary-text-color); cursor: pointer; font-size: 14px; font-weight: 500; }
-        .nav-tab:hover { color: var(--primary-text-color); }
-        .nav-tab.active { background: var(--panel-accent); color: #ffffff; }
-        .view-toggle { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 24px; padding: 4px; background: var(--secondary-background-color); border: 1px solid var(--card-border); border-radius: 999px; width: fit-content; max-width: 100%; }
-        .view-toggle button { padding: 8px 16px; background: transparent; border: none; border-radius: 999px; color: var(--secondary-text-color); cursor: pointer; font-size: 13px; font-weight: 500; }
-        .view-toggle button.active { background: var(--panel-accent); color: #ffffff; }
         /* Settings design tokens */
         .settings-form {
           --form-gap: 16px;
           --form-gap-sm: 12px;
-          --form-gap-lg: 24px;
+          --form-gap-lg: 20px;
           --form-label-size: 13px;
           --form-label-weight: 500;
           --form-hint-size: 12px;
           --form-input-height: 40px;
-          --section-padding: 20px;
+          --section-padding: 18px;
           display: grid;
           gap: var(--form-gap-lg);
-          max-width: 960px;
+          max-width: min(1200px, 100%);
           margin: 0 auto;
           width: 100%;
+          padding-bottom: 88px;
         }
         /* Alerts page */
         .alerts-page { padding: clamp(12px, 2vw, 18px); max-width: 920px; margin: 0 auto; width: 100%; box-sizing: border-box; }
@@ -1646,9 +1909,9 @@ class HomeWeatherPanel extends HTMLElement {
         .alert-expand:hover { background: var(--card-border); color: var(--primary-text-color); }
         .alert-card.expanded .alert-expand { transform: rotate(180deg); }
         .alert-card-head[data-alert-toggle] { cursor: pointer; }
-        .alert-desc-full { display: none; }
-        .alert-card.expanded .alert-desc-full { display: block; }
-        .alert-card.expanded .alert-desc:not(.alert-desc-full) { display: none; }
+        .alert-body { font-size: 15px; color: var(--primary-text-color); line-height: 1.55; margin: 0; }
+        .alert-extra { font-size: 14px; color: var(--secondary-text-color); line-height: 1.55; margin: 0; display: none; }
+        .alert-card.expanded .alert-extra--collapsed { display: block; }
         .alert-pill { font-size: 10px; font-weight: 700; letter-spacing: 0.12em; padding: 3px 10px; border-radius: 999px; background: var(--secondary-background-color); color: var(--secondary-text-color); }
         .alert-card.sev-warning .alert-pill { background: rgba(244,67,54,0.15); color: #ff8a80; }
         .alert-card.sev-watch .alert-pill { background: rgba(255,152,0,0.15); color: #ffb74d; }
@@ -1663,13 +1926,47 @@ class HomeWeatherPanel extends HTMLElement {
         .settings-group-sub { font-size: 13px; color: var(--secondary-text-color); margin-bottom: 4px; max-width: 70ch; line-height: 1.5; }
         .settings-category.collapsible-section { border-radius: var(--radius-lg); }
         .settings-category.collapsible-section.open { border-color: rgba(255, 255, 255, 0.18); box-shadow: var(--shadow-sm); }
-        .settings-category > .collapsible-header { padding: 18px 22px; }
+        .settings-category > .collapsible-header { padding: 16px 20px; }
         .settings-category > .collapsible-header .collapsible-title { font-size: 16px; }
-        .collapsible-content--category { gap: 14px; padding-top: 8px; }
+        .settings-category-hint {
+          font-size: 13px;
+          color: var(--secondary-text-color);
+          line-height: 1.5;
+          margin: 0 0 4px;
+          max-width: 72ch;
+        }
+        .collapsible-content--category { gap: 12px; padding-top: 4px; }
+        .settings-panel {
+          display: flex;
+          flex-direction: column;
+          gap: 0;
+          min-width: 0;
+          background: var(--hw-elevated);
+          border: 1px solid var(--hw-border);
+          border-radius: var(--radius-md);
+          overflow: hidden;
+        }
+        .settings-panel .collapsible-section {
+          background: transparent;
+          border: none;
+          border-radius: 0;
+          border-bottom: 1px solid var(--hw-border);
+        }
+        .settings-panel .collapsible-section:last-child { border-bottom: none; }
+        .settings-panel--player { background: transparent; border: none; }
+        .settings-panel--player > .collapsible-section {
+          background: var(--hw-elevated);
+          border: 1px solid var(--hw-border);
+          border-radius: var(--radius-md);
+        }
+        .media-player-list { display: flex; flex-direction: column; gap: 10px; }
+        .collapsible-section--mini > .collapsible-header { padding: 12px 14px; }
+        .collapsible-section--mini > .collapsible-header .collapsible-title { font-size: 13px; font-weight: 600; letter-spacing: 0.04em; }
+        .collapsible-section--mini > .collapsible-content { padding: 0 14px 14px; gap: var(--form-gap-sm); }
         .settings-nest {
-          margin-left: 4px;
-          padding-left: 16px;
-          border-left: 2px solid var(--hw-border);
+          margin-left: 0;
+          padding-left: 0;
+          border-left: none;
           display: flex;
           flex-direction: column;
           gap: 10px;
@@ -1712,9 +2009,9 @@ class HomeWeatherPanel extends HTMLElement {
           border-radius: 0;
           display: flex;
           flex-direction: column;
-          gap: var(--form-gap-sm);
+          gap: 8px;
         }
-        .media-player-list .settings-nest--player { margin-left: 0; padding-left: 12px; border-left-width: 1px; }
+        .media-player-list .settings-panel--player { margin: 0; }
         .media-player-playback-grid { grid-template-columns: 1fr 120px auto; align-items: end; }
         @media (max-width: 640px) { .media-player-playback-grid { grid-template-columns: 1fr; } }
         .media-player-actions { display: flex; justify-content: flex-end; padding-top: 4px; }
@@ -1743,9 +2040,9 @@ class HomeWeatherPanel extends HTMLElement {
         .form-group input, .form-group select { padding: 10px 14px; height: var(--form-input-height); border: 1px solid var(--input-border); border-radius: 8px; background: var(--input-bg); color: var(--primary-text-color); font-size: 14px; box-sizing: border-box; }
         .form-group input[type="checkbox"] { width: auto; padding: 0; height: auto; }
         .form-row { display: flex; align-items: center; gap: var(--form-gap-sm); }
-        .form-row-inline { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: var(--form-gap-sm); align-items: end; margin-bottom: var(--form-gap); }
+        .form-row-inline { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--form-gap-sm); align-items: end; margin-bottom: var(--form-gap); }
         .form-row-inline .form-group { margin-bottom: 0; }
-        @media (max-width: 480px) { .form-row-inline { grid-template-columns: 1fr; } }
+        @media (max-width: 640px) { .form-row-inline { grid-template-columns: 1fr; } }
         .settings-toggle-row { display: flex; align-items: center; justify-content: space-between; gap: var(--form-gap-sm); padding: 12px 0; }
         .settings-toggle-row .inline-toggle-label { margin: 0; }
         .form-group.settings-toggle-row { flex-direction: row; flex-wrap: nowrap; }
@@ -1756,7 +2053,6 @@ class HomeWeatherPanel extends HTMLElement {
         .form-group.settings-toggle-row { flex-direction: row; flex-wrap: nowrap; align-items: center; }
         .form-group.settings-toggle-row label:first-of-type { margin-bottom: 0; flex: 1; }
         .form-row .btn-icon { padding: 8px 12px; min-width: auto; }
-        .media-player-list { display: flex; flex-direction: column; gap: 16px; }
         .media-player-item { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: var(--card-background-color); border: 1px solid var(--card-border); border-radius: 8px; }
         .media-player-item select { flex: 1; }
         .media-player-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
@@ -1819,7 +2115,25 @@ class HomeWeatherPanel extends HTMLElement {
         .webhook-url-display { flex: 1; font-size: 12px; padding: 8px 12px; background: var(--secondary-background-color); border-radius: 6px; color: var(--primary-text-color); cursor: text; }
         .form-actions { display: flex; gap: 12px; justify-content: flex-end; margin-top: 24px; }
         .btn { padding: 12px 32px; border: none; border-radius: 8px; font-size: 14px; font-weight: 500; cursor: pointer; box-sizing: border-box; }
-        .topbar #alerts-btn { width: auto; min-width: 52px; padding-left: 12px; padding-right: 14px; gap: 6px; }
+        .topbar #alerts-btn { width: auto; min-width: 52px; padding-left: 12px; padding-right: 14px; gap: 6px; position: relative; }
+        .alerts-badge {
+          position: absolute;
+          top: 4px;
+          right: 4px;
+          min-width: 18px;
+          height: 18px;
+          padding: 0 5px;
+          border-radius: 999px;
+          background: var(--panel-danger);
+          color: #fff;
+          font-size: 10px;
+          font-weight: 700;
+          line-height: 18px;
+          text-align: center;
+          font-variant-numeric: tabular-nums;
+          box-shadow: 0 0 0 2px var(--hw-surface);
+          pointer-events: none;
+        }
         .btn-primary { background: var(--panel-accent); color: #ffffff; box-shadow: 0 2px 8px var(--panel-accent-dim); }
         .btn-primary:hover { background: var(--panel-accent-hover); }
         .btn-secondary { background: var(--input-bg); color: var(--primary-text-color); border: 1px solid var(--input-border); }
@@ -1859,13 +2173,10 @@ class HomeWeatherPanel extends HTMLElement {
                     <div class="title">Home Weather</div>
                   </div>
                 </section>
-                ${this._renderHeaderTempPill()}
-                <section class="status-card">
-                  <div class="pill pill-muted pill-update-hide-narrow" id="update-status-pill">${this._updateStatus === "available" ? "Update available" : "Latest"}</div>
-                </section>
-                <button class="icon-btn" id="alerts-btn" aria-label="Alerts" style="display:flex;align-items:center;gap:6px;padding:0 10px;width:auto;min-width:40px;">
+                <button class="icon-btn" id="alerts-btn" aria-label="${this._getActiveAlertCount() ? `Alerts, ${this._getActiveAlertCount()} active` : "Alerts"}" style="display:flex;align-items:center;gap:6px;padding:0 10px;width:auto;min-width:40px;">
                   <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>
                   <span style="font-size:12px;font-weight:500;">Alerts</span>
+                  ${this._renderAlertsBadge()}
                 </button>
                 <button class="icon-btn" id="gear-btn" aria-label="Settings">
                   <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.488.488 0 00-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 00-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94 0 .31.02.64.07.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
@@ -1875,7 +2186,6 @@ class HomeWeatherPanel extends HTMLElement {
               ${this._renderContent()}
               </div>
             </div>
-            <div class="footer-note">Home Weather</div>
           </div>`
         : `<div class="settings-view ${this._isNarrow ? "narrow" : ""}">
             <div class="header">
@@ -1910,7 +2220,6 @@ class HomeWeatherPanel extends HTMLElement {
     s.getElementById("hamburger-btn")?.addEventListener("click", () => {
       this.dispatchEvent(new CustomEvent("hass-toggle-menu", { bubbles: true, composed: true }));
     });
-    const settingsBtn = s.getElementById("settings-btn");
     const gearBtn = s.getElementById("gear-btn");
     const alertsBtn = s.getElementById("alerts-btn");
     const backBtn = s.getElementById("back-btn");
@@ -1919,11 +2228,6 @@ class HomeWeatherPanel extends HTMLElement {
       this._alertsData = null;
       this._alertsLoading = false;
       this._render();
-    });
-    if (settingsBtn) settingsBtn.addEventListener("click", () => {
-      this._currentView = "settings";
-      this._render();
-      this._loadWebhookInfo();
     });
     if (gearBtn) gearBtn.addEventListener("click", async () => {
       this._currentView = "settings";
@@ -1941,10 +2245,15 @@ class HomeWeatherPanel extends HTMLElement {
     } else if (this._currentView === "forecast") {
       if (this._radarView === "chart" && !this._radarCollapsed) this._initApexChart();
       s.querySelectorAll(".dashboard .switcher button").forEach((btn) => {
-        btn.addEventListener("click", () => {
+        btn.addEventListener("click", (e) => {
+          e.stopPropagation();
           if (btn.dataset.radarView) {
             this._radarView = btn.dataset.radarView || "map";
-            this._updateToggleView();
+            if (!this._radarCollapsed) {
+              this._render();
+            } else {
+              this._updateToggleView();
+            }
           }
         });
       });
@@ -1969,16 +2278,17 @@ class HomeWeatherPanel extends HTMLElement {
         btn.addEventListener("click", () => this._closeDetailSheet());
       });
       s.querySelectorAll("[data-toggle-radar]").forEach((hdr) => {
-        hdr.addEventListener("click", () => {
+        hdr.addEventListener("click", (e) => {
+          if (e.target.closest(".switcher, .metric-switcher, button")) return;
           const card = hdr.closest(".collapsible-section");
           if (!card) return;
-          const open = card.classList.toggle("open");
-          const content = card.querySelector(".collapsible-content");
-          if (content) content.style.display = open ? "flex" : "none";
-          const chev = hdr.querySelector(".collapsible-chevron");
-          if (chev) chev.style.transform = open ? "rotate(0deg)" : "rotate(-90deg)";
+          const open = !card.classList.contains("open");
+          card.classList.toggle("open", open);
           this._radarCollapsed = !open;
-          if (open && this._radarView === "chart") this._initApexChart();
+          if (open) {
+            this._render();
+            if (this._radarView === "chart") this._initApexChart();
+          }
         });
       });
       s.querySelectorAll("[data-retry]").forEach((btn) => {
@@ -2024,10 +2334,64 @@ class HomeWeatherPanel extends HTMLElement {
       btn.classList.toggle("active", btn.dataset.radarView === this._radarView);
     });
     // Show metric switcher only in chart view
-    s.querySelectorAll(".metric-switcher").forEach((el) => {
-      el.style.display = this._radarView === "chart" ? "flex" : "none";
+    s.querySelectorAll(".radar-metric-row, .metric-switcher").forEach((el) => {
+      if (el.classList.contains("metric-switcher")) {
+        el.style.display = this._radarView === "chart" ? "flex" : "none";
+      } else {
+        el.style.display = this._radarView === "chart" ? "flex" : "none";
+      }
     });
     if (this._radarView === "chart") this._initApexChart();
+  }
+
+  _getAccordionGroup(sectionId) {
+    const topCategories = ["settings-weather", "settings-alerts", "settings-advanced"];
+    if (topCategories.includes(sectionId)) return { type: "list", ids: topCategories };
+    const alertsNested = [
+      "general", "media-players", "time-based", "current-change", "upcoming-change",
+      "sun-alerts", "nws-alerts", "sensor-triggered", "webhook", "voice-satellite",
+    ];
+    if (alertsNested.includes(sectionId)) return { type: "list", ids: alertsNested };
+    if (sectionId === "weather-source") return { type: "list", ids: ["weather-source"] };
+    const advancedNested = ["forecast-settings", "ai-rewrite"];
+    if (advancedNested.includes(sectionId)) return { type: "list", ids: advancedNested };
+    if (/^media-player-\d+$/.test(sectionId)) return { type: "mediaPlayer", sectionId };
+    const subMatch = sectionId.match(/^(media-player-\d+-)/);
+    if (subMatch) return { type: "prefix", prefix: subMatch[1] };
+    return null;
+  }
+
+  _toggleSection(sectionId) {
+    if (!this._expandedSections) this._expandedSections = new Set();
+    const isOpen = this._expandedSections.has(sectionId);
+    const group = this._getAccordionGroup(sectionId);
+    if (group && !isOpen) {
+      if (group.type === "list") {
+        group.ids.forEach((id) => { if (id !== sectionId) this._expandedSections.delete(id); });
+      } else if (group.type === "prefix") {
+        [...this._expandedSections]
+          .filter((id) => id.startsWith(group.prefix) && id !== sectionId)
+          .forEach((id) => this._expandedSections.delete(id));
+      } else if (group.type === "mediaPlayer") {
+        [...this._expandedSections]
+          .filter((id) => {
+            if (id === sectionId) return false;
+            if (/^media-player-\d+$/.test(id)) return true;
+            return /^media-player-\d+-/.test(id);
+          })
+          .forEach((id) => this._expandedSections.delete(id));
+      }
+    }
+    if (isOpen) this._expandedSections.delete(sectionId);
+    else this._expandedSections.add(sectionId);
+  }
+
+  _applyExpandedSectionsToDom(s) {
+    if (!s) return;
+    s.querySelectorAll(".collapsible-section[data-section-id]").forEach((section) => {
+      const id = section.dataset.sectionId;
+      section.classList.toggle("open", this._expandedSections.has(id));
+    });
   }
 
   _attachSettingsHandlers() {
@@ -2041,21 +2405,15 @@ class HomeWeatherPanel extends HTMLElement {
     const we = s.getElementById("weather-entity");
     if (we) we.addEventListener("change", (e) => { this._settings.weather_entity = e.target.value || null; });
 
-    // Collapsible sections
+    // Collapsible sections — exclusive groups, all collapsed by default
     s.querySelectorAll(".collapsible-header").forEach((header) => {
       header.addEventListener("click", (e) => {
-        // Don't toggle if clicking on interactive controls inside the header
         if (e.target.closest(".toggle-switch, button, input, select, textarea, label, .entity-autocomplete-dropdown")) return;
         const section = header.closest(".collapsible-section");
         const sectionId = section?.dataset?.sectionId;
-        if (sectionId) {
-          if (this._expandedSections.has(sectionId)) {
-            this._expandedSections.delete(sectionId);
-          } else {
-            this._expandedSections.add(sectionId);
-          }
-          section.classList.toggle("open");
-        }
+        if (!sectionId) return;
+        this._toggleSection(sectionId);
+        this._applyExpandedSectionsToDom(s);
       });
     });
     
@@ -2189,8 +2547,9 @@ class HomeWeatherPanel extends HTMLElement {
     }
     
     // Media player card sync handlers
-    s.querySelectorAll(".media-player-card").forEach((card, i) => {
-      card.querySelectorAll(".media-player-select, .media-player-tts-entity, .media-player-language, .media-player-options").forEach((el) => {
+    const mediaPlayerList = s.querySelector("#media-player-list");
+    (mediaPlayerList ? mediaPlayerList.querySelectorAll(".media-player-card") : []).forEach((card, i) => {
+      card.querySelectorAll(".media-player-select, .media-player-tts-entity, .media-player-language, .media-player-options, .media-player-preroll").forEach((el) => {
         el.addEventListener("change", () => this._syncMediaPlayerFromCard(i));
         el.addEventListener("input", () => this._syncMediaPlayerFromCard(i));
       });
@@ -2355,6 +2714,7 @@ class HomeWeatherPanel extends HTMLElement {
     wireTestButton("test-sunrise-btn", "home_weather/test_sunrise");
     wireTestButton("test-sunset-btn", "home_weather/test_sunset");
     wireTestButton("test-nws-btn", "home_weather/test_nws_alert");
+    wireTestButton("test-nws-siren-btn", "home_weather/test_nws_siren", "Playing\u2026");
     
     // Add media player
     const addMediaBtn = s.getElementById("add-media-btn");
@@ -2396,7 +2756,10 @@ class HomeWeatherPanel extends HTMLElement {
         ? `<section class="dashboard"><article class="glass card dashboard-message"><div class="error">${String(this._error)}</div><button class="btn btn-primary" data-retry style="margin-top:16px;">Retry</button></article></section>`
         : `<div class="error">${String(this._error)}</div>`;
     }
-    if (this._currentView === "forecast") return this._renderForecast();
+    if (this._currentView === "forecast") {
+      this._ensureNwsAlertsLoaded();
+      return this._renderForecast();
+    }
     if (this._currentView === "alerts") return this._renderAlerts();
     return this._renderSettings();
   }
@@ -2533,9 +2896,12 @@ class HomeWeatherPanel extends HTMLElement {
     return `
       <section class="dashboard">
 
-        <article class="glass card atmosphere-card ${theme.className}" data-detail-hero style="--atmosphere-cloud: ${theme.cloudOpacity}">
+        <article class="glass card atmosphere-card ${theme.className}" data-detail-hero style="--atmosphere-cloud: ${theme.cloudOpacity}; --atmosphere-intensity: ${theme.intensity}">
           <div class="atmosphere-bg" aria-hidden="true">
             <div class="atmosphere-bg__gradient"></div>
+            <div class="atmosphere-bg__clouds"></div>
+            <div class="atmosphere-bg__particles"></div>
+            <div class="atmosphere-bg__effects"></div>
             <div class="atmosphere-bg__veil"></div>
           </div>
           <div class="atmosphere-content">
@@ -2619,7 +2985,7 @@ class HomeWeatherPanel extends HTMLElement {
           </div>
         </article>
 
-        <article class="glass card radar-card collapsible-section open" data-section-id="radar">
+        <article class="glass card radar-card collapsible-section${this._radarCollapsed ? "" : " open"}" data-section-id="radar">
           <div class="collapsible-header" data-toggle-radar>
             <div class="collapsible-header-left">
               <div>
@@ -2627,25 +2993,29 @@ class HomeWeatherPanel extends HTMLElement {
                 <div class="collapsible-subtitle">Live map and hourly chart</div>
               </div>
             </div>
+            <div class="switcher radar-header-switcher">
+              <button type="button" class="${this._radarView === "map" ? "active" : ""}" data-radar-view="map">Map</button>
+              <button type="button" class="${this._radarView === "chart" ? "active" : ""}" data-radar-view="chart">Chart</button>
+            </div>
             <svg class="collapsible-chevron" viewBox="0 0 24 24" fill="currentColor"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/></svg>
           </div>
-          <div class="collapsible-content" style="display:flex;">
-            <div class="forecast-top" style="width:100%;">
-              <div class="switcher">
-                <button type="button" class="${this._radarView === "map" ? "active" : ""}" data-radar-view="map">Map</button>
-                <button type="button" class="${this._radarView === "chart" ? "active" : ""}" data-radar-view="chart">Chart</button>
-              </div>
-              ${this._radarView === "chart" ? `
+          <div class="collapsible-content">
+            <div class="forecast-top radar-metric-row" style="width:100%;${this._radarView !== "chart" ? " display:none;" : ""}">
               <div class="metric-switcher">
                 ${Object.entries(metricLabels).map(([key, label]) => `<button type="button" class="${chartMetric === key ? "active" : ""}" data-chart-metric="${key}">${label}</button>`).join("")}
               </div>
-              ` : ""}
             </div>
             <div class="radar-body">
               <div class="radar-view ${this._radarView === "map" ? "active" : ""}" data-radar-view="map">
+                ${this._radarCollapsed ? `
+                <div class="windy-map-container">
+                  <div class="windy-skeleton">Expand to load radar map</div>
+                </div>
+                ` : `
                 <div class="windy-map-container">
                   <iframe src="${windyUrl}" frameborder="0" title="Windy weather map" width="100%" height="100%" loading="lazy"></iframe>
                 </div>
+                `}
               </div>
               <div class="radar-view ${this._radarView === "chart" ? "active" : ""}" data-radar-view="chart">
                 <div class="chart-container" id="apex-chart-combined"></div>
@@ -2941,18 +3311,12 @@ class HomeWeatherPanel extends HTMLElement {
     }
   }
 
-  _formatNwsAlertDescription(raw) {
-    if (!raw || !String(raw).trim()) return [];
+  _parseNwsAlertDescription(raw) {
+    const empty = { what: null, where: null, when: null, impacts: null, additional: null, other: [] };
+    if (!raw || !String(raw).trim()) return empty;
     const text = String(raw).trim();
-    const parts = [];
+    const result = { ...empty, other: [] };
     const blocks = ("\n" + text).split(/\n\s*\*\s*/);
-    const labels = {
-      what: "What",
-      where: "Where",
-      when: "When",
-      impacts: "Impacts",
-      additional: "Additional details",
-    };
     for (const block of blocks) {
       const trimmed = block.trim();
       if (!trimmed) continue;
@@ -2961,29 +3325,46 @@ class HomeWeatherPanel extends HTMLElement {
         const key = trimmed.slice(0, dotIdx).trim().replace(/\./g, "").toLowerCase();
         const body = trimmed.slice(dotIdx + 3).trim().replace(/\s+/g, " ");
         if (!body) continue;
-        parts.push({ label: labels[key] || key.replace(/^\w/, (c) => c.toUpperCase()), body });
+        if (key === "what") result.what = body;
+        else if (key === "where") result.where = body;
+        else if (key === "when") result.when = body;
+        else if (key === "impacts") result.impacts = body;
+        else if (key === "additional" || key === "additional details") result.additional = body;
+        else result.other.push({ key, body });
       } else {
         const body = trimmed.replace(/^\*\s*/, "").replace(/\s+/g, " ").trim();
-        if (body) parts.push({ label: null, body });
+        if (body && !result.what) result.what = body;
+        else if (body) result.other.push({ key: null, body });
       }
     }
-    if (parts.length) return parts;
-    return [{ label: null, body: text.replace(/\*\s*/g, "").replace(/\.\.\./g, ". ").replace(/\s+/g, " ").trim() }];
+    if (!result.what && !result.where && !result.when && result.other.length === 0) {
+      const fallback = text.replace(/\*\s*/g, "").replace(/\.\.\./g, ". ").replace(/\s+/g, " ").trim();
+      if (fallback) result.what = fallback;
+    }
+    return result;
   }
 
-  _formatNwsAlertHtml(raw) {
-    const esc = (s) => String(s).replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    const parts = this._formatNwsAlertDescription(raw);
-    return parts
-      .map((p) => (p.label ? `<strong>${esc(p.label)}:</strong> ${esc(p.body)}` : esc(p.body)))
-      .join("<br>");
+  _getActiveAlertCount() {
+    if (!this._alertsData || this._alertsData.error) return 0;
+    return (this._alertsData.alerts || []).length;
   }
 
-  _renderAlerts() {
+  _renderAlertsBadge() {
+    const count = this._getActiveAlertCount();
+    if (!count) return "";
+    const label = count > 99 ? "99+" : String(count);
+    return `<span class="alerts-badge" aria-hidden="true">${label}</span>`;
+  }
+
+  _ensureNwsAlertsLoaded() {
     if (!this._alertsData && !this._alertsLoading) {
       this._alertsLoading = true;
       this._fetchNwsAlerts();
     }
+  }
+
+  _renderAlerts() {
+    this._ensureNwsAlertsLoaded();
     const empty = (msg, isError = false) => `
       <section class="alerts-page">
         <div class="alerts-empty ${isError ? "is-error" : ""}">
@@ -3009,19 +3390,26 @@ class HomeWeatherPanel extends HTMLElement {
     const rows = alerts.map((a, i) => {
       const event = String(a.event || "Alert").replace(/</g, "&lt;").replace(/>/g, "&gt;");
       const descRaw = a.description || "";
-      const descPlain = this._formatNwsAlertDescription(descRaw)
-        .map((p) => (p.label ? `${p.label}: ${p.body}` : p.body))
-        .join(" ");
-      const isLong = descPlain.length > 280;
-      const descFull = this._formatNwsAlertHtml(descRaw);
-      const desc = isLong
-        ? String(descPlain.substring(0, 280) + "…").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-        : descFull;
+      const parsed = this._parseNwsAlertDescription(descRaw);
+      const esc = (s) => String(s).replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      const mainBody = parsed.what || parsed.impacts || parsed.additional || (parsed.other[0]?.body ?? "");
+      const extraParts = [];
+      if (parsed.impacts && parsed.impacts !== mainBody) extraParts.push(parsed.impacts);
+      if (parsed.additional) extraParts.push(parsed.additional);
+      parsed.other.forEach((o) => extraParts.push(o.body));
+      const extraText = extraParts.join(" ");
+      const isLong = extraText.length > 120;
       const effective = a.effective ? new Date(a.effective).toLocaleString() : "—";
       const expires = a.expires ? new Date(a.expires).toLocaleString() : "—";
       const sev = String(a.event || "").toLowerCase();
       const sevClass = sev.includes("warning") ? "sev-warning" : sev.includes("watch") ? "sev-watch" : "sev-advisory";
       const sevLabel = sevClass.replace("sev-", "");
+      const metaFields = [];
+      if (parsed.where) metaFields.push({ label: "Where", value: parsed.where });
+      if (parsed.when) metaFields.push({ label: "When", value: parsed.when });
+      metaFields.push({ label: "Effective", value: effective });
+      metaFields.push({ label: "Expires", value: expires });
+      const metaHtml = metaFields.map((f) => `<div><dt>${esc(f.label)}</dt><dd>${esc(f.value)}</dd></div>`).join("");
       return `<article class="alert-card ${sevClass}" data-alert-index="${i}">
         <header class="alert-card-head" data-alert-toggle="${i}">
           <span class="alert-severity-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor" width="22" height="22">${severityIcon(sevClass)}</svg></span>
@@ -3029,12 +3417,9 @@ class HomeWeatherPanel extends HTMLElement {
           <h3>${event}</h3>
           ${isLong ? `<button class="alert-expand" aria-label="Toggle details" data-alert-expand="${i}"><svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/></svg></button>` : ""}
         </header>
-        <p class="alert-desc" data-alert-desc="${i}">${desc}</p>
-        ${isLong ? `<p class="alert-desc alert-desc-full" data-alert-desc-full="${i}" style="display:none;">${descFull}</p>` : ""}
-        <dl class="alert-meta">
-          <div><dt>Effective</dt><dd>${effective}</dd></div>
-          <div><dt>Expires</dt><dd>${expires}</dd></div>
-        </dl>
+        ${mainBody ? `<p class="alert-body">${esc(mainBody)}</p>` : ""}
+        ${isLong ? `<div class="alert-extra alert-extra--collapsed" data-alert-extra="${i}">${esc(extraText)}</div>` : ""}
+        <dl class="alert-meta">${metaHtml}</dl>
       </article>`;
     }).join("");
     return `<section class="alerts-page"><h2 class="alerts-title">Active weather alerts</h2><div class="alerts-list">${rows}</div></section>`;
@@ -3104,7 +3489,7 @@ class HomeWeatherPanel extends HTMLElement {
     const messagePrefix = this._settings.message_prefix || "Weather update";
     const defaultSunAlerts = { enabled: false, sunrise_tts: { enabled: false, minutes_before: 15, interval_minutes: 5 }, sunset_tts: { enabled: false, minutes_before: 15, interval_minutes: 5 }, sunrise_automation: { enabled: false, entity_id: "" }, sunset_automation: { enabled: false, entity_id: "" } };
     const sunAlerts = { ...defaultSunAlerts, ...(this._settings.sun_alerts || {}) };
-    const defaultNwsAlerts = { enabled: false, sound_file: "", sound_volume: 0.8, tts_volume: 0.9 };
+    const defaultNwsAlerts = { enabled: false, sound_file: "", sound_volume: 0.8, tts_volume: 0.9, replay_on_time_based_forecast: true };
     const nwsAlerts = { ...defaultNwsAlerts, ...(this._settings.nws_alerts || {}) };
     if (!sunAlerts.sunrise_tts) sunAlerts.sunrise_tts = defaultSunAlerts.sunrise_tts;
     if (!sunAlerts.sunset_tts) sunAlerts.sunset_tts = defaultSunAlerts.sunset_tts;
@@ -3169,95 +3554,106 @@ class HomeWeatherPanel extends HTMLElement {
       <div class="settings-category collapsible-section ${this._expandedSections.has(id) ? "open" : ""}" data-section-id="${id}">
         <div class="collapsible-header">
           <div class="collapsible-header-left">
-            <div>
-              <div class="collapsible-title">${title}</div>
-              ${subtitle ? `<div class="collapsible-subtitle">${subtitle}</div>` : ""}
-            </div>
+            <div class="collapsible-title">${title}</div>
           </div>
           ${chevronSvg}
         </div>
         <div class="collapsible-content collapsible-content--category">
+          ${subtitle ? `<p class="settings-category-hint">${subtitle}</p>` : ""}
           ${innerHtml}
         </div>
       </div>
     `;
 
     const renderNestedSection = (id, title, subtitle, content, hasToggle = false, toggleId = "", toggleChecked = false) => `
-      <div class="settings-nest">
+      <div class="settings-panel">
         ${renderCollapsible(id, title, subtitle, content, hasToggle, toggleId, toggleChecked)}
+      </div>
+    `;
+
+    const renderMiniCollapsible = (id, title, content, optionalTag = "") => `
+      <div class="collapsible-section collapsible-section--mini ${this._expandedSections.has(id) ? "open" : ""}" data-section-id="${id}">
+        <div class="collapsible-header">
+          <div class="collapsible-header-left">
+            <div class="collapsible-title">${title}${optionalTag}</div>
+          </div>
+          ${chevronSvg}
+        </div>
+        <div class="collapsible-content">
+          ${content}
+        </div>
       </div>
     `;
 
     const renderMediaPlayerCard = (m, i) => {
       const cardId = `media-player-${i}`;
       const title = entityFriendlyName(m.entity_id);
-      const subtitle = m.tts_entity_id
-        ? m.tts_entity_id.replace(/^tts\./, "")
-        : "Not configured";
+      const configured = m.tts_entity_id ? "Configured" : "Not configured";
+      const subtitle = `${configured} · ${m.tts_entity_id ? m.tts_entity_id.replace(/^tts\./, "") : "No TTS"}`;
+      const connectionBlock = `
+        <div class="form-group">
+          <label>Media Player *</label>
+          <div class="media-player-controls">
+            <select class="media-player-select" data-field="entity_id">
+              ${mediaPlayerEntities.map((e) => `<option value="${e}" ${e === m.entity_id ? "selected" : ""}>${e}</option>`).join("")}
+            </select>
+            <button type="button" class="btn btn-secondary btn-icon" data-remove-media="${i}" aria-label="Remove player">Remove</button>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>TTS Entity *</label>
+          <select class="media-player-tts-entity" data-field="tts_entity_id">
+            <option value="">-- Select TTS Entity --</option>
+            ${ttsEntities.map((e) => `<option value="${e}" ${e === m.tts_entity_id ? "selected" : ""}>${e}</option>`).join("")}
+          </select>
+        </div>
+      `;
+      const playbackBlock = `
+        <div class="form-row-inline media-player-playback-grid">
+          <div class="form-group">
+            <label>Volume</label>
+            <div class="range-slider">
+              <input type="range" class="media-player-volume" data-field="volume" min="0" max="1" step="0.05" value="${m.volume || 0.6}"/>
+              <span class="range-value">${Math.round((m.volume || 0.6) * 100)}%</span>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Preroll (ms)</label>
+            <input type="number" class="media-player-preroll" data-field="preroll_ms" min="0" max="2000" step="50" value="${m.preroll_ms ?? 150}"/>
+          </div>
+          <div class="form-group settings-toggle-row">
+            <label>Cache TTS</label>
+            <label class="toggle-switch">
+              <input type="checkbox" class="media-player-cache" data-field="cache" ${m.cache ? "checked" : ""}/>
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+        </div>
+      `;
+      const voiceBlock = `
+        <div class="form-row-inline">
+          <div class="form-group">
+            <label>Language</label>
+            <input type="text" class="media-player-language" data-field="language" placeholder="e.g. en, en-US" value="${m.language || ""}"/>
+          </div>
+          <div class="form-group">
+            <label>Options (JSON)</label>
+            <input type="text" class="media-player-options" data-field="options" placeholder='{"key": "value"}' value='${JSON.stringify(m.options || {}).replace(/'/g, "&#39;")}'/>
+          </div>
+        </div>
+      `;
       const content = `
         <div class="media-player-card" data-index="${i}">
-          <div class="settings-field-block">
-            <div class="settings-field-block-title">Connection</div>
-            <div class="form-group">
-              <label>Media Player *</label>
-              <div class="media-player-controls">
-                <select class="media-player-select" data-field="entity_id">
-                  ${mediaPlayerEntities.map((e) => `<option value="${e}" ${e === m.entity_id ? "selected" : ""}>${e}</option>`).join("")}
-                </select>
-                <button type="button" class="btn btn-secondary btn-icon" data-remove-media="${i}" aria-label="Remove player">Remove</button>
-              </div>
-            </div>
-            <div class="form-group">
-              <label>TTS Entity *</label>
-              <select class="media-player-tts-entity" data-field="tts_entity_id">
-                <option value="">-- Select TTS Entity --</option>
-                ${ttsEntities.map((e) => `<option value="${e}" ${e === m.tts_entity_id ? "selected" : ""}>${e}</option>`).join("")}
-              </select>
-            </div>
-          </div>
-          <div class="settings-field-block">
-            <div class="settings-field-block-title">Playback</div>
-            <div class="form-row-inline media-player-playback-grid">
-              <div class="form-group">
-                <label>Volume</label>
-                <div class="range-slider">
-                  <input type="range" class="media-player-volume" data-field="volume" min="0" max="1" step="0.05" value="${m.volume || 0.6}"/>
-                  <span class="range-value">${Math.round((m.volume || 0.6) * 100)}%</span>
-                </div>
-              </div>
-              <div class="form-group">
-                <label>Preroll (ms)</label>
-                <input type="number" class="media-player-preroll" data-field="preroll_ms" min="0" max="2000" step="50" value="${m.preroll_ms ?? 150}"/>
-              </div>
-              <div class="form-group settings-toggle-row">
-                <label>Cache TTS</label>
-                <label class="toggle-switch">
-                  <input type="checkbox" class="media-player-cache" data-field="cache" ${m.cache ? "checked" : ""}/>
-                  <span class="toggle-slider"></span>
-                </label>
-              </div>
-            </div>
-          </div>
-          <div class="settings-field-block settings-field-block--optional">
-            <div class="settings-field-block-title">Voice options<span class="optional-tag">Optional</span></div>
-            <div class="form-row-inline">
-              <div class="form-group">
-                <label>Language</label>
-                <input type="text" class="media-player-language" data-field="language" placeholder="e.g. en, en-US" value="${m.language || ""}"/>
-              </div>
-              <div class="form-group">
-                <label>Options (JSON)</label>
-                <input type="text" class="media-player-options" data-field="options" placeholder='{"key": "value"}' value='${JSON.stringify(m.options || {}).replace(/'/g, "&#39;")}'/>
-              </div>
-            </div>
-          </div>
+          ${renderMiniCollapsible(`${cardId}-connection`, "Connection", connectionBlock)}
+          ${renderMiniCollapsible(`${cardId}-playback`, "Playback", playbackBlock)}
+          ${renderMiniCollapsible(`${cardId}-voice`, "Voice options", voiceBlock, '<span class="optional-tag">Optional</span>')}
           <div class="media-player-actions">
             <button type="button" class="test-tts-btn" data-test-media="${i}">Test TTS</button>
           </div>
         </div>
       `;
       return `
-        <div class="settings-nest settings-nest--player">
+        <div class="settings-panel settings-panel--player">
           ${renderCollapsible(cardId, title, subtitle, content)}
         </div>
       `;
@@ -3429,7 +3825,7 @@ class HomeWeatherPanel extends HTMLElement {
                 <option value="">None</option>
                 ${(this._wwwSounds || []).map((f) => `<option value="${f}" ${nwsAlerts.sound_file === f ? "selected" : ""}>${f}</option>`).join("")}
               </select>
-              <p class="form-hint">Place .mp3, .wav, or .ogg files in <code>custom_components/home_weather/www/sounds/</code>.</p>
+              <p class="form-hint">Place <strong>.wav</strong> files (recommended) in <code>config/www/home_weather/sounds/</code>. Convert existing .mp3 with the <code>scripts/convert_alert_sounds.py</code> helper.</p>
             </div>
             <div class="form-row-inline">
               <div class="form-group">
@@ -3441,7 +3837,16 @@ class HomeWeatherPanel extends HTMLElement {
                 ${renderSlider("nws-alerts-tts-volume", nwsAlerts.tts_volume, 0, 1, 0.05, "%")}
               </div>
             </div>
+            <div class="inline-toggle" style="padding-top: 0;">
+              <span class="inline-toggle-label">Replay active alerts after time-based forecasts</span>
+              <label class="toggle-switch">
+                <input type="checkbox" id="nws-alerts-replay-forecast" ${nwsAlerts.replay_on_time_based_forecast !== false ? "checked" : ""}/>
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+            <p class="form-hint">New alerts play immediately. When enabled, active alerts replay (siren + summary) after each scheduled forecast.</p>
             <div class="form-actions-row">
+              <button type="button" class="test-tts-btn btn-secondary-test" id="test-nws-siren-btn">Test siren</button>
               <button type="button" class="test-tts-btn" id="test-nws-btn">Test NWS alert</button>
             </div>
           `, true, "nws-alerts-enabled", nwsAlerts.enabled)}
@@ -3733,7 +4138,7 @@ class HomeWeatherPanel extends HTMLElement {
 
   _collectNwsAlertsSettings() {
     const s = this.shadowRoot;
-    if (!s) return { enabled: false, sound_file: "", sound_volume: 0.8, tts_volume: 0.9 };
+    if (!s) return { enabled: false, sound_file: "", sound_volume: 0.8, tts_volume: 0.9, replay_on_time_based_forecast: true };
     const getVal = (id, def) => (s.getElementById(id)?.value ?? def);
     const getChecked = (id) => !!s.getElementById(id)?.checked;
     const soundVol = Math.min(1, Math.max(0, parseFloat(getVal("nws-alerts-sound-volume", "0.8"))));
@@ -3743,6 +4148,7 @@ class HomeWeatherPanel extends HTMLElement {
       sound_file: (getVal("nws-alerts-sound-file", "") || "").trim(),
       sound_volume: soundVol,
       tts_volume: ttsVol,
+      replay_on_time_based_forecast: getChecked("nws-alerts-replay-forecast"),
     };
   }
 }

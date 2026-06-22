@@ -50,8 +50,12 @@ DEFAULT_CONFIG: Final = {
         "sound_file": "",
         "sound_volume": 0.8,
         "tts_volume": 0.9,
+        "replay_on_time_based_forecast": True,
     },
 }
+
+# Relative path under config/www for NWS alert siren files (media_source local)
+NWS_SOUNDS_WWW_SUBPATH: Final = "home_weather/sounds"
 
 # Update interval for weather coordinator (5 minutes)
 UPDATE_INTERVAL: Final = 300
