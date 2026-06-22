@@ -449,6 +449,18 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
         {"type": "home_weather/test_nws_siren"}
     )(_make_alert_test_handler("fire_test_nws_siren", "nws_siren_test_failed", require_weather=False))
 
+    handle_test_tropical_alert = websocket_api.websocket_command(
+        {"type": "home_weather/test_tropical_alert"}
+    )(_make_alert_test_handler("fire_test_tropical_alert", "tropical_test_failed", require_weather=False))
+
+    handle_test_tornado_alert = websocket_api.websocket_command(
+        {"type": "home_weather/test_tornado_alert"}
+    )(_make_alert_test_handler("fire_test_tornado_alert", "tornado_test_failed", require_weather=False))
+
+    handle_test_earthquake_alert = websocket_api.websocket_command(
+        {"type": "home_weather/test_earthquake_alert"}
+    )(_make_alert_test_handler("fire_test_earthquake_alert", "earthquake_test_failed", require_weather=False))
+
     @websocket_api.websocket_command(
         {
             "type": "home_weather/get_automations",
@@ -596,6 +608,52 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
             _LOGGER.exception("Failed to fetch hurricane data")
             connection.send_error(msg["id"], "hurricane_fetch_failed", str(err))
 
+    @websocket_api.websocket_command(
+        {
+            vol.Required("type"): "home_weather/get_tornadoes",
+        }
+    )
+    @websocket_api.async_response
+    async def handle_get_tornadoes(
+        hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+    ) -> None:
+        """Return active tornado warning data from the tornado coordinator."""
+        entry_data = _get_entry_data(hass)
+        if not entry_data or not entry_data.get("tornado_coordinator"):
+            connection.send_result(msg["id"], {"alerts": [], "geojson": {"type": "FeatureCollection", "features": []}})
+            return
+
+        coordinator = entry_data["tornado_coordinator"]
+        payload = coordinator.data or {}
+        connection.send_result(msg["id"], payload)
+
+    @websocket_api.websocket_command(
+        {
+            vol.Required("type"): "home_weather/get_earthquakes",
+        }
+    )
+    @websocket_api.async_response
+    async def handle_get_earthquakes(
+        hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+    ) -> None:
+        """Return active earthquake data from the earthquake coordinator."""
+        entry_data = _get_entry_data(hass)
+        if not entry_data or not entry_data.get("earthquake_coordinator"):
+            connection.send_result(
+                msg["id"],
+                {
+                    "events": [],
+                    "geojson": {"type": "FeatureCollection", "features": []},
+                    "active_count": 0,
+                    "nearby_active": False,
+                },
+            )
+            return
+
+        coordinator = entry_data["earthquake_coordinator"]
+        payload = coordinator.data or {}
+        connection.send_result(msg["id"], payload)
+
     websocket_api.async_register_command(hass, handle_get_config)
     websocket_api.async_register_command(hass, handle_set_config)
     websocket_api.async_register_command(hass, handle_get_weather)
@@ -610,9 +668,14 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, handle_test_sunset)
     websocket_api.async_register_command(hass, handle_test_nws_alert)
     websocket_api.async_register_command(hass, handle_test_nws_siren)
+    websocket_api.async_register_command(hass, handle_test_tropical_alert)
+    websocket_api.async_register_command(hass, handle_test_tornado_alert)
+    websocket_api.async_register_command(hass, handle_test_earthquake_alert)
     websocket_api.async_register_command(hass, handle_get_automations)
     websocket_api.async_register_command(hass, handle_get_webhook_info)
     websocket_api.async_register_command(hass, handle_get_version)
     websocket_api.async_register_command(hass, handle_list_www_sounds)
     websocket_api.async_register_command(hass, handle_get_hurricanes)
+    websocket_api.async_register_command(hass, handle_get_tornadoes)
+    websocket_api.async_register_command(hass, handle_get_earthquakes)
 

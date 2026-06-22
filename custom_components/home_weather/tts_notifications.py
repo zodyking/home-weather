@@ -1226,3 +1226,241 @@ async def play_nws_alert_notification(
                 request_id=request_id, entity_id=eid,
                 reason=str(exc), alert_kind="nws_alert",
             )
+
+
+def _round_miles(value: float | None) -> str:
+    if value is None:
+        return "an unknown distance"
+    rounded = int(round(value))
+    return f"{rounded} mile{'s' if rounded != 1 else ''}"
+
+
+def format_tropical_alert_for_tts(context: dict[str, Any]) -> str:
+    """Build spoken tropical cyclone alert from detection context."""
+    kind = context.get("event_kind") or "update"
+    name = context.get("stormName") or context.get("closestStormName") or "an active tropical cyclone"
+    dist = context.get("distanceMiles") or context.get("distanceToCenterMiles")
+    hour = context.get("estimatedClosestApproachHour")
+    prob = context.get("formationProbability")
+
+    if kind == "inside_cone":
+        parts = [f"Tropical update. {name} is now within the forecast cone for your area."]
+        if hour is not None:
+            parts.append(f"Closest approach estimated in {hour} hours")
+        if dist is not None:
+            parts.append(f"about {_round_miles(dist)} from home")
+        return ". ".join(parts) + "."
+
+    if kind == "threat_escalation":
+        current = context.get("currentThreat") or "elevated"
+        return (
+            f"Tropical threat update. The combined tropical threat level for your area "
+            f"has risen to {current}. Monitor {name} closely."
+        )
+
+    if kind == "new_storm":
+        return (
+            f"Tropical update. New active cyclone {name} detected within "
+            f"{_round_miles(dist)} of your area."
+        )
+
+    if kind == "outlook_development":
+        if context.get("reason") == "inside_region":
+            msg = "Tropical outlook update. Your area is now inside a tropical development region."
+        else:
+            msg = "Tropical outlook update. Formation probability has increased for a nearby disturbance."
+        if prob is not None:
+            msg += f" Probability is now {prob} percent."
+        return msg
+
+    return "Tropical weather update. Monitor conditions in your area."
+
+
+def format_tornado_warning_for_tts(
+    payload: dict[str, Any],
+    *,
+    cleared: bool = False,
+) -> str:
+    """Build spoken tornado warning alert."""
+    if cleared:
+        return "Tornado all clear. The tornado warning affecting your area has ended."
+    headline = (payload.get("headline") or "").strip()
+    if payload.get("affecting_home"):
+        base = "Tornado warning for your area. A tornado warning polygon now includes your location. Take shelter immediately."
+    else:
+        dist = payload.get("distance_miles")
+        base = f"Tornado warning nearby, {_round_miles(dist)} from home."
+    if headline:
+        return f"{base} {headline}"
+    return base
+
+
+def format_earthquake_alert_for_tts(
+    payload: dict[str, Any],
+    *,
+    cleared: bool = False,
+    updated: bool = False,
+) -> str:
+    """Build spoken earthquake alert."""
+    if cleared:
+        return "Earthquake update. The previously reported nearby earthquake is no longer within your alert range."
+    mag = payload.get("magnitude")
+    place = payload.get("place") or "unknown location"
+    dist = payload.get("distance_miles")
+    depth = payload.get("depth_km")
+    mag_text = f"Magnitude {mag}" if mag is not None else "An earthquake"
+    prefix = "Earthquake update." if updated else "Earthquake alert."
+    parts = [prefix, f"{mag_text} earthquake, {_round_miles(dist)} away, near {place}."]
+    if depth is not None:
+        parts.append(f"Depth {int(round(depth))} kilometers.")
+    if payload.get("tsunami") == 1:
+        parts.append("Tsunami information is available. Check official sources.")
+    return " ".join(parts)
+
+
+def passes_tornado_tts_filter(
+    payload: dict[str, Any],
+    tornado_config: dict[str, Any],
+    *,
+    cleared: bool = False,
+) -> bool:
+    """Return True when tornado payload meets TTS announce criteria."""
+    if cleared:
+        return bool(tornado_config.get("announce_cleared", False))
+    if tornado_config.get("only_affecting_home", True):
+        return bool(payload.get("affecting_home"))
+    dist = payload.get("distance_miles")
+    max_dist = float(tornado_config.get("max_distance_miles", 25))
+    return dist is not None and dist <= max_dist
+
+
+def passes_earthquake_tts_filter(
+    payload: dict[str, Any],
+    earthquake_config: dict[str, Any],
+    event_type: str,
+) -> bool:
+    """Return True when earthquake payload meets TTS announce criteria."""
+    if event_type == "home_weather_earthquake_cleared":
+        return bool(earthquake_config.get("announce_cleared", False))
+    if event_type == "home_weather_earthquake_updated":
+        if not earthquake_config.get("announce_updated", False):
+            return False
+    dist = payload.get("distance_miles")
+    max_dist = float(earthquake_config.get("max_distance_miles", 100))
+    if dist is None or dist > max_dist:
+        return False
+    if payload.get("tsunami") == 1 and earthquake_config.get("tsunami_priority", True):
+        return True
+    min_mag = float(earthquake_config.get("min_magnitude", 4.0))
+    mag = payload.get("magnitude")
+    return mag is not None and mag >= min_mag
+
+
+async def play_hazard_siren(
+    hass: HomeAssistant,
+    section: dict[str, Any],
+    media_players_config: list[dict[str, Any]],
+    *,
+    request_id: str | None = None,
+    alert_kind: str = "hazard_siren",
+) -> None:
+    """Play optional siren from a hazard alert config section."""
+    sound_file_raw = section.get("sound_file") or ""
+    if not normalize_nws_sound_filename(sound_file_raw) or not media_players_config:
+        return
+
+    media_path = await hass.async_add_executor_job(
+        resolve_nws_playable_sound, hass, sound_file_raw
+    )
+    if not media_path:
+        _LOGGER.warning("Hazard siren file missing: %s", normalize_nws_sound_filename(sound_file_raw))
+        _fire_tts_status(
+            hass, "failed", request_id=request_id,
+            reason=f"Sound file not found in config/www/{NWS_SOUNDS_SUBPATH}/",
+            alert_kind=alert_kind,
+        )
+        return
+
+    media_id, media_type = nws_local_playback(media_path)
+    sound_vol = max(0, min(1, float(section.get("sound_volume", 0.8))))
+
+    for mp in media_players_config:
+        eid = mp.get("entity_id")
+        if not eid:
+            continue
+        try:
+            await hass.services.async_call(
+                "media_player", "volume_set",
+                {"entity_id": eid, "volume_level": sound_vol},
+                blocking=True,
+            )
+            await hass.services.async_call(
+                "media_player", "play_media",
+                {
+                    "entity_id": eid,
+                    "media_content_id": media_id,
+                    "media_content_type": media_type,
+                },
+                blocking=True,
+            )
+            await _wait_for_media_player_idle(hass, eid)
+        except Exception as exc:
+            _LOGGER.warning("Hazard siren playback failed for %s: %s", eid, exc)
+            _fire_tts_status(
+                hass, "failed", request_id=request_id, entity_id=eid,
+                reason=str(exc), alert_kind=alert_kind,
+            )
+
+
+async def play_hazard_alert_notification(
+    hass: HomeAssistant,
+    config: dict[str, Any],
+    section_key: str,
+    message: str,
+    media_players_config: list[dict[str, Any]],
+    *,
+    request_id: str | None = None,
+    alert_kind: str = "",
+) -> None:
+    """Play optional siren then TTS for a hazard alert section."""
+    section = config.get(section_key) or {}
+    tts_vol = max(0, min(1, float(section.get("tts_volume", 0.9))))
+    tts_config = config.get("tts", {})
+    msg = await apply_ai_rewrite(
+        hass, tts_config, message,
+        request_id=request_id, alert_kind=alert_kind,
+    )
+    if not media_players_config:
+        _fire_tts_status(
+            hass, "skipped", request_id=request_id,
+            reason="No media players configured", alert_kind=alert_kind,
+        )
+        return
+    if not msg.strip():
+        return
+
+    await play_hazard_siren(
+        hass, section, media_players_config,
+        request_id=request_id, alert_kind=f"{alert_kind}_siren",
+    )
+
+    for mp in media_players_config:
+        eid = mp.get("entity_id")
+        if not eid:
+            continue
+        try:
+            await hass.services.async_call(
+                "media_player", "volume_set",
+                {"entity_id": eid, "volume_level": tts_vol},
+                blocking=True,
+            )
+            await send_tts(
+                hass, [mp], msg, volume_override=tts_vol,
+                request_id=request_id, alert_kind=alert_kind,
+            )
+        except Exception as exc:
+            _LOGGER.warning("Hazard alert playback failed for %s: %s", eid, exc)
+            _fire_tts_status(
+                hass, "failed", request_id=request_id, entity_id=eid,
+                reason=str(exc), alert_kind=alert_kind,
+            )

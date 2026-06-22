@@ -4,6 +4,7 @@ from __future__ import annotations
 from custom_components.home_weather.hurricane_geo import (
     format_movement,
     get_nearest_forecast_point,
+    get_outlook_summary,
     get_storm_threat_status,
     haversine_distance_miles,
     is_point_inside_polygon,
@@ -114,3 +115,35 @@ def test_knots_to_mph_conversion():
 
 def test_format_movement():
     assert format_movement(315, 12) == "NW at 14 mph"
+
+
+def test_outlook_summary_counts_disturbances_and_development():
+    home = {"lat": 26.0, "lon": -75.5}
+    outlook = {
+        "developmentRegion": {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "properties": {"prob7day": "60%"},
+                    "geometry": SAMPLE_CONE,
+                }
+            ],
+        },
+        "twoDayLocation": {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "properties": {"prob2day": "40%"},
+                    "geometry": {"type": "Point", "coordinates": [-75.8, 26.2]},
+                }
+            ],
+        },
+    }
+    summary = get_outlook_summary(home, outlook)
+    assert summary["hasOutlookActivity"] is True
+    assert summary["disturbanceCount"] == 1
+    assert summary["developmentAreaCount"] == 1
+    assert summary["insideDevelopmentRegion"] is True
+    assert summary["outlookThreatLevel"] in ("monitor", "watch", "high")

@@ -19,6 +19,7 @@ A Home Assistant custom integration with a full-screen weather panel, animated c
 - **Moon & sun** — Phase, rise/set, solar noon, and day length
 - **NWS alerts** — Active warnings with expandable details
 - **Hurricane tracker** — NOAA/NHC storm map, forecast cone, and home threat summary
+- **Tornado warnings** — Live NWS tornado warning polygons, distance from home, and map-ready GeoJSON entities
 - **Responsive** — Mobile-friendly layout with dark theme independent of HA theme
 
 ### TTS & alerts
@@ -53,6 +54,44 @@ Everything is configured in the panel — weather entity, TTS players, triggers,
 - Weather entity supporting `weather.get_forecasts` (daily + hourly)
 - TTS + media players (for announcements)
 - `panel_custom` enabled if the sidebar entry is missing
+
+## Tornado warnings
+
+Home Weather polls the [NWS Alerts API](https://api.weather.gov/alerts/active?event=Tornado%20Warning) every 5 minutes and exposes these entities:
+
+| Entity | Description |
+|--------|-------------|
+| `binary_sensor.home_weather_tornado_warning` | On when a tornado warning affects your home or configured NWS zone |
+| `sensor.home_weather_tornado_alert` | Headline of the highest-priority active warning |
+| `sensor.home_weather_tornado_polygon` | `active` / `clear` with map-ready GeoJSON in attributes |
+| `sensor.home_weather_tornado_distance` | Distance in miles to the nearest warning polygon |
+
+Tornado warning polygons also appear on the **Hurricane tracker** map in the panel (magenta overlay).
+
+Optional: set `nws_zone` in panel storage (e.g. `NYZ072`) to filter alerts by NWS forecast zone.
+
+### Dashboard example
+
+Native Home Assistant map cards show entity markers but do **not** draw GeoJSON polygons directly. Use the polygon entity attributes with a custom map card, or the built-in Home Weather hurricane/tornado map panel.
+
+```yaml
+type: map
+entities:
+  - entity: zone.home
+  - entity: binary_sensor.home_weather_tornado_warning
+```
+
+For full polygon rendering, read GeoJSON from `sensor.home_weather_tornado_polygon` attributes (`geojson`, `map_ready: true`) in a custom card or automation, or use the Home Weather panel map.
+
+### Tornado events
+
+Automations can listen for:
+
+- `home_weather_tornado_warning_issued`
+- `home_weather_tornado_warning_updated`
+- `home_weather_tornado_warning_cleared`
+
+Each event includes `alert_id`, `headline`, `severity`, `urgency`, `expires`, `affecting_home`, `distance_miles`, and `geojson`.
 
 ## Issues
 

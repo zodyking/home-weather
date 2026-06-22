@@ -52,6 +52,48 @@ DEFAULT_CONFIG: Final = {
         "tts_volume": 0.9,
         "replay_on_time_based_forecast": True,
     },
+    "tropical_alerts": {
+        "enabled": False,
+        "sound_file": "",
+        "sound_volume": 0.8,
+        "tts_volume": 0.9,
+        "min_threat_level": "watch",
+        "max_distance_miles": 500,
+        "announce_inside_cone": True,
+        "announce_threat_escalation": True,
+        "announce_new_storm": True,
+        "announce_outlook_development": True,
+        "outlook_min_probability": 40,
+    },
+    "tornado_alerts": {
+        "enabled": False,
+        "sound_file": "",
+        "sound_volume": 0.8,
+        "tts_volume": 0.9,
+        "only_affecting_home": True,
+        "max_distance_miles": 25,
+        "announce_cleared": False,
+    },
+    "earthquake_alerts": {
+        "enabled": False,
+        "sound_file": "",
+        "sound_volume": 0.8,
+        "tts_volume": 0.9,
+        "min_magnitude": 4.0,
+        "max_distance_miles": 100,
+        "tsunami_priority": True,
+        "announce_updated": False,
+        "announce_cleared": False,
+    },
+    # Optional NWS forecast zone (e.g. NYZ072) for tornado alert filtering
+    "nws_zone": "",
+    "earthquakes": {
+        "enabled": True,
+        "min_magnitude": 2.5,
+        "radius_miles": 500,
+        "feed_type": "2.5_day",
+        "tsunami_alert_enabled": True,
+    },
 }
 
 # Relative path under config/www for NWS alert siren files (served at /local/)

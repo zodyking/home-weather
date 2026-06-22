@@ -206,3 +206,91 @@ def pick_highest_threat(threat_levels: list[str]) -> str:
     if not threat_levels:
         return "none"
     return max(threat_levels, key=lambda level: THREAT_RANK.get(level, 0))
+
+
+def _parse_probability(props: dict[str, Any]) -> int | None:
+    """Extract highest numeric probability from NHC outlook properties."""
+    best: int | None = None
+    for key in ("prob7day", "prob2day", "risk7day", "risk2day"):
+        raw = props.get(key)
+        if raw is None:
+            continue
+        for token in str(raw).replace("%", " ").split():
+            try:
+                value = int(float(token))
+            except (TypeError, ValueError):
+                continue
+            if 0 <= value <= 100:
+                best = value if best is None else max(best, value)
+    return best
+
+
+def get_outlook_summary(
+    home: dict[str, float],
+    outlook: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Summarize NHC tropical outlook relative to home."""
+    outlook = outlook or {}
+    home_lat = float(home["lat"])
+    home_lon = float(home["lon"])
+
+    disturbance_count = 0
+    nearest_dist: float | None = None
+    inside_development = False
+    highest_prob: int | None = None
+    development_area_count = 0
+
+    region_geo = outlook.get("developmentRegion")
+    if isinstance(region_geo, dict) and region_geo.get("features"):
+        for feature in region_geo["features"]:
+            development_area_count += 1
+            geometry = feature.get("geometry")
+            props = feature.get("properties") or {}
+            prob = _parse_probability(props)
+            if prob is not None:
+                highest_prob = prob if highest_prob is None else max(highest_prob, prob)
+            if geometry and is_point_inside_polygon(home, geometry):
+                inside_development = True
+
+    for key in ("twoDayLocation", "sevenDayLocation"):
+        geo = outlook.get(key)
+        if not isinstance(geo, dict) or not geo.get("features"):
+            continue
+        for feature in geo["features"]:
+            disturbance_count += 1
+            geometry = feature.get("geometry") or {}
+            coords = geometry.get("coordinates")
+            if not coords or len(coords) < 2:
+                continue
+            lon, lat = float(coords[0]), float(coords[1])
+            dist = haversine_distance_miles(home_lat, home_lon, lat, lon)
+            nearest_dist = dist if nearest_dist is None else min(nearest_dist, dist)
+            props = feature.get("properties") or {}
+            prob = _parse_probability(props)
+            if prob is not None:
+                highest_prob = prob if highest_prob is None else max(highest_prob, prob)
+
+    has_activity = (
+        disturbance_count > 0
+        or development_area_count > 0
+        or inside_development
+    )
+
+    threat_level = "none"
+    if inside_development or (nearest_dist is not None and nearest_dist <= 250):
+        threat_level = "monitor"
+    if inside_development or (nearest_dist is not None and nearest_dist <= 120):
+        if highest_prob is not None and highest_prob >= 40:
+            threat_level = "watch"
+        elif nearest_dist is not None and nearest_dist <= 75:
+            threat_level = "watch"
+
+    return {
+        "disturbanceCount": disturbance_count,
+        "developmentAreaCount": development_area_count,
+        "insideDevelopmentRegion": inside_development,
+        "nearestDisturbanceMiles": round(nearest_dist, 1) if nearest_dist is not None else None,
+        "highestFormationProbability": highest_prob,
+        "outlookThreatLevel": threat_level,
+        "hasOutlookActivity": has_activity,
+    }

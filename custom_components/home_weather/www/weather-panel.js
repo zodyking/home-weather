@@ -11,10 +11,9 @@ class HomeWeatherPanel extends HTMLElement {
     this._error = null;
     this._currentView = "forecast";
     this._forecastView = "7day";
-    this._radarView = "map";
+    this._mapsMode = "storms";
     this._chartMetric = "temp";
     this._selectedForecast = null; // { type: "hour"|"day", index: number }
-    this._radarCollapsed = true;
     this._useFahrenheit = true;
     this._weatherData = null;
     this._settings = {};
@@ -791,6 +790,28 @@ class HomeWeatherPanel extends HTMLElement {
     return { lat, lon };
   }
 
+  _buildWindyUrl(product = "radar") {
+    const { lat, lon } = this._getHomeCoordinates();
+    return `https://embed.windy.com/embed.html?type=map&location=coordinates&metricRain=in&metricTemp=°F&metricWind=mph&zoom=8&overlay=${product}&product=${product}&level=surface&lat=${lat}&lon=${lon}&pressure=true&message=false&play=0`;
+  }
+
+  _prepareGraphData() {
+    const hourly = (this._weatherData?.hourly_forecast) || [];
+    const windUnit = (this._weatherData?.current?.wind_speed_unit || "mph").toLowerCase();
+    this._graphData = hourly.slice(0, 24).map((h) => ({
+      time: this._formatTime(h.datetime),
+      temp: h.temperature != null ? Math.round(h.temperature) : null,
+      feelsLike: h.apparent_temperature != null ? Math.round(h.apparent_temperature) : null,
+      dewPoint: h.dew_point != null ? Math.round(h.dew_point) : null,
+      precipAmount: h.precipitation ?? 0,
+      humidity: h.humidity ?? null,
+      windSpeed: h.wind_speed ?? 0,
+      windGusts: h.wind_gust_speed ?? 0,
+      cloudCover: h.cloud_coverage ?? null,
+    }));
+    this._graphWindUnit = windUnit;
+  }
+
   _isNightTime(datetime) {
     const { lat, lon } = this._getHomeCoordinates();
     return !this._isDayTime(datetime, lat, lon);
@@ -1532,7 +1553,7 @@ class HomeWeatherPanel extends HTMLElement {
     this._apexCharts.forEach((ch) => { try { ch.destroy(); } catch (_) {} });
     this._apexCharts = [];
     // Preserve the Windy iframe across full re-renders to avoid reload flicker.
-    const prevIframe = s.querySelector(".windy-map-container iframe");
+    const prevIframe = s.querySelector(".maps-windy-frame iframe");
     const prevWindyUrl = prevIframe ? prevIframe.getAttribute("src") : null;
     if (prevIframe) prevIframe.remove();
     s.innerHTML = `
@@ -2244,46 +2265,81 @@ class HomeWeatherPanel extends HTMLElement {
           .daily-range-track { min-width: 40px; }
         }
 
-        /* Radar card (collapsible) */
-        .radar-card { display: flex; flex-direction: column; min-width: 0; }
-        .radar-card > .collapsible-header { align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); }
-        .radar-card .collapsible-header-left { flex: 1; min-width: 0; }
-        .radar-card .collapsible-subtitle { display: block; }
-        .radar-card > .collapsible-content { gap: var(--space-3); padding-top: 0; }
-        .radar-toolbar {
+        /* Maps & Weather page */
+        .maps-view .settings-body {
+          padding: clamp(12px, 2vw, 18px);
+          max-width: 1180px;
+          margin: 0 auto;
+          width: 100%;
+          box-sizing: border-box;
+        }
+        .maps-page {
+          display: flex;
+          flex-direction: column;
+          gap: var(--space-3);
+          width: 100%;
+        }
+        .maps-toolbar {
           display: flex;
           align-items: center;
           justify-content: space-between;
-          gap: var(--space-2) var(--space-3);
+          gap: var(--space-2);
           flex-wrap: wrap;
-          width: 100%;
-          min-width: 0;
         }
-        .radar-toolbar__modes { flex-shrink: 0; }
-        .radar-toolbar__metrics { display: none; flex: 1 1 auto; justify-content: flex-end; min-width: 0; }
-        .radar-toolbar--chart .radar-toolbar__metrics { display: flex; }
-        .radar-card .radar-body { flex: 1 0 auto; min-height: clamp(280px, 40vw, 400px); display: flex; flex-direction: column; position: relative; }
-        .radar-card .radar-view { display: none; flex: 1; min-height: 0; flex-direction: column; }
-        .radar-card .radar-view.active { display: flex; }
-        .windy-map-container {
-          flex: 1;
-          min-height: clamp(280px, 40vw, 400px);
-          min-width: 0;
+        .maps-mode-switcher { flex-shrink: 0; }
+        .maps-stage {
           position: relative;
-          aspect-ratio: 16 / 9;
-          max-height: min(520px, 56vh);
+          width: 100%;
+          min-height: clamp(320px, 42vh, 460px);
+        }
+        .maps-view-panel,
+        .maps-windy-view {
+          display: none;
+          width: 100%;
+          height: 100%;
+          min-height: clamp(320px, 42vh, 460px);
+        }
+        .maps-view-panel.active,
+        .maps-windy-view.active { display: block; }
+        #hurricane-tracker-root {
+          width: 100%;
+          min-height: clamp(320px, 42vh, 460px);
+        }
+        .maps-windy-frame {
+          width: 100%;
+          height: clamp(320px, 42vh, 460px);
+          min-height: clamp(320px, 42vh, 460px);
           border-radius: var(--radius-md);
           overflow: hidden;
           border: 1px solid var(--card-border);
           background: var(--secondary-background-color);
         }
-        .windy-map-container iframe { width: 100%; height: 100%; border: none; display: block; }
-        .windy-skeleton { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: var(--fs-small); }
-        .chart-container { flex: 1; min-height: clamp(280px, 40vw, 400px); max-height: min(520px, 56vh); min-width: 0; width: 100%; }
-        @media (max-width: 480px) {
-          .radar-toolbar { flex-direction: column; align-items: stretch; }
-          .radar-toolbar__modes { align-self: flex-start; }
-          .radar-toolbar--chart .radar-toolbar__metrics { justify-content: flex-start; }
+        .maps-windy-frame iframe {
+          width: 100%;
+          height: 100%;
+          border: none;
+          display: block;
+        }
+        .maps-trends-card {
+          padding: var(--space-4);
+          display: flex;
+          flex-direction: column;
+          gap: var(--space-3);
+        }
+        .maps-trends-head {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: var(--space-2);
+          flex-wrap: wrap;
+        }
+        .maps-chart-container {
+          min-height: clamp(220px, 28vw, 320px);
+          width: 100%;
+        }
+        @media (max-width: 640px) {
+          .maps-trends-head { flex-direction: column; align-items: stretch; }
+          .maps-trends-head .metric-switcher { justify-content: flex-start; }
         }
 
         /* Metric switcher */
@@ -2458,40 +2514,7 @@ class HomeWeatherPanel extends HTMLElement {
           width: 100%;
           box-sizing: border-box;
         }
-        .hurricanes-view {
-          min-height: 100vh;
-          height: 100vh;
-          max-height: 100vh;
-          overflow: hidden;
-          position: relative;
-          padding: 0;
-        }
-        .hurricanes-view .topbar {
-          position: absolute;
-          top: 0;
-          left: 0;
-          right: 0;
-          z-index: 700;
-          background: linear-gradient(180deg, rgba(17, 17, 17, 0.94) 0%, rgba(17, 17, 17, 0.72) 55%, transparent 100%);
-          border-bottom: none;
-          pointer-events: none;
-        }
-        .hurricanes-view .topbar > * {
-          pointer-events: auto;
-        }
-        .hurricanes-page {
-          position: absolute;
-          inset: 0;
-          width: 100%;
-          height: 100%;
-          padding: 0;
-          margin: 0;
-          max-width: none;
-        }
-        #hurricane-tracker-root {
-          width: 100%;
-          height: 100%;
-        }
+        .maps-view .topbar-back-btn { flex-shrink: 0; }
         .hamburger { display: none; padding: 8px; background: transparent; border: none; cursor: pointer; color: var(--primary-text-color); border-radius: 8px; }
         .hamburger:hover { background: var(--secondary-background-color); }
         .hamburger svg { width: 24px; height: 24px; display: block; }
@@ -2873,9 +2896,11 @@ class HomeWeatherPanel extends HTMLElement {
             </div>
           </div>`
           : this._currentView === "hurricanes"
-            ? `<div class="settings-view hurricanes-view ${this._isNarrow ? "narrow" : ""}">
-            ${this._renderPanelHeader("Hurricane Tracker", "")}
+            ? `<div class="settings-view maps-view ${this._isNarrow ? "narrow" : ""}">
+            ${this._renderPanelHeader("Maps &amp; Weather", "Hazards, radar layers, and hourly trends")}
+            <div class="settings-body">
             ${this._renderContent()}
+            </div>
           </div>`
           : `<div class="hud-wrapper">
             <div class="weather-app">
@@ -2891,7 +2916,7 @@ class HomeWeatherPanel extends HTMLElement {
                   <span style="font-size:12px;font-weight:500;">Alerts</span>
                   ${this._renderAlertsBadge()}
                 </button>
-                <button class="icon-btn" id="hurricanes-btn" aria-label="Hurricane Tracker" title="Hurricane Tracker">
+                <button class="icon-btn" id="hurricanes-btn" aria-label="Maps and Weather" title="Maps &amp; Weather">
                   <img src="/local/home_weather/icons/hurricane.svg" width="20" height="20" alt="" style="display:block;" />
                 </button>
                 <button class="icon-btn" id="gear-btn" aria-label="Settings">
@@ -2913,7 +2938,7 @@ class HomeWeatherPanel extends HTMLElement {
     `;
     // Re-insert preserved Windy iframe if the new render produced one with the same URL.
     if (prevIframe && prevWindyUrl) {
-      const newContainer = s.querySelector(".windy-map-container");
+      const newContainer = s.querySelector(".maps-windy-frame");
       const newIframe = newContainer ? newContainer.querySelector("iframe") : null;
       if (newIframe && newIframe.getAttribute("src") === prevWindyUrl) {
         newIframe.replaceWith(prevIframe);
@@ -2957,27 +2982,6 @@ class HomeWeatherPanel extends HTMLElement {
     if (this._currentView === "settings") {
       this._attachSettingsHandlers();
     } else if (this._currentView === "forecast") {
-      if (this._radarView === "chart" && !this._radarCollapsed) this._initApexChart();
-      s.querySelectorAll(".dashboard .switcher button").forEach((btn) => {
-        btn.addEventListener("click", (e) => {
-          e.stopPropagation();
-          if (btn.dataset.radarView) {
-            this._radarView = btn.dataset.radarView || "map";
-            if (!this._radarCollapsed) {
-              this._render();
-            } else {
-              this._updateToggleView();
-            }
-          }
-        });
-      });
-      s.querySelectorAll(".metric-switcher button[data-chart-metric]").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          this._chartMetric = btn.dataset.chartMetric || "temp";
-          s.querySelectorAll(".metric-switcher button[data-chart-metric]").forEach((b) => b.classList.toggle("active", b === btn));
-          this._initApexChart();
-        });
-      });
       s.querySelectorAll("[data-detail-hour], [data-detail-day]").forEach((btn) => {
         btn.addEventListener("click", () => {
           if (btn.dataset.detailHour != null) {
@@ -2990,20 +2994,6 @@ class HomeWeatherPanel extends HTMLElement {
       });
       s.querySelectorAll("[data-close-detail]").forEach((btn) => {
         btn.addEventListener("click", () => this._closeDetailSheet());
-      });
-      s.querySelectorAll("[data-toggle-radar]").forEach((hdr) => {
-        hdr.addEventListener("click", (e) => {
-          if (e.target.closest(".radar-toolbar, .switcher, .metric-switcher, button")) return;
-          const card = hdr.closest(".collapsible-section");
-          if (!card) return;
-          const open = !card.classList.contains("open");
-          card.classList.toggle("open", open);
-          this._radarCollapsed = !open;
-          if (open) {
-            this._render();
-            if (this._radarView === "chart") this._initApexChart();
-          }
-        });
       });
       s.querySelectorAll("[data-retry]").forEach((btn) => {
         btn.addEventListener("click", () => { this._fetchData(); });
@@ -3022,7 +3012,24 @@ class HomeWeatherPanel extends HTMLElement {
         });
       });
     } else if (this._currentView === "hurricanes") {
-      this._initHurricaneTracker();
+      s.querySelectorAll(".maps-mode-switcher button[data-maps-mode]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const mode = btn.dataset.mapsMode || "storms";
+          if (mode === this._mapsMode) return;
+          this._mapsMode = mode;
+          if (mode !== "storms") this._destroyHurricaneTracker();
+          this._render();
+        });
+      });
+      s.querySelectorAll(".maps-page .metric-switcher button[data-chart-metric]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          this._chartMetric = btn.dataset.chartMetric || "temp";
+          s.querySelectorAll(".maps-page .metric-switcher button[data-chart-metric]").forEach((b) => b.classList.toggle("active", b === btn));
+          this._initApexChart();
+        });
+      });
+      if (this._mapsMode === "storms") this._initHurricaneTracker();
+      this._initApexChart();
     }
   }
 
@@ -3043,19 +3050,6 @@ class HomeWeatherPanel extends HTMLElement {
     if (backdrop) backdrop.classList.remove("open");
     if (sheet) sheet.classList.remove("open");
     this._selectedForecast = null;
-  }
-
-  _updateToggleView() {
-    const s = this.shadowRoot;
-    if (!s) return;
-    s.querySelectorAll(".radar-view").forEach((el) => el.classList.toggle("active", el.dataset.radarView === this._radarView));
-    s.querySelectorAll(".dashboard .switcher button[data-radar-view]").forEach((btn) => {
-      btn.classList.toggle("active", btn.dataset.radarView === this._radarView);
-    });
-    s.querySelectorAll(".radar-toolbar").forEach((toolbar) => {
-      toolbar.classList.toggle("radar-toolbar--chart", this._radarView === "chart");
-    });
-    if (this._radarView === "chart") this._initApexChart();
   }
 
   _getAccordionGroup(sectionId) {
@@ -3447,6 +3441,9 @@ class HomeWeatherPanel extends HTMLElement {
     wireTestButton("test-sunset-btn", "home_weather/test_sunset");
     wireTestButton("test-nws-btn", "home_weather/test_nws_alert");
     wireTestButton("test-nws-siren-btn", "home_weather/test_nws_siren", "Playing\u2026");
+    wireTestButton("test-tropical-btn", "home_weather/test_tropical_alert");
+    wireTestButton("test-tornado-btn", "home_weather/test_tornado_alert");
+    wireTestButton("test-earthquake-alert-btn", "home_weather/test_earthquake_alert");
     
     // Add media player
     const addMediaBtn = s.getElementById("add-media-btn");
@@ -3498,7 +3495,52 @@ class HomeWeatherPanel extends HTMLElement {
   }
 
   _renderHurricanes() {
-    return `<section class="hurricanes-page"><div id="hurricane-tracker-root"></div></section>`;
+    this._prepareGraphData();
+    const metricLabels = { temp: "Temp", precip: "Precip", wind: "Wind", humidity: "Humidity" };
+    const chartMetric = this._chartMetric || "temp";
+    const modes = [
+      { id: "storms", label: "Hazards" },
+      { id: "radar", label: "Radar" },
+      { id: "wind", label: "Wind" },
+      { id: "rain", label: "Rain" },
+    ];
+    const windyModes = ["radar", "wind", "rain"];
+    const windyPanels = windyModes.map((mode) => {
+      const active = this._mapsMode === mode;
+      return `
+        <div class="maps-windy-view ${active ? "active" : ""}" data-maps-mode="${mode}">
+          <div class="maps-windy-frame">
+            ${active ? `<iframe src="${this._buildWindyUrl(mode)}" frameborder="0" title="${mode} weather map" width="100%" height="100%" loading="lazy"></iframe>` : ""}
+          </div>
+        </div>`;
+    }).join("");
+
+    return `
+      <section class="maps-page">
+        <div class="maps-toolbar">
+          <div class="maps-mode-switcher switcher">
+            ${modes.map((m) => `<button type="button" class="${this._mapsMode === m.id ? "active" : ""}" data-maps-mode="${m.id}">${m.label}</button>`).join("")}
+          </div>
+        </div>
+        <div class="maps-stage">
+          <div class="maps-view-panel ${this._mapsMode === "storms" ? "active" : ""}" data-maps-mode="storms">
+            <div id="hurricane-tracker-root"></div>
+          </div>
+          ${windyPanels}
+        </div>
+        <article class="glass card maps-trends-card">
+          <div class="maps-trends-head">
+            <div>
+              <div class="card-title">Hourly trends</div>
+              <div class="card-sub">Next 24 hours from your weather entity</div>
+            </div>
+            <div class="metric-switcher">
+              ${Object.entries(metricLabels).map(([key, label]) => `<button type="button" class="${chartMetric === key ? "active" : ""}" data-chart-metric="${key}">${label}</button>`).join("")}
+            </div>
+          </div>
+          <div class="chart-container maps-chart-container" id="maps-apex-chart"></div>
+        </article>
+      </section>`;
   }
 
   _loadHurricaneTrackerScript() {
@@ -3534,6 +3576,7 @@ class HomeWeatherPanel extends HTMLElement {
       this._hurricaneTracker = new window.HurricaneTracker({
         hass: this._hass,
         shadowRoot: s,
+        embedded: true,
       });
       await this._hurricaneTracker.init(root);
     } catch (err) {
@@ -3594,20 +3637,7 @@ class HomeWeatherPanel extends HTMLElement {
     const hiTemp = todayDaily.temperature != null ? Math.round(todayDaily.temperature) : null;
     const loTemp = todayDaily.templow != null ? Math.round(todayDaily.templow) : null;
 
-    const graphData = hourly.slice(0, 24).map((h) => ({
-      time: this._formatTime(h.datetime),
-      temp: h.temperature != null ? Math.round(h.temperature) : null,
-      feelsLike: h.apparent_temperature != null ? Math.round(h.apparent_temperature) : null,
-      dewPoint: h.dew_point != null ? Math.round(h.dew_point) : null,
-      precipAmount: h.precipitation ?? 0,
-      humidity: h.humidity ?? null,
-      windSpeed: h.wind_speed ?? 0,
-      windGusts: h.wind_gust_speed ?? 0,
-      cloudCover: h.cloud_coverage ?? null,
-    }));
-
-    this._graphData = graphData;
-    this._graphWindUnit = windUnit;
+    this._prepareGraphData();
 
     const feelsLike = (current.apparent_temperature ?? h0.apparent_temperature) != null ? Math.round(current.apparent_temperature ?? h0.apparent_temperature) : null;
     const humidity = (current.humidity ?? h0.humidity) != null ? Math.round(current.humidity ?? h0.humidity) : null;
@@ -3623,7 +3653,6 @@ class HomeWeatherPanel extends HTMLElement {
     const atmosphereDateTime = this._formatAtmosphereDateTime(now);
 
     const { lat, lon } = this._getHomeCoordinates();
-    const windyUrl = `https://embed.windy.com/embed.html?type=map&location=coordinates&metricRain=in&metricTemp=°F&metricWind=mph&zoom=8&overlay=radar&product=radar&level=surface&lat=${lat}&lon=${lon}&pressure=true&message=true&play=1`;
 
     const sunTimes = this._getSunTimes(lat, lon, now);
     const sunriseStr = sunTimes.sunrise ? sunTimes.sunrise.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "—";
@@ -3662,9 +3691,6 @@ class HomeWeatherPanel extends HTMLElement {
     const weekSpan = Math.max(1, weekMax - weekMin);
 
     const esc = (s) => String(s).replace(/</g, "&lt;").replace(/>/g, "&gt;");
-
-    const chartMetric = this._chartMetric || "temp";
-    const metricLabels = { temp: "Temperature", precip: "Precipitation", wind: "Wind", humidity: "Humidity" };
 
     const hiloHtml = this._renderAtmosphereHiLo(hiTemp, loTemp, typeof temp === "number" ? temp : null, esc);
     const metricsHtml = this._renderAtmosphereMetrics(atmosphereMetrics, esc);
@@ -3757,47 +3783,6 @@ class HomeWeatherPanel extends HTMLElement {
                 </button>
               `;
             }).join("")}
-          </div>
-        </article>
-
-        <article class="glass card radar-card collapsible-section${this._radarCollapsed ? "" : " open"}" data-section-id="radar">
-          <div class="collapsible-header" data-toggle-radar>
-            <div class="collapsible-header-left">
-              <div>
-                <div class="collapsible-title">Radar &amp; trends</div>
-                <div class="collapsible-subtitle">Live map and hourly chart</div>
-              </div>
-            </div>
-            <svg class="collapsible-chevron" viewBox="0 0 24 24" fill="currentColor"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/></svg>
-          </div>
-          <div class="collapsible-content">
-            <div class="radar-toolbar${this._radarView === "chart" ? " radar-toolbar--chart" : ""}">
-              <div class="radar-toolbar__modes switcher">
-                <button type="button" class="${this._radarView === "map" ? "active" : ""}" data-radar-view="map">Map</button>
-                <button type="button" class="${this._radarView === "chart" ? "active" : ""}" data-radar-view="chart">Chart</button>
-              </div>
-              <div class="radar-toolbar__metrics">
-                <div class="metric-switcher">
-                  ${Object.entries(metricLabels).map(([key, label]) => `<button type="button" class="${chartMetric === key ? "active" : ""}" data-chart-metric="${key}">${label}</button>`).join("")}
-                </div>
-              </div>
-            </div>
-            <div class="radar-body">
-              <div class="radar-view ${this._radarView === "map" ? "active" : ""}" data-radar-view="map">
-                ${this._radarCollapsed ? `
-                <div class="windy-map-container">
-                  <div class="windy-skeleton">Expand to load radar map</div>
-                </div>
-                ` : `
-                <div class="windy-map-container">
-                  <iframe src="${windyUrl}" frameborder="0" title="Windy weather map" width="100%" height="100%" loading="lazy"></iframe>
-                </div>
-                `}
-              </div>
-              <div class="radar-view ${this._radarView === "chart" ? "active" : ""}" data-radar-view="chart">
-                <div class="chart-container" id="apex-chart-combined"></div>
-              </div>
-            </div>
           </div>
         </article>
 
@@ -4022,7 +4007,7 @@ class HomeWeatherPanel extends HTMLElement {
         return `<div style="background:var(--card-background-color);border:1px solid var(--divider-color);border-radius:8px;padding:10px 14px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.15);"><div style="font-weight:600;margin-bottom:4px">${d.time}</div>${rows}</div>`;
       };
 
-      const container = s.getElementById("apex-chart-combined");
+      const container = s.getElementById("maps-apex-chart") || s.getElementById("apex-chart-combined");
       if (!container) return;
       container.innerHTML = "";
 
@@ -4348,6 +4333,32 @@ class HomeWeatherPanel extends HTMLElement {
     const sunAlerts = { ...defaultSunAlerts, ...(this._settings.sun_alerts || {}) };
     const defaultNwsAlerts = { enabled: false, sound_file: "", sound_volume: 0.8, tts_volume: 0.9, replay_on_time_based_forecast: true };
     const nwsAlerts = { ...defaultNwsAlerts, ...(this._settings.nws_alerts || {}) };
+    const defaultTropicalAlerts = {
+      enabled: false, sound_file: "", sound_volume: 0.8, tts_volume: 0.9,
+      min_threat_level: "watch", max_distance_miles: 500,
+      announce_inside_cone: true, announce_threat_escalation: true,
+      announce_new_storm: true, announce_outlook_development: true, outlook_min_probability: 40,
+    };
+    const tropicalAlerts = { ...defaultTropicalAlerts, ...(this._settings.tropical_alerts || {}) };
+    const defaultTornadoAlerts = {
+      enabled: false, sound_file: "", sound_volume: 0.8, tts_volume: 0.9,
+      only_affecting_home: true, max_distance_miles: 25, announce_cleared: false,
+    };
+    const tornadoAlerts = { ...defaultTornadoAlerts, ...(this._settings.tornado_alerts || {}) };
+    const defaultEarthquakeAlerts = {
+      enabled: false, sound_file: "", sound_volume: 0.8, tts_volume: 0.9,
+      min_magnitude: 4.0, max_distance_miles: 100, tsunami_priority: true,
+      announce_updated: false, announce_cleared: false,
+    };
+    const earthquakeAlerts = { ...defaultEarthquakeAlerts, ...(this._settings.earthquake_alerts || {}) };
+    const defaultEarthquakes = {
+      enabled: true,
+      min_magnitude: 2.5,
+      radius_miles: 500,
+      feed_type: "2.5_day",
+      tsunami_alert_enabled: true,
+    };
+    const earthquakes = { ...defaultEarthquakes, ...(this._settings.earthquakes || {}) };
     if (!sunAlerts.sunrise_tts) sunAlerts.sunrise_tts = defaultSunAlerts.sunrise_tts;
     if (!sunAlerts.sunset_tts) sunAlerts.sunset_tts = defaultSunAlerts.sunset_tts;
     if (!sunAlerts.sunrise_automation) sunAlerts.sunrise_automation = defaultSunAlerts.sunrise_automation;
@@ -4710,6 +4721,120 @@ class HomeWeatherPanel extends HTMLElement {
             </div>
           `, true, "nws-alerts-enabled", nwsAlerts.enabled)}
 
+          ${renderNestedSection("tropical-alerts", "Tropical Cyclone Alerts", "Cone, threat level, and outlook TTS", `
+            <div class="form-group" style="margin-top: var(--form-gap);">
+              <label>Alert sound (plays before TTS)</label>
+              <select id="tropical-alerts-sound-file">
+                <option value="">None</option>
+                ${(this._wwwSounds || []).map((f) => `<option value="${f}" ${tropicalAlerts.sound_file === f ? "selected" : ""}>${f}</option>`).join("")}
+              </select>
+            </div>
+            <div class="form-row-inline">
+              <div class="form-group">
+                <label>Siren volume</label>
+                ${renderSlider("tropical-alerts-sound-volume", tropicalAlerts.sound_volume, 0, 1, 0.05, "%")}
+              </div>
+              <div class="form-group">
+                <label>TTS volume</label>
+                ${renderSlider("tropical-alerts-tts-volume", tropicalAlerts.tts_volume, 0, 1, 0.05, "%")}
+              </div>
+            </div>
+            <div class="form-row-inline">
+              <div class="form-group">
+                <label>Min threat level</label>
+                <select id="tropical-alerts-min-threat">
+                  <option value="none" ${tropicalAlerts.min_threat_level === "none" ? "selected" : ""}>None</option>
+                  <option value="monitor" ${tropicalAlerts.min_threat_level === "monitor" ? "selected" : ""}>Monitor</option>
+                  <option value="watch" ${tropicalAlerts.min_threat_level === "watch" ? "selected" : ""}>Watch</option>
+                  <option value="high" ${tropicalAlerts.min_threat_level === "high" ? "selected" : ""}>High</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Max storm distance (mi)</label>
+                <input type="number" id="tropical-alerts-max-distance" min="1" max="5000" value="${tropicalAlerts.max_distance_miles}"/>
+              </div>
+            </div>
+            ${renderToggle("tropical-announce-cone", tropicalAlerts.announce_inside_cone !== false, "Announce when home enters forecast cone")}
+            ${renderToggle("tropical-announce-escalation", tropicalAlerts.announce_threat_escalation !== false, "Announce threat level escalation")}
+            ${renderToggle("tropical-announce-new-storm", tropicalAlerts.announce_new_storm !== false, "Announce new nearby cyclone")}
+            ${renderToggle("tropical-announce-outlook", tropicalAlerts.announce_outlook_development !== false, "Announce outlook development")}
+            <div class="form-group">
+              <label>Outlook min formation probability (%)</label>
+              <input type="number" id="tropical-alerts-outlook-prob" min="0" max="100" value="${tropicalAlerts.outlook_min_probability}"/>
+            </div>
+            <p class="form-hint">Uses NHC cone and outlook data relative to your home. Polls every 5 minutes.</p>
+            <div class="form-actions-row">
+              <button type="button" class="test-tts-btn" id="test-tropical-btn">Test tropical alert</button>
+            </div>
+          `, true, "tropical-alerts-enabled", tropicalAlerts.enabled)}
+
+          ${renderNestedSection("tornado-alerts", "Tornado Warning Alerts", "Polygon-aware tornado TTS", `
+            <div class="form-group" style="margin-top: var(--form-gap);">
+              <label>Alert sound (plays before TTS)</label>
+              <select id="tornado-alerts-sound-file">
+                <option value="">None</option>
+                ${(this._wwwSounds || []).map((f) => `<option value="${f}" ${tornadoAlerts.sound_file === f ? "selected" : ""}>${f}</option>`).join("")}
+              </select>
+            </div>
+            <div class="form-row-inline">
+              <div class="form-group">
+                <label>Siren volume</label>
+                ${renderSlider("tornado-alerts-sound-volume", tornadoAlerts.sound_volume, 0, 1, 0.05, "%")}
+              </div>
+              <div class="form-group">
+                <label>TTS volume</label>
+                ${renderSlider("tornado-alerts-tts-volume", tornadoAlerts.tts_volume, 0, 1, 0.05, "%")}
+              </div>
+            </div>
+            ${renderToggle("tornado-only-home", tornadoAlerts.only_affecting_home !== false, "Only when warning polygon includes home")}
+            <div class="form-group">
+              <label>Max distance when not home-only (mi)</label>
+              <input type="number" id="tornado-alerts-max-distance" min="1" max="500" value="${tornadoAlerts.max_distance_miles}"/>
+            </div>
+            ${renderToggle("tornado-announce-cleared", tornadoAlerts.announce_cleared === true, "Announce when warning clears")}
+            <p class="form-hint">NWS alerts may also announce tornado warnings. Use home-only here to reduce duplicates.</p>
+            <div class="form-actions-row">
+              <button type="button" class="test-tts-btn" id="test-tornado-btn">Test tornado alert</button>
+            </div>
+          `, true, "tornado-alerts-enabled", tornadoAlerts.enabled)}
+
+          ${renderNestedSection("earthquake-alerts", "Earthquake Alerts", "Spoken alerts for nearby USGS events", `
+            <div class="form-group" style="margin-top: var(--form-gap);">
+              <label>Alert sound (plays before TTS)</label>
+              <select id="earthquake-alerts-sound-file">
+                <option value="">None</option>
+                ${(this._wwwSounds || []).map((f) => `<option value="${f}" ${earthquakeAlerts.sound_file === f ? "selected" : ""}>${f}</option>`).join("")}
+              </select>
+            </div>
+            <div class="form-row-inline">
+              <div class="form-group">
+                <label>Siren volume</label>
+                ${renderSlider("earthquake-alerts-sound-volume", earthquakeAlerts.sound_volume, 0, 1, 0.05, "%")}
+              </div>
+              <div class="form-group">
+                <label>TTS volume</label>
+                ${renderSlider("earthquake-alerts-tts-volume", earthquakeAlerts.tts_volume, 0, 1, 0.05, "%")}
+              </div>
+            </div>
+            <div class="form-row-inline">
+              <div class="form-group">
+                <label>Min magnitude for TTS</label>
+                <input type="number" id="earthquake-alerts-min-magnitude" min="0" max="10" step="0.1" value="${earthquakeAlerts.min_magnitude}"/>
+              </div>
+              <div class="form-group">
+                <label>Max distance (mi)</label>
+                <input type="number" id="earthquake-alerts-max-distance" min="1" max="5000" value="${earthquakeAlerts.max_distance_miles}"/>
+              </div>
+            </div>
+            ${renderToggle("earthquake-alerts-tsunami-priority", earthquakeAlerts.tsunami_priority !== false, "Always announce tsunami-flagged events")}
+            ${renderToggle("earthquake-alerts-announce-updated", earthquakeAlerts.announce_updated === true, "Announce magnitude updates")}
+            ${renderToggle("earthquake-alerts-announce-cleared", earthquakeAlerts.announce_cleared === true, "Announce when event clears")}
+            <p class="form-hint">TTS thresholds are separate from earthquake monitoring under Advanced.</p>
+            <div class="form-actions-row">
+              <button type="button" class="test-tts-btn" id="test-earthquake-alert-btn">Test earthquake alert</button>
+            </div>
+          `, true, "earthquake-alerts-enabled", earthquakeAlerts.enabled)}
+
           <!-- Sensor Triggered -->
           ${renderNestedSection("sensor-triggered", "Sensor Triggered", "Announce when an entity reaches a state", `
             <div class="form-group" style="margin-top: var(--form-gap);">
@@ -4862,6 +4987,35 @@ class HomeWeatherPanel extends HTMLElement {
             </div>
           `)}
 
+          ${renderNestedSection("earthquake-settings", "Earthquake Monitoring", "USGS feed thresholds and radius", `
+            <div class="form-row-inline">
+              <div class="form-group">
+                <label>Min magnitude</label>
+                <input type="number" id="earthquake-min-magnitude" min="0" max="10" step="0.1" value="${earthquakes.min_magnitude}"/>
+              </div>
+              <div class="form-group">
+                <label>Radius (miles)</label>
+                <input type="number" id="earthquake-radius-miles" min="1" max="5000" step="1" value="${earthquakes.radius_miles}"/>
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Feed type</label>
+              <select id="earthquake-feed-type">
+                <option value="all_hour" ${earthquakes.feed_type === "all_hour" ? "selected" : ""}>All earthquakes — past hour</option>
+                <option value="all_day" ${earthquakes.feed_type === "all_day" ? "selected" : ""}>All earthquakes — past day</option>
+                <option value="2.5_day" ${earthquakes.feed_type === "2.5_day" ? "selected" : ""}>M2.5+ — past day</option>
+                <option value="4.5_week" ${earthquakes.feed_type === "4.5_week" ? "selected" : ""}>M4.5+ — past week</option>
+              </select>
+            </div>
+            <div class="inline-toggle">
+              <span class="inline-toggle-label">Tsunami alerts</span>
+              <label class="toggle-switch">
+                <input type="checkbox" id="earthquake-tsunami-enabled" ${earthquakes.tsunami_alert_enabled !== false ? "checked" : ""}/>
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+          `, true, "earthquake-enabled", earthquakes.enabled !== false)}
+
           ${renderNestedSection("ai-rewrite", "AI Rewrite", "Rewrite TTS messages with an AI Task", `
             <div class="form-group" style="margin-top: var(--form-gap);">
               <label>AI Task Entity</label>
@@ -4893,6 +5047,10 @@ class HomeWeatherPanel extends HTMLElement {
     this._settings.tts = this._collectTtsSettings();
     this._settings.sun_alerts = this._collectSunAlertsSettings();
     this._settings.nws_alerts = this._collectNwsAlertsSettings();
+    this._settings.tropical_alerts = this._collectTropicalAlertsSettings();
+    this._settings.tornado_alerts = this._collectTornadoAlertsSettings();
+    this._settings.earthquake_alerts = this._collectEarthquakeAlertsSettings();
+    this._settings.earthquakes = this._collectEarthquakeSettings();
 
     const messagePrefix = s.getElementById("message-prefix");
     if (messagePrefix) this._settings.message_prefix = messagePrefix.value || "Weather update";
@@ -5008,6 +5166,100 @@ class HomeWeatherPanel extends HTMLElement {
       sound_volume: soundVol,
       tts_volume: ttsVol,
       replay_on_time_based_forecast: getChecked("nws-alerts-replay-forecast"),
+    };
+  }
+
+  _collectTropicalAlertsSettings() {
+    const s = this.shadowRoot;
+    const defaults = {
+      enabled: false, sound_file: "", sound_volume: 0.8, tts_volume: 0.9,
+      min_threat_level: "watch", max_distance_miles: 500,
+      announce_inside_cone: true, announce_threat_escalation: true,
+      announce_new_storm: true, announce_outlook_development: true, outlook_min_probability: 40,
+    };
+    if (!s) return defaults;
+    const getVal = (id, def) => (s.getElementById(id)?.value ?? def);
+    const getChecked = (id) => !!s.getElementById(id)?.checked;
+    const levels = ["none", "monitor", "watch", "high"];
+    const minThreat = getVal("tropical-alerts-min-threat", defaults.min_threat_level);
+    return {
+      enabled: getChecked("tropical-alerts-enabled"),
+      sound_file: (getVal("tropical-alerts-sound-file", "") || "").trim(),
+      sound_volume: Math.min(1, Math.max(0, parseFloat(getVal("tropical-alerts-sound-volume", "0.8")))),
+      tts_volume: Math.min(1, Math.max(0, parseFloat(getVal("tropical-alerts-tts-volume", "0.9")))),
+      min_threat_level: levels.includes(minThreat) ? minThreat : defaults.min_threat_level,
+      max_distance_miles: Math.min(5000, Math.max(1, parseInt(getVal("tropical-alerts-max-distance", String(defaults.max_distance_miles)), 10) || defaults.max_distance_miles)),
+      announce_inside_cone: getChecked("tropical-announce-cone"),
+      announce_threat_escalation: getChecked("tropical-announce-escalation"),
+      announce_new_storm: getChecked("tropical-announce-new-storm"),
+      announce_outlook_development: getChecked("tropical-announce-outlook"),
+      outlook_min_probability: Math.min(100, Math.max(0, parseInt(getVal("tropical-alerts-outlook-prob", String(defaults.outlook_min_probability)), 10) || defaults.outlook_min_probability)),
+    };
+  }
+
+  _collectTornadoAlertsSettings() {
+    const s = this.shadowRoot;
+    const defaults = {
+      enabled: false, sound_file: "", sound_volume: 0.8, tts_volume: 0.9,
+      only_affecting_home: true, max_distance_miles: 25, announce_cleared: false,
+    };
+    if (!s) return defaults;
+    const getVal = (id, def) => (s.getElementById(id)?.value ?? def);
+    const getChecked = (id) => !!s.getElementById(id)?.checked;
+    return {
+      enabled: getChecked("tornado-alerts-enabled"),
+      sound_file: (getVal("tornado-alerts-sound-file", "") || "").trim(),
+      sound_volume: Math.min(1, Math.max(0, parseFloat(getVal("tornado-alerts-sound-volume", "0.8")))),
+      tts_volume: Math.min(1, Math.max(0, parseFloat(getVal("tornado-alerts-tts-volume", "0.9")))),
+      only_affecting_home: getChecked("tornado-only-home"),
+      max_distance_miles: Math.min(500, Math.max(1, parseInt(getVal("tornado-alerts-max-distance", String(defaults.max_distance_miles)), 10) || defaults.max_distance_miles)),
+      announce_cleared: getChecked("tornado-announce-cleared"),
+    };
+  }
+
+  _collectEarthquakeAlertsSettings() {
+    const s = this.shadowRoot;
+    const defaults = {
+      enabled: false, sound_file: "", sound_volume: 0.8, tts_volume: 0.9,
+      min_magnitude: 4.0, max_distance_miles: 100, tsunami_priority: true,
+      announce_updated: false, announce_cleared: false,
+    };
+    if (!s) return defaults;
+    const getVal = (id, def) => (s.getElementById(id)?.value ?? def);
+    const getChecked = (id) => !!s.getElementById(id)?.checked;
+    return {
+      enabled: getChecked("earthquake-alerts-enabled"),
+      sound_file: (getVal("earthquake-alerts-sound-file", "") || "").trim(),
+      sound_volume: Math.min(1, Math.max(0, parseFloat(getVal("earthquake-alerts-sound-volume", "0.8")))),
+      tts_volume: Math.min(1, Math.max(0, parseFloat(getVal("earthquake-alerts-tts-volume", "0.9")))),
+      min_magnitude: Math.min(10, Math.max(0, parseFloat(getVal("earthquake-alerts-min-magnitude", String(defaults.min_magnitude))) || defaults.min_magnitude)),
+      max_distance_miles: Math.min(5000, Math.max(1, parseInt(getVal("earthquake-alerts-max-distance", String(defaults.max_distance_miles)), 10) || defaults.max_distance_miles)),
+      tsunami_priority: getChecked("earthquake-alerts-tsunami-priority"),
+      announce_updated: getChecked("earthquake-alerts-announce-updated"),
+      announce_cleared: getChecked("earthquake-alerts-announce-cleared"),
+    };
+  }
+
+  _collectEarthquakeSettings() {
+    const s = this.shadowRoot;
+    const defaults = {
+      enabled: true,
+      min_magnitude: 2.5,
+      radius_miles: 500,
+      feed_type: "2.5_day",
+      tsunami_alert_enabled: true,
+    };
+    if (!s) return defaults;
+    const getVal = (id, def) => (s.getElementById(id)?.value ?? def);
+    const getChecked = (id) => !!s.getElementById(id)?.checked;
+    const feedType = getVal("earthquake-feed-type", defaults.feed_type);
+    const validFeeds = ["all_hour", "all_day", "2.5_day", "4.5_week"];
+    return {
+      enabled: getChecked("earthquake-enabled"),
+      min_magnitude: Math.min(10, Math.max(0, parseFloat(getVal("earthquake-min-magnitude", String(defaults.min_magnitude))) || defaults.min_magnitude)),
+      radius_miles: Math.min(5000, Math.max(1, parseInt(getVal("earthquake-radius-miles", String(defaults.radius_miles)), 10) || defaults.radius_miles)),
+      feed_type: validFeeds.includes(feedType) ? feedType : defaults.feed_type,
+      tsunami_alert_enabled: getChecked("earthquake-tsunami-enabled"),
     };
   }
 }

@@ -42,6 +42,12 @@ from .tts_notifications import (
     build_sunset_upcoming_message,
     build_sunset_final_message,
     dispatch_tts,
+    format_earthquake_alert_for_tts,
+    format_tornado_warning_for_tts,
+    format_tropical_alert_for_tts,
+    passes_earthquake_tts_filter,
+    passes_tornado_tts_filter,
+    play_hazard_alert_notification,
     play_nws_alert_notification,
     play_nws_siren,
     replay_active_nws_alerts,
@@ -75,6 +81,12 @@ def _is_alerts_active(config: dict[str, Any]) -> bool:
     if (config.get("sun_alerts") or {}).get("enabled", False):
         return True
     if (config.get("nws_alerts") or {}).get("enabled", False):
+        return True
+    if (config.get("tropical_alerts") or {}).get("enabled", False):
+        return True
+    if (config.get("tornado_alerts") or {}).get("enabled", False):
+        return True
+    if (config.get("earthquake_alerts") or {}).get("enabled", False):
         return True
     return False
 
@@ -189,6 +201,8 @@ class TTSTriggerManager:
         self._nws_known_alert_ids: set[str] = set()  # Track NWS alert IDs to detect new alerts
         self._nws_active_alerts: list[dict[str, Any]] = []
         self._nws_bootstrapped: bool = False
+        self._tropical_snapshot: dict[str, Any] | None = None
+        self._tropical_bootstrapped: bool = False
 
     async def async_setup(self) -> None:
         """Set up all enabled triggers based on config.
@@ -220,6 +234,12 @@ class TTSTriggerManager:
             setups.append(("sun_alerts", self._setup_sun_alerts_trigger(config)))
         if (config.get("nws_alerts") or {}).get("enabled", False):
             setups.append(("nws_alerts", self._setup_nws_alerts_trigger(config)))
+        if (config.get("tropical_alerts") or {}).get("enabled", False):
+            setups.append(("tropical_alerts", self._setup_tropical_alerts_trigger(config)))
+        if (config.get("tornado_alerts") or {}).get("enabled", False):
+            setups.append(("tornado_alerts", self._setup_tornado_alerts_trigger(config)))
+        if (config.get("earthquake_alerts") or {}).get("enabled", False):
+            setups.append(("earthquake_alerts", self._setup_earthquake_alerts_trigger(config)))
 
         successful: list[str] = []
         for name, coro in setups:
@@ -249,6 +269,8 @@ class TTSTriggerManager:
             except Exception as e:
                 _LOGGER.warning("Error unregistering webhook %s: %s", webhook_id, e)
         self._registered_webhooks.clear()
+        self._tropical_bootstrapped = False
+        self._tropical_snapshot = None
         
         _LOGGER.info("TTS triggers unloaded")
 
@@ -606,6 +628,72 @@ class TTSTriggerManager:
             return
         await play_nws_siren(self.hass, config, media_players, request_id=request_id)
         _LOGGER.info("Test NWS siren dispatched")
+
+    async def fire_test_tropical_alert(self, *, request_id: str | None = None) -> None:
+        """Play sample tropical cyclone TTS alert."""
+        config = self._get_config()
+        media_players = media_players_with_tts(config.get("media_players", []))
+        if not media_players:
+            _fire_tts_status(
+                self.hass, "skipped", request_id=request_id,
+                reason="No media players with TTS configured", alert_kind="tropical_alert",
+            )
+            return
+        sample = {
+            "event_kind": "inside_cone",
+            "closestStormName": "Test Storm",
+            "distanceToCenterMiles": 120,
+            "estimatedClosestApproachHour": 36,
+        }
+        msg = format_tropical_alert_for_tts(sample)
+        await play_hazard_alert_notification(
+            self.hass, config, "tropical_alerts", msg, media_players,
+            request_id=request_id, alert_kind="tropical_alert",
+        )
+
+    async def fire_test_tornado_alert(self, *, request_id: str | None = None) -> None:
+        """Play sample tornado warning TTS alert."""
+        config = self._get_config()
+        media_players = media_players_with_tts(config.get("media_players", []))
+        if not media_players:
+            _fire_tts_status(
+                self.hass, "skipped", request_id=request_id,
+                reason="No media players with TTS configured", alert_kind="tornado_alert",
+            )
+            return
+        sample = {
+            "affecting_home": True,
+            "headline": "This is a Home Weather test tornado warning.",
+            "distance_miles": 0,
+        }
+        msg = format_tornado_warning_for_tts(sample)
+        await play_hazard_alert_notification(
+            self.hass, config, "tornado_alerts", msg, media_players,
+            request_id=request_id, alert_kind="tornado_alert",
+        )
+
+    async def fire_test_earthquake_alert(self, *, request_id: str | None = None) -> None:
+        """Play sample earthquake TTS alert."""
+        config = self._get_config()
+        media_players = media_players_with_tts(config.get("media_players", []))
+        if not media_players:
+            _fire_tts_status(
+                self.hass, "skipped", request_id=request_id,
+                reason="No media players with TTS configured", alert_kind="earthquake_alert",
+            )
+            return
+        sample = {
+            "magnitude": 4.2,
+            "place": "near San Jose, California",
+            "distance_miles": 45,
+            "depth_km": 8,
+            "tsunami": 0,
+        }
+        msg = format_earthquake_alert_for_tts(sample)
+        await play_hazard_alert_notification(
+            self.hass, config, "earthquake_alerts", msg, media_players,
+            request_id=request_id, alert_kind="earthquake_alert",
+        )
 
     async def _setup_upcoming_change_trigger(self, tts_config: dict[str, Any]) -> None:
         """Set up trigger for upcoming precipitation alerts.
@@ -1377,3 +1465,158 @@ class TTSTriggerManager:
             alert_kind="webhook",
         )
         _LOGGER.info("Webhook forecast TTS sent for %s to %s", name or "unnamed user", target_media_player or "all players")
+
+    async def _setup_tropical_alerts_trigger(self, config: dict[str, Any]) -> None:
+        """Poll hurricane data every 5 minutes for tropical TTS alerts."""
+        media_players = media_players_with_tts(config.get("media_players", []))
+        if not media_players:
+            _LOGGER.warning("Tropical alerts enabled but no media players with TTS configured")
+            return
+
+        @callback
+        def _poll(now: datetime) -> None:
+            self.hass.async_create_task(self._check_tropical_alerts_async(config))
+
+        unsub = async_track_time_interval(self.hass, _poll, timedelta(minutes=5))
+        self._unsub_callbacks.append(unsub)
+        await self._check_tropical_alerts_async(config)
+        _LOGGER.info("Tropical alerts trigger set up (polling every 5 min)")
+
+    async def _check_tropical_alerts_async(self, config: dict[str, Any]) -> None:
+        """Fetch hurricane data and announce tropical changes."""
+        from .hurricane_data import (
+            async_get_hurricane_data,
+            build_tropical_tts_snapshot,
+            detect_tropical_tts_events,
+        )
+
+        tropical = config.get("tropical_alerts") or {}
+        media_players = media_players_with_tts(config.get("media_players", []))
+        if not tropical.get("enabled") or not media_players:
+            return
+
+        try:
+            payload = await async_get_hurricane_data(self.hass, config, force_refresh=True)
+        except Exception as err:
+            _LOGGER.warning("Tropical alerts fetch failed: %s", err)
+            return
+
+        bootstrap = not self._tropical_bootstrapped
+        events = detect_tropical_tts_events(
+            self._tropical_snapshot,
+            payload,
+            tropical,
+            bootstrap=bootstrap,
+        )
+        self._tropical_snapshot = build_tropical_tts_snapshot(payload)
+        if bootstrap:
+            self._tropical_bootstrapped = True
+            _LOGGER.debug("Tropical alerts bootstrap complete")
+            return
+
+        for _kind, context in events:
+            msg = format_tropical_alert_for_tts(context)
+            await play_hazard_alert_notification(
+                self.hass, config, "tropical_alerts", msg, media_players,
+                alert_kind="tropical_alert",
+            )
+            _LOGGER.info("Tropical alert fired: %s", context.get("event_kind"))
+
+    async def _setup_tornado_alerts_trigger(self, config: dict[str, Any]) -> None:
+        """Listen for tornado coordinator bus events."""
+        media_players = media_players_with_tts(config.get("media_players", []))
+        if not media_players:
+            _LOGGER.warning("Tornado alerts enabled but no media players with TTS configured")
+            return
+
+        @callback
+        def _on_issued(event: Event) -> None:
+            self.hass.async_create_task(
+                self._handle_tornado_bus_event(config, event, cleared=False)
+            )
+
+        @callback
+        def _on_cleared(event: Event) -> None:
+            self.hass.async_create_task(
+                self._handle_tornado_bus_event(config, event, cleared=True)
+            )
+
+        self._unsub_callbacks.append(
+            self.hass.bus.async_listen("home_weather_tornado_warning_issued", _on_issued)
+        )
+        self._unsub_callbacks.append(
+            self.hass.bus.async_listen("home_weather_tornado_warning_cleared", _on_cleared)
+        )
+        _LOGGER.info("Tornado alerts trigger set up (bus listeners)")
+
+    async def _handle_tornado_bus_event(
+        self,
+        config: dict[str, Any],
+        event: Event,
+        *,
+        cleared: bool,
+    ) -> None:
+        tornado = config.get("tornado_alerts") or {}
+        if not tornado.get("enabled"):
+            return
+        media_players = media_players_with_tts(config.get("media_players", []))
+        if not media_players:
+            return
+        payload = dict(event.data or {})
+        if not passes_tornado_tts_filter(payload, tornado, cleared=cleared):
+            return
+        msg = format_tornado_warning_for_tts(payload, cleared=cleared)
+        await play_hazard_alert_notification(
+            self.hass, config, "tornado_alerts", msg, media_players,
+            alert_kind="tornado_alert",
+        )
+        _LOGGER.info("Tornado alert TTS fired (cleared=%s)", cleared)
+
+    async def _setup_earthquake_alerts_trigger(self, config: dict[str, Any]) -> None:
+        """Listen for earthquake coordinator bus events."""
+        media_players = media_players_with_tts(config.get("media_players", []))
+        if not media_players:
+            _LOGGER.warning("Earthquake alerts enabled but no media players with TTS configured")
+            return
+
+        for event_type in (
+            "home_weather_earthquake_detected",
+            "home_weather_earthquake_updated",
+            "home_weather_earthquake_cleared",
+        ):
+            def _make_listener(et: str) -> Callable[[Event], None]:
+                @callback
+                def _on_event(ev: Event) -> None:
+                    self.hass.async_create_task(
+                        self._handle_earthquake_bus_event(config, ev, et)
+                    )
+                return _on_event
+
+            self._unsub_callbacks.append(
+                self.hass.bus.async_listen(event_type, _make_listener(event_type))
+            )
+        _LOGGER.info("Earthquake alerts trigger set up (bus listeners)")
+
+    async def _handle_earthquake_bus_event(
+        self,
+        config: dict[str, Any],
+        event: Event,
+        event_type: str,
+    ) -> None:
+        eq_cfg = config.get("earthquake_alerts") or {}
+        if not eq_cfg.get("enabled"):
+            return
+        media_players = media_players_with_tts(config.get("media_players", []))
+        if not media_players:
+            return
+        payload = dict(event.data or {})
+        if not passes_earthquake_tts_filter(payload, eq_cfg, event_type):
+            return
+        cleared = event_type == "home_weather_earthquake_cleared"
+        updated = event_type == "home_weather_earthquake_updated"
+        msg = format_earthquake_alert_for_tts(payload, cleared=cleared, updated=updated)
+        await play_hazard_alert_notification(
+            self.hass, config, "earthquake_alerts", msg, media_players,
+            alert_kind="earthquake_alert",
+        )
+        _LOGGER.info("Earthquake alert TTS fired: %s", event_type)

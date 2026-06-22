@@ -24,12 +24,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     from .coordinator import WeatherCoordinator
     from .services import async_setup_websocket_api
     from .tts_triggers import TTSTriggerManager
+    from .tornado_coordinator import TornadoCoordinator
+    from .earthquake_coordinator import EarthquakeCoordinator
 
     storage = HomeWeatherStorage(hass)
     await storage.async_load()
 
     coordinator = WeatherCoordinator(hass, storage)
     await coordinator.async_request_refresh()
+
+    tornado_coordinator = TornadoCoordinator(hass, storage)
+    await tornado_coordinator.async_config_entry_first_refresh()
+
+    earthquake_coordinator = EarthquakeCoordinator(hass, storage)
+    await earthquake_coordinator.async_config_entry_first_refresh()
 
     # Set up TTS trigger manager
     def get_config():
@@ -52,8 +60,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data[DOMAIN][entry.entry_id] = {
         "storage": storage,
         "coordinator": coordinator,
+        "tornado_coordinator": tornado_coordinator,
+        "earthquake_coordinator": earthquake_coordinator,
         "trigger_manager": trigger_manager,
     }
+
+    await hass.config_entries.async_forward_entry_setups(entry, ["binary_sensor", "sensor"])
 
     async_setup_websocket_api(hass)
     await _ensure_nws_sounds(hass)
@@ -70,6 +82,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
+    unload_ok = await hass.config_entries.async_unload_platforms(
+        entry, ["binary_sensor", "sensor"]
+    )
+    if not unload_ok:
+        return False
+
     if entry.entry_id in hass.data.get(DOMAIN, {}):
         entry_data = hass.data[DOMAIN][entry.entry_id]
         

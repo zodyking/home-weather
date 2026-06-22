@@ -11,8 +11,10 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .hurricane_geo import (
+    THREAT_RANK,
     format_movement,
     get_nearest_forecast_point,
+    get_outlook_summary,
     get_storm_threat_status,
     knots_to_mph,
     pick_highest_threat,
@@ -208,6 +210,10 @@ def _attach_home_summary(
             }
 
     inside_cone = any(storm.get("threat", {}).get("insideCone") for storm in storms)
+    outlook_summary = get_outlook_summary(home, payload.get("outlook"))
+    combined_threat = pick_highest_threat(
+        threat_levels + [outlook_summary["outlookThreatLevel"]]
+    )
     summary.update(
         {
             "activeCount": len(storms),
@@ -220,10 +226,11 @@ def _attach_home_summary(
             if global_nearest_forecast
             else None,
             "insideCone": inside_cone,
-            "threatLevel": pick_highest_threat(threat_levels),
+            "threatLevel": combined_threat,
             "estimatedClosestApproachHour": global_nearest_forecast["hour"]
             if global_nearest_forecast
             else None,
+            **outlook_summary,
         }
     )
 
@@ -725,3 +732,132 @@ def _parse_kml_coordinates(text: str, *, line: bool) -> list[list[float]]:
     if not line and coords:
         return coords
     return coords
+
+
+def build_tropical_tts_snapshot(payload: dict[str, Any]) -> dict[str, Any]:
+    """Build a comparable snapshot from hurricane payload for TTS change detection."""
+    summary = payload.get("summary") or {}
+    storms = payload.get("storms") or []
+    storm_ids: set[str] = set()
+    for storm in storms:
+        sid = storm.get("id")
+        if sid:
+            storm_ids.add(str(sid))
+    return {
+        "threatLevel": summary.get("threatLevel") or "none",
+        "insideCone": bool(summary.get("insideCone")),
+        "stormIds": storm_ids,
+        "insideDevelopmentRegion": bool(summary.get("insideDevelopmentRegion")),
+        "highestFormationProbability": summary.get("highestFormationProbability"),
+        "closestStormName": summary.get("closestStormName"),
+        "distanceToCenterMiles": summary.get("distanceToCenterMiles"),
+        "distanceToNearestForecastMiles": summary.get("distanceToNearestForecastMiles"),
+        "estimatedClosestApproachHour": summary.get("estimatedClosestApproachHour"),
+    }
+
+
+def _meets_min_threat(threat_level: str, min_level: str) -> bool:
+    return THREAT_RANK.get(threat_level, 0) >= THREAT_RANK.get(min_level, 0)
+
+
+def detect_tropical_tts_events(
+    previous: dict[str, Any] | None,
+    payload: dict[str, Any],
+    tropical_config: dict[str, Any],
+    *,
+    bootstrap: bool = False,
+) -> list[tuple[str, dict[str, Any]]]:
+    """Detect tropical TTS-worthy changes between polls."""
+    if bootstrap or previous is None:
+        return []
+
+    summary = payload.get("summary") or {}
+    storms = payload.get("storms") or []
+    current = build_tropical_tts_snapshot(payload)
+    min_threat = tropical_config.get("min_threat_level", "watch")
+    max_dist = float(tropical_config.get("max_distance_miles", 500))
+
+    if not _meets_min_threat(current["threatLevel"], min_threat):
+        return []
+
+    events: list[tuple[str, dict[str, Any]]] = []
+    context_base = {
+        "summary": summary,
+        "storms": storms,
+        "closestStormName": current.get("closestStormName"),
+        "distanceToCenterMiles": current.get("distanceToCenterMiles"),
+        "estimatedClosestApproachHour": current.get("estimatedClosestApproachHour"),
+    }
+
+    if tropical_config.get("announce_inside_cone", True):
+        if current["insideCone"] and not previous.get("insideCone"):
+            events.append(("inside_cone", {**context_base, "event_kind": "inside_cone"}))
+
+    if tropical_config.get("announce_threat_escalation", True):
+        prev_rank = THREAT_RANK.get(previous.get("threatLevel", "none"), 0)
+        curr_rank = THREAT_RANK.get(current["threatLevel"], 0)
+        if curr_rank > prev_rank:
+            events.append((
+                "threat_escalation",
+                {
+                    **context_base,
+                    "event_kind": "threat_escalation",
+                    "previousThreat": previous.get("threatLevel"),
+                    "currentThreat": current["threatLevel"],
+                },
+            ))
+
+    if tropical_config.get("announce_new_storm", True):
+        prev_ids = previous.get("stormIds") or set()
+        new_ids = current["stormIds"] - prev_ids
+        for storm in storms:
+            sid = str(storm.get("id") or "")
+            if sid not in new_ids:
+                continue
+            threat = storm.get("threat") or {}
+            dist = threat.get("distanceToCenterMiles")
+            if dist is not None and dist <= max_dist:
+                events.append((
+                    "new_storm",
+                    {
+                        **context_base,
+                        "event_kind": "new_storm",
+                        "stormName": storm.get("name") or "Unnamed storm",
+                        "stormId": sid,
+                        "distanceMiles": dist,
+                    },
+                ))
+
+    if tropical_config.get("announce_outlook_development", True):
+        min_prob = int(tropical_config.get("outlook_min_probability", 40))
+        prev_prob = previous.get("highestFormationProbability")
+        curr_prob = current.get("highestFormationProbability")
+        inside_now = current.get("insideDevelopmentRegion")
+        inside_before = previous.get("insideDevelopmentRegion")
+        prob_crossed = (
+            curr_prob is not None
+            and curr_prob >= min_prob
+            and (prev_prob is None or prev_prob < min_prob)
+        )
+        if inside_now and not inside_before:
+            events.append((
+                "outlook_development",
+                {
+                    **context_base,
+                    "event_kind": "outlook_development",
+                    "reason": "inside_region",
+                    "formationProbability": curr_prob,
+                },
+            ))
+        elif prob_crossed:
+            events.append((
+                "outlook_development",
+                {
+                    **context_base,
+                    "event_kind": "outlook_development",
+                    "reason": "probability",
+                    "formationProbability": curr_prob,
+                },
+            ))
+
+    return events
