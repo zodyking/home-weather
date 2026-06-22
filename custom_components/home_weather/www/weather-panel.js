@@ -830,8 +830,8 @@ class HomeWeatherPanel extends HTMLElement {
       else if (c.includes("wind")) icon = forceDay ? "partly-cloudy-day" : "wind";
       else icon = forceDay ? "partly-cloudy-day" : (isNight ? "clear-night" : "partly-cloudy-day");
     }
-    const w = size === "large" ? 88 : 48;
-    const h = size === "large" ? 72 : 40;
+    const w = size === "large" ? 140 : 48;
+    const h = size === "large" ? 112 : 40;
     const subfolder = icon.includes("day") ? "day/" : icon.includes("night") ? "night/" : "";
     return `<img src="/local/home_weather/icons/${subfolder}${icon}.svg" alt="${condition || 'weather'}" width="${w}" height="${h}" class="weather-icon" loading="lazy"/>`;
   }
@@ -887,6 +887,430 @@ class HomeWeatherPanel extends HTMLElement {
     const timeClass = isNight ? "atmosphere--night" : "atmosphere--day";
     const className = `atmosphere--${mood} ${timeClass}`;
     return { className, cloudOpacity, isNight, intensity, mood };
+  }
+
+  _destroyAtmosphereParticles() {
+    if (!this._atmosphereAnim) return;
+    cancelAnimationFrame(this._atmosphereAnim.rafId);
+    this._atmosphereAnim.resizeObserver?.disconnect();
+    this._atmosphereAnim = null;
+  }
+
+  _initAtmosphereParticles() {
+    this._destroyAtmosphereParticles();
+    const s = this.shadowRoot;
+    if (!s || this._currentView !== "forecast") return;
+    const card = s.querySelector(".atmosphere-card:not(.skeleton-card)");
+    if (!card) return;
+
+    const mood = card.dataset.atmosphereMood;
+    if (!mood || !["rain", "storm", "hail", "sleet"].includes(mood)) return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+    const container = card.querySelector(".atmosphere-bg__particles");
+    if (!container) return;
+
+    let canvas = container.querySelector(".atmosphere-particles-canvas");
+    if (!canvas) {
+      canvas = document.createElement("canvas");
+      canvas.className = "atmosphere-particles-canvas";
+      container.appendChild(canvas);
+    }
+
+    const intensity = Math.max(0.35, Math.min(1, parseFloat(card.style.getPropertyValue("--atmosphere-intensity")) || 0.65));
+    const isNight = card.classList.contains("atmosphere--night");
+    const ctx = canvas.getContext("2d");
+    const windRaw = parseFloat(card.dataset.windSpeed);
+    const windMph = Number.isFinite(windRaw) ? windRaw : 12;
+    const windSlant = Math.min(0.32, (windMph / 55) * 0.22);
+    const windAngle = -0.06 - windSlant - intensity * 0.05;
+    const state = {
+      canvas,
+      ctx,
+      mood,
+      intensity,
+      isNight,
+      windAngle,
+      width: 0,
+      height: 0,
+      dpr: 1,
+      particles: [],
+      splashes: [],
+      lightning: { cooldown: 2.5 + Math.random() * 4, flash: 0, afterglow: 0, bolts: null },
+      rafId: 0,
+      lastTs: 0,
+      resizeObserver: null,
+    };
+
+    const resize = () => {
+      const rect = container.getBoundingClientRect();
+      if (rect.width < 1 || rect.height < 1) return;
+      state.dpr = Math.min(window.devicePixelRatio || 1, 2);
+      state.width = rect.width;
+      state.height = rect.height;
+      canvas.width = Math.floor(rect.width * state.dpr);
+      canvas.height = Math.floor(rect.height * state.dpr);
+      canvas.style.width = `${rect.width}px`;
+      canvas.style.height = `${rect.height}px`;
+      ctx.setTransform(state.dpr, 0, 0, state.dpr, 0, 0);
+      state.particles = this._createAtmosphereParticles(state);
+      state.splashes = [];
+    };
+
+    resize();
+    state.resizeObserver = new ResizeObserver(resize);
+    state.resizeObserver.observe(container);
+
+    const tick = (ts) => {
+      if (!this._atmosphereAnim || this._atmosphereAnim !== state) return;
+      const dt = state.lastTs ? Math.min(0.05, (ts - state.lastTs) / 1000) : 0.016;
+      state.lastTs = ts;
+      this._drawAtmosphereParticles(state, dt);
+      state.rafId = requestAnimationFrame(tick);
+    };
+
+    this._atmosphereAnim = state;
+    state.rafId = requestAnimationFrame(tick);
+  }
+
+  _createAtmosphereParticles(state) {
+    const { mood, intensity, width, height, windAngle } = state;
+    const particles = [];
+    const areaFactor = Math.max(0.55, Math.sqrt((width * height) / 90000));
+
+    const addRainLayer = (layer, countMul) => {
+      const specs = {
+        far: { len: [5, 11], speed: [420, 520], opacity: [0.06, 0.14], width: [0.45, 0.75], z: 0 },
+        mid: { len: [11, 20], speed: [520, 640], opacity: [0.14, 0.32], width: [0.7, 1.1], z: 1 },
+        near: { len: [18, 32], speed: [640, 820], opacity: [0.28, 0.52], width: [1.0, 1.6], z: 2 },
+      }[layer];
+      const count = Math.floor(countMul * intensity * areaFactor);
+      for (let i = 0; i < count; i += 1) {
+        const slant = windAngle + (Math.random() - 0.5) * 0.06;
+        particles.push({
+          kind: "rain",
+          z: specs.z,
+          x: Math.random() * (width + 40) - 20,
+          y: Math.random() * (height + specs.len[1]),
+          len: specs.len[0] + Math.random() * (specs.len[1] - specs.len[0]),
+          speed: specs.speed[0] + Math.random() * (specs.speed[1] - specs.speed[0]),
+          slant,
+          opacity: specs.opacity[0] + Math.random() * (specs.opacity[1] - specs.opacity[0]),
+          width: specs.width[0] + Math.random() * (specs.width[1] - specs.width[0]),
+        });
+      }
+    };
+
+    if (mood === "rain") {
+      addRainLayer("far", 55);
+      addRainLayer("mid", 48);
+      addRainLayer("near", 28);
+    } else if (mood === "storm") {
+      addRainLayer("far", 70);
+      addRainLayer("mid", 62);
+      addRainLayer("near", 38);
+    } else if (mood === "sleet") {
+      addRainLayer("far", 28);
+      addRainLayer("mid", 24);
+      addRainLayer("near", 14);
+      const snowCount = Math.floor(28 * intensity * areaFactor);
+      for (let i = 0; i < snowCount; i += 1) {
+        particles.push({
+          kind: "snow",
+          z: 1,
+          x: Math.random() * width,
+          y: Math.random() * height,
+          radius: 0.7 + Math.random() * 1.6,
+          speed: 28 + Math.random() * 38,
+          drift: Math.sin(windAngle) * 18 + (Math.random() - 0.5) * 12,
+          opacity: 0.25 + Math.random() * 0.45,
+          phase: Math.random() * Math.PI * 2,
+        });
+      }
+    }
+
+    if (mood === "hail") {
+      const count = Math.floor(42 * intensity * areaFactor);
+      for (let i = 0; i < count; i += 1) {
+        const size = 1.4 + Math.random() * 2.8;
+        particles.push({
+          kind: "hail",
+          z: size > 3 ? 2 : 1,
+          x: Math.random() * width,
+          y: Math.random() * (height + 30),
+          size,
+          speed: 480 + Math.random() * 260 + size * 20,
+          drift: Math.sin(windAngle) * 55 + (Math.random() - 0.5) * 35,
+          opacity: 0.55 + Math.random() * 0.35,
+          rotation: Math.random() * Math.PI * 2,
+          spin: (Math.random() - 0.5) * 8,
+          wobble: Math.random() * Math.PI * 2,
+        });
+      }
+    }
+
+    particles.sort((a, b) => (a.z || 0) - (b.z || 0));
+    return particles;
+  }
+
+  _spawnRainSplash(state, x) {
+    if (state.splashes.length > 24) return;
+    state.splashes.push({
+      x,
+      y: state.height - 1 - Math.random() * 3,
+      r: 0.5 + Math.random() * 1.5,
+      life: 0.35 + Math.random() * 0.2,
+      maxLife: 0.5,
+    });
+  }
+
+  _drawRainStreak(ctx, p, width, height, color, intensity) {
+    const sl = p.slant || 0;
+    const dx = Math.sin(sl) * p.len;
+    const dy = Math.cos(sl) * p.len;
+    const x2 = p.x + dx;
+    const y2 = p.y + dy;
+    const alpha = p.opacity * (0.75 + intensity * 0.25);
+
+    const grad = ctx.createLinearGradient(p.x, p.y, x2, y2);
+    grad.addColorStop(0, `rgba(${color}, 0)`);
+    grad.addColorStop(0.12, `rgba(${color}, ${alpha * 0.35})`);
+    grad.addColorStop(0.45, `rgba(${color}, ${alpha})`);
+    grad.addColorStop(0.85, `rgba(${color}, ${alpha * 0.55})`);
+    grad.addColorStop(1, `rgba(${color}, 0)`);
+
+    ctx.strokeStyle = grad;
+    ctx.lineWidth = p.width;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+  }
+
+  _drawHailStone(ctx, p, color, isNight) {
+    const { x, y, size, opacity, rotation } = p;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(rotation);
+
+    const sides = 6;
+    ctx.beginPath();
+    for (let i = 0; i < sides; i += 1) {
+      const a = (i / sides) * Math.PI * 2;
+      const r = size * (0.82 + Math.sin(i * 2.1) * 0.18);
+      const px = Math.cos(a) * r;
+      const py = Math.sin(a) * r;
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+
+    const body = ctx.createRadialGradient(-size * 0.25, -size * 0.3, 0, 0, 0, size * 1.2);
+    body.addColorStop(0, `rgba(255, 255, 255, ${opacity * 0.95})`);
+    body.addColorStop(0.45, `rgba(${color}, ${opacity * 0.85})`);
+    body.addColorStop(1, `rgba(${isNight ? "120, 135, 160" : "160, 175, 195"}, ${opacity * 0.7})`);
+    ctx.fillStyle = body;
+    ctx.fill();
+
+    ctx.strokeStyle = `rgba(255, 255, 255, ${opacity * 0.35})`;
+    ctx.lineWidth = 0.6;
+    ctx.stroke();
+    ctx.restore();
+
+    ctx.fillStyle = `rgba(0, 0, 0, ${opacity * 0.12})`;
+    ctx.beginPath();
+    ctx.ellipse(x + size * 0.15, y + size * 0.85, size * 0.9, size * 0.25, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  _drawAtmosphereParticles(state, dt) {
+    const { ctx, width, height, particles, mood, isNight, intensity, windAngle } = state;
+    ctx.clearRect(0, 0, width, height);
+
+    const rainColor = isNight ? "155, 185, 220" : "175, 205, 235";
+    const hailColor = isNight ? "195, 210, 225" : "225, 235, 245";
+
+    if (mood === "rain" || mood === "storm" || mood === "sleet") {
+      const mist = ctx.createLinearGradient(0, height * 0.72, 0, height);
+      mist.addColorStop(0, "rgba(255,255,255,0)");
+      mist.addColorStop(1, isNight ? "rgba(100,120,150,0.12)" : "rgba(180,200,220,0.14)");
+      ctx.fillStyle = mist;
+      ctx.fillRect(0, height * 0.72, width, height * 0.28);
+    }
+
+    for (const p of particles) {
+      if (p.kind === "rain") {
+        const vx = Math.sin(p.slant) * p.speed;
+        const vy = Math.cos(p.slant) * p.speed;
+        p.x += vx * dt;
+        p.y += vy * dt;
+
+        if (p.y > height + p.len) {
+          if (p.z >= 2 && Math.random() < 0.08) this._spawnRainSplash(state, p.x);
+          p.y = -p.len - Math.random() * height * 0.35;
+          p.x = Math.random() * (width + 60) - 30;
+        }
+        if (p.x < -40) p.x = width + 30;
+        if (p.x > width + 40) p.x = -30;
+
+        this._drawRainStreak(ctx, p, width, height, rainColor, intensity);
+      } else if (p.kind === "hail") {
+        p.wobble += dt * 5;
+        p.rotation += p.spin * dt;
+        p.x += (p.drift + Math.sin(p.wobble) * 12) * dt;
+        p.y += p.speed * dt;
+        if (p.y > height + p.size * 2) {
+          p.y = -p.size * 2 - Math.random() * 40;
+          p.x = Math.random() * width;
+          p.speed = 480 + Math.random() * 260 + p.size * 20;
+        }
+        this._drawHailStone(ctx, p, hailColor, isNight);
+      } else if (p.kind === "snow") {
+        p.phase += dt * 2;
+        p.x += (p.drift + Math.sin(p.phase) * 6) * dt;
+        p.y += p.speed * dt;
+        if (p.y > height + 6) {
+          p.y = -6;
+          p.x = Math.random() * width;
+        }
+        ctx.fillStyle = `rgba(240, 248, 255, ${p.opacity})`;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    for (let i = state.splashes.length - 1; i >= 0; i -= 1) {
+      const s = state.splashes[i];
+      s.life -= dt;
+      if (s.life <= 0) {
+        state.splashes.splice(i, 1);
+        continue;
+      }
+      const t = 1 - s.life / s.maxLife;
+      const alpha = (1 - t) * 0.35;
+      ctx.strokeStyle = `rgba(${rainColor}, ${alpha})`;
+      ctx.lineWidth = 0.8;
+      ctx.beginPath();
+      ctx.ellipse(s.x, s.y, s.r + t * 3, (s.r * 0.35) + t * 1.2, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    if (mood === "storm") {
+      state.windAngle = windAngle + Math.sin(state.lastTs * 0.0004) * 0.015;
+      this._drawAtmosphereLightning(state, dt, width, height, isNight);
+    }
+  }
+
+  _drawAtmosphereLightning(state, dt, width, height, isNight) {
+    const bolt = state.lightning;
+    bolt.cooldown -= dt;
+    if (bolt.flash > 0) bolt.flash = Math.max(0, bolt.flash - dt * 5.5);
+    if (bolt.afterglow > 0) bolt.afterglow = Math.max(0, bolt.afterglow - dt * 1.8);
+
+    if (bolt.cooldown <= 0 && bolt.flash <= 0.02) {
+      const strike = Math.random() < 0.62;
+      bolt.flash = strike ? 1 : 0.25 + Math.random() * 0.2;
+      bolt.afterglow = strike ? 0.45 : 0.15;
+      bolt.cooldown = 4 + Math.random() * 7;
+      if (strike) {
+        const startX = width * (0.2 + Math.random() * 0.6);
+        bolt.bolts = this._generateLightningTree(startX, -4, height * (0.28 + Math.random() * 0.22));
+      } else {
+        bolt.bolts = null;
+      }
+    }
+
+    const totalFlash = Math.max(bolt.flash, bolt.afterglow * 0.4);
+    if (totalFlash <= 0.01) {
+      bolt.bolts = null;
+      return;
+    }
+
+    const cloudGlow = state.ctx.createRadialGradient(width * 0.5, 0, 0, width * 0.5, 0, width * 0.85);
+    cloudGlow.addColorStop(0, `rgba(${isNight ? "140,155,200" : "200,210,240"}, ${totalFlash * 0.35})`);
+    cloudGlow.addColorStop(0.45, `rgba(${isNight ? "100,120,170" : "170,185,220"}, ${totalFlash * 0.12})`);
+    cloudGlow.addColorStop(1, "rgba(0,0,0,0)");
+    state.ctx.fillStyle = cloudGlow;
+    state.ctx.fillRect(0, 0, width, height);
+
+    const ambient = totalFlash * (isNight ? 0.18 : 0.1);
+    state.ctx.fillStyle = `rgba(${isNight ? "170, 185, 255" : "230, 238, 255"}, ${ambient})`;
+    state.ctx.fillRect(0, 0, width, height);
+
+    if (bolt.bolts) {
+      this._strokeLightningTree(state.ctx, bolt.bolts, totalFlash, true);
+    }
+  }
+
+  _generateLightningTree(startX, startY, targetY) {
+    const main = this._generateLightningPath(startX, startY, startX + (Math.random() - 0.5) * 24, targetY, 0, 5);
+    const branches = [];
+    for (let i = 2; i < main.length - 2; i += 1) {
+      if (Math.random() > 0.38) continue;
+      const pt = main[i];
+      const branchLen = (targetY - pt.y) * (0.25 + Math.random() * 0.35);
+      const dir = Math.random() < 0.5 ? -1 : 1;
+      branches.push(
+        this._generateLightningPath(
+          pt.x, pt.y,
+          pt.x + dir * (18 + Math.random() * 32),
+          pt.y + branchLen,
+          1, 3
+        )
+      );
+    }
+    return { main, branches };
+  }
+
+  _generateLightningPath(x1, y1, x2, y2, depth, maxDepth) {
+    const points = [{ x: x1, y: y1 }];
+    const segments = 5 + Math.floor(Math.random() * 4);
+    const displacement = Math.max(8, 32 - depth * 8);
+    let cx = x1;
+    let cy = y1;
+    for (let i = 1; i <= segments; i += 1) {
+      const t = i / segments;
+      const tx = x1 + (x2 - x1) * t;
+      const ty = y1 + (y2 - y1) * t;
+      cx = tx + (Math.random() - 0.5) * displacement;
+      cy = ty;
+      points.push({ x: cx, y: cy });
+    }
+    if (depth < maxDepth && points.length > 2 && Math.random() < 0.3) {
+      const mid = points[Math.floor(points.length / 2)];
+      points.push(...this._generateLightningPath(mid.x, mid.y, mid.x + (Math.random() - 0.5) * 40, mid.y + 30 + Math.random() * 40, depth + 1, maxDepth).slice(1));
+    }
+    return points;
+  }
+
+  _strokeLightningTree(ctx, tree, flash, isMain) {
+    const alpha = Math.min(1, flash);
+    const drawPath = (points, width, glow) => {
+      if (!points || points.length < 2) return;
+      ctx.save();
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.shadowColor = `rgba(180, 210, 255, ${alpha * glow})`;
+      ctx.shadowBlur = 16 * glow;
+      ctx.strokeStyle = `rgba(220, 235, 255, ${alpha * 0.55 * glow})`;
+      ctx.lineWidth = width * 2.2;
+      ctx.beginPath();
+      ctx.moveTo(points[0].x, points[0].y);
+      for (let i = 1; i < points.length; i += 1) ctx.lineTo(points[i].x, points[i].y);
+      ctx.stroke();
+      ctx.shadowBlur = 6;
+      ctx.strokeStyle = `rgba(255, 255, 255, ${alpha * 0.95})`;
+      ctx.lineWidth = width;
+      ctx.stroke();
+      ctx.restore();
+    };
+
+    drawPath(tree.main, isMain ? 2.4 : 1.6, 1);
+    for (const branch of tree.branches || []) {
+      drawPath(branch, 1.2, 0.65);
+    }
   }
 
   _buildAtmosphereMetrics({
@@ -1254,17 +1678,17 @@ class HomeWeatherPanel extends HTMLElement {
         }
         /* Rain */
         .atmosphere--rain.atmosphere--day .atmosphere-bg__gradient {
-          background: linear-gradient(165deg, #0d1b2a 0%, #1b263b 45%, #415a77 100%);
+          background: linear-gradient(180deg, #1a2332 0%, #2c3e50 35%, #4a6278 65%, #6b8499 100%);
         }
         .atmosphere--rain.atmosphere--night .atmosphere-bg__gradient {
-          background: linear-gradient(165deg, #050a10 0%, #0d1b2a 50%, #1b263b 100%);
+          background: linear-gradient(180deg, #040608 0%, #0c1219 30%, #152028 60%, #1e2a36 100%);
         }
         /* Storm */
         .atmosphere--storm.atmosphere--day .atmosphere-bg__gradient {
-          background: linear-gradient(165deg, #0a0f14 0%, #1a2332 35%, #37474f 70%, #546e7a 100%);
+          background: linear-gradient(180deg, #0a0e12 0%, #151c24 25%, #243040 55%, #3d5163 85%, #4a6175 100%);
         }
         .atmosphere--storm.atmosphere--night .atmosphere-bg__gradient {
-          background: linear-gradient(165deg, #030508 0%, #0a0f14 40%, #1a2332 100%);
+          background: linear-gradient(180deg, #020304 0%, #080c10 25%, #101820 55%, #182028 100%);
         }
         /* Snow */
         .atmosphere--snow.atmosphere--day .atmosphere-bg__gradient {
@@ -1282,10 +1706,10 @@ class HomeWeatherPanel extends HTMLElement {
         }
         /* Hail */
         .atmosphere--hail.atmosphere--day .atmosphere-bg__gradient {
-          background: linear-gradient(165deg, #1a2332 0%, #37474f 50%, #607d8b 100%);
+          background: linear-gradient(180deg, #1c2530 0%, #344552 45%, #536878 100%);
         }
         .atmosphere--hail.atmosphere--night .atmosphere-bg__gradient {
-          background: linear-gradient(165deg, #0a0f14 0%, #1a2332 60%, #263238 100%);
+          background: linear-gradient(180deg, #060910 0%, #121a22 50%, #1c2832 100%);
         }
         /* Fog */
         .atmosphere--fog.atmosphere--day .atmosphere-bg__gradient {
@@ -1319,6 +1743,7 @@ class HomeWeatherPanel extends HTMLElement {
         .atmosphere--cloudy .atmosphere-bg__clouds,
         .atmosphere--rain .atmosphere-bg__clouds,
         .atmosphere--storm .atmosphere-bg__clouds,
+        .atmosphere--hail .atmosphere-bg__clouds,
         .atmosphere--fog .atmosphere-bg__clouds { opacity: 1; }
         .atmosphere--clear .atmosphere-bg__clouds { opacity: 0.35; }
         .atmosphere--partly .atmosphere-bg__clouds { opacity: 0.65; }
@@ -1330,6 +1755,26 @@ class HomeWeatherPanel extends HTMLElement {
             35vw 8vh 0 0 rgba(180, 190, 200, 0.28),
             60vw 18vh 0 0 rgba(160, 175, 190, 0.22),
             -8vw 22vh 0 0 rgba(190, 200, 210, 0.25);
+        }
+        .atmosphere--rain .atmosphere-bg__clouds::before,
+        .atmosphere--rain .atmosphere-bg__clouds::after,
+        .atmosphere--hail .atmosphere-bg__clouds::before,
+        .atmosphere--hail .atmosphere-bg__clouds::after {
+          background: rgba(85, 100, 120, 0.48);
+          filter: blur(44px);
+          box-shadow:
+            28vw 2vh 0 0 rgba(65, 80, 100, 0.38),
+            52vw 12vh 0 0 rgba(55, 70, 90, 0.3),
+            -8vw 16vh 0 0 rgba(75, 90, 110, 0.32);
+        }
+        .atmosphere--storm .atmosphere-bg__clouds::before,
+        .atmosphere--storm .atmosphere-bg__clouds::after {
+          background: rgba(50, 58, 72, 0.58);
+          filter: blur(52px);
+          box-shadow:
+            22vw 0 0 0 rgba(40, 48, 62, 0.45),
+            48vw 10vh 0 0 rgba(35, 42, 55, 0.38),
+            70vw 6vh 0 0 rgba(45, 52, 65, 0.35);
         }
         .atmosphere-bg__motion {
           position: absolute;
@@ -1353,29 +1798,27 @@ class HomeWeatherPanel extends HTMLElement {
         .atmosphere--hail .atmosphere-bg__motion { opacity: 1; }
         .atmosphere--night .atmosphere-bg__clouds::before,
         .atmosphere--night .atmosphere-bg__clouds::after { background: rgba(120, 130, 150, 0.22); }
-        /* Rain particles */
+        /* Rain / hail / storm particles (canvas-driven) */
         .atmosphere-bg__particles {
-          background-image: repeating-linear-gradient(
-            175deg,
-            transparent,
-            transparent 4px,
-            rgba(174, 214, 241, 0.35) 4px,
-            rgba(174, 214, 241, 0.35) 5px
-          );
-          background-size: 12px 24px;
+          opacity: 0;
         }
         .atmosphere--rain .atmosphere-bg__particles,
-        .atmosphere--storm .atmosphere-bg__particles { opacity: calc(0.55 + var(--atmosphere-intensity, 0.6) * 0.35); animation: rainFall 0.55s linear infinite; }
-        .atmosphere--night.atmosphere--rain .atmosphere-bg__particles,
-        .atmosphere--night.atmosphere--storm .atmosphere-bg__particles { background-image: repeating-linear-gradient(175deg, transparent, transparent 4px, rgba(130, 170, 210, 0.4) 4px, rgba(130, 170, 210, 0.4) 5px); }
-        /* Snow particles */
-        .atmosphere--snow .atmosphere-bg__particles,
+        .atmosphere--storm .atmosphere-bg__particles,
+        .atmosphere--hail .atmosphere-bg__particles,
         .atmosphere--sleet .atmosphere-bg__particles {
+          opacity: 1;
+        }
+        .atmosphere-particles-canvas {
+          display: block;
+          width: 100%;
+          height: 100%;
+        }
+        /* Snow particles (CSS — lightweight) */
+        .atmosphere--snow .atmosphere-bg__particles {
           background: none;
           opacity: calc(0.6 + var(--atmosphere-intensity, 0.6) * 0.3);
         }
-        .atmosphere--snow .atmosphere-bg__particles::before,
-        .atmosphere--sleet .atmosphere-bg__particles::before {
+        .atmosphere--snow .atmosphere-bg__particles::before {
           content: "";
           position: absolute;
           inset: -20% 0 0 0;
@@ -1393,19 +1836,7 @@ class HomeWeatherPanel extends HTMLElement {
           background-size: 100% 100%;
           animation: snowDrift 5s linear infinite;
         }
-        .atmosphere--sleet .atmosphere-bg__particles {
-          background-image: repeating-linear-gradient(175deg, transparent, transparent 6px, rgba(200,220,240,0.25) 6px, rgba(200,220,240,0.25) 7px);
-          background-size: 14px 28px;
-          animation: rainFall 1.1s linear infinite;
-        }
-        .atmosphere--sleet .atmosphere-bg__particles::before { opacity: 0.5; animation-duration: 4s; }
-        /* Hail particles */
-        .atmosphere--hail .atmosphere-bg__particles {
-          background-image: repeating-linear-gradient(178deg, transparent, transparent 8px, rgba(220,230,240,0.55) 8px, rgba(220,230,240,0.55) 10px);
-          background-size: 16px 32px;
-          opacity: calc(0.65 + var(--atmosphere-intensity, 0.6) * 0.25);
-          animation: hailFall 0.45s linear infinite;
-        }
+        /* Hail uses canvas — no CSS stripe pattern */
         /* Clear day sun */
         .atmosphere--clear.atmosphere--day .atmosphere-bg__effects {
           opacity: 1;
@@ -1461,11 +1892,11 @@ class HomeWeatherPanel extends HTMLElement {
           background: radial-gradient(circle, rgba(236, 239, 241, 0.85) 0%, rgba(236, 239, 241, 0.2) 45%, transparent 70%);
           box-shadow: 0 0 24px rgba(236, 239, 241, 0.25);
         }
-        /* Storm lightning */
+        /* Storm lightning handled on canvas; keep effects layer for subtle cloud glow only */
         .atmosphere--storm .atmosphere-bg__effects {
           opacity: 0;
-          background: rgba(255, 255, 255, 0.75);
-          animation: lightningFlash 6s ease-in-out infinite;
+          background: radial-gradient(ellipse 80% 50% at 50% 0%, rgba(120, 140, 180, 0.12) 0%, transparent 70%);
+          animation: stormCloudGlow 8s ease-in-out infinite alternate;
         }
         /* Fog wisps */
         .atmosphere--fog .atmosphere-bg__effects {
@@ -1513,25 +1944,32 @@ class HomeWeatherPanel extends HTMLElement {
           flex-direction: column;
           align-items: center;
           justify-content: center;
-          gap: var(--space-3);
+          gap: var(--space-4);
+          width: 100%;
+          max-width: 520px;
+          margin: 0 auto;
+        }
+        .atmosphere-icon {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          flex-shrink: 0;
           width: 100%;
         }
-        @media (min-width: 640px) {
-          .atmosphere-hero-main {
-            flex-direction: row;
-            align-items: center;
-            justify-content: center;
-            gap: var(--space-5);
-          }
-        }
-        .atmosphere-icon { display: flex; align-items: center; flex-shrink: 0; }
-        .atmosphere-icon .weather-icon img {
-          width: clamp(88px, 24vw, 128px);
-          height: clamp(72px, 20vw, 108px);
+        .atmosphere-icon img.weather-icon {
+          width: clamp(120px, 34vw, 168px);
+          height: clamp(96px, 27vw, 136px);
           object-fit: contain;
-          filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.45));
+          filter: drop-shadow(0 8px 28px rgba(0, 0, 0, 0.5));
         }
-        .atmosphere-headline { min-width: 0; text-align: center; width: 100%; }
+        .atmosphere-headline {
+          min-width: 0;
+          text-align: center;
+          width: 100%;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+        }
         .atmosphere-temp-row { display: flex; align-items: flex-start; justify-content: center; gap: var(--space-2); }
         .atmosphere-temp {
           font-size: var(--fs-hero);
@@ -1890,14 +2328,6 @@ class HomeWeatherPanel extends HTMLElement {
           0% { transform: translateX(-6%) translateY(-4%) scale(1); }
           100% { transform: translateX(10%) translateY(5%) scale(1.06); }
         }
-        @keyframes rainFall {
-          0% { background-position: 0 0; }
-          100% { background-position: -12px 24px; }
-        }
-        @keyframes hailFall {
-          0% { background-position: 0 0; }
-          100% { background-position: -8px 32px; }
-        }
         @keyframes snowDrift {
           0% { transform: translateY(0); opacity: 0.85; }
           100% { transform: translateY(28px); opacity: 1; }
@@ -1914,9 +2344,9 @@ class HomeWeatherPanel extends HTMLElement {
           0% { opacity: 0.7; }
           100% { opacity: 1; }
         }
-        @keyframes lightningFlash {
-          0%, 89%, 91%, 93%, 100% { opacity: 0; }
-          90%, 92% { opacity: 0.55; }
+        @keyframes stormCloudGlow {
+          0% { opacity: 0.35; }
+          100% { opacity: 0.7; }
         }
         @keyframes fogRoll {
           0% { background-position: 0% 0; }
@@ -1949,7 +2379,7 @@ class HomeWeatherPanel extends HTMLElement {
           .atmosphere-bg__effects::before,
           .atmosphere-bg__effects::after,
           .atmosphere-bg__particles::before { animation: none; }
-          .atmosphere--storm .atmosphere-bg__effects { animation: none; opacity: 0; }
+          .atmosphere--storm .atmosphere-bg__effects { animation: none; opacity: 0.4; }
           .metric-glass { animation: none; opacity: 1; transform: none; }
           .metric-glass:hover { transform: none; }
           .metric-uv-fill { animation: none; }
@@ -2411,17 +2841,20 @@ class HomeWeatherPanel extends HTMLElement {
     const backBtn = s.getElementById("back-btn");
     if (alertsBtn) alertsBtn.addEventListener("click", () => {
       this._destroyHurricaneTracker();
+      this._destroyAtmosphereParticles();
       this._currentView = "alerts";
       this._alertsData = null;
       this._alertsLoading = false;
       this._render();
     });
     if (hurricanesBtn) hurricanesBtn.addEventListener("click", () => {
+      this._destroyAtmosphereParticles();
       this._currentView = "hurricanes";
       this._render();
     });
     if (gearBtn) gearBtn.addEventListener("click", async () => {
       this._destroyHurricaneTracker();
+      this._destroyAtmosphereParticles();
       this._currentView = "settings";
       this._expandedSections = new Set();
       await this._loadWwwSounds();
@@ -2488,7 +2921,9 @@ class HomeWeatherPanel extends HTMLElement {
       s.querySelectorAll("[data-retry]").forEach((btn) => {
         btn.addEventListener("click", () => { this._fetchData(); });
       });
+      this._initAtmosphereParticles();
     } else if (this._currentView === "alerts") {
+      this._destroyAtmosphereParticles();
       s.querySelectorAll("[data-alert-toggle], [data-alert-expand]").forEach((el) => {
         el.addEventListener("click", (e) => {
           e.stopPropagation();
@@ -3150,7 +3585,7 @@ class HomeWeatherPanel extends HTMLElement {
     return `
       <section class="dashboard">
 
-        <article class="glass card atmosphere-card ${theme.className}" data-detail-hero style="--atmosphere-cloud: ${theme.cloudOpacity}; --atmosphere-intensity: ${theme.intensity}">
+        <article class="glass card atmosphere-card ${theme.className}" data-detail-hero data-atmosphere-mood="${theme.mood}" data-wind-speed="${windSpeed != null ? windSpeed : ""}" style="--atmosphere-cloud: ${theme.cloudOpacity}; --atmosphere-intensity: ${theme.intensity}">
           <div class="atmosphere-bg" aria-hidden="true">
             <div class="atmosphere-bg__gradient"></div>
             <div class="atmosphere-bg__clouds"></div>
