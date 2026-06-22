@@ -1,74 +1,73 @@
-# Home Weather
+<p align="center">
+  <img src="assets/readme-banner.png" alt="Home Weather — Home Assistant Integration" width="100%" />
+</p>
 
-[![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
-[![License](https://img.shields.io/github/license/zodyking/home-weather.svg)](LICENSE)
+<p align="center">
+  <a href="https://github.com/custom-components/hacs"><img src="https://img.shields.io/badge/HACS-Custom-orange.svg" alt="HACS Custom" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/zodyking/home-weather.svg" alt="License" /></a>
+  <img src="https://img.shields.io/github/v/release/zodyking/home-weather?label=release" alt="Release" />
+</p>
 
-A Home Assistant integration with a custom weather dashboard, automated TTS announcements, and full control from the panel—no YAML required.
+A Home Assistant custom integration with a full-screen weather panel, animated conditions, NWS alerts, hurricane tracking, and configurable TTS — all managed from the UI.
 
 ## Features
 
 ### Dashboard
+- **Live conditions** — Animated atmosphere hero with temp, feels-like, wind, UV, humidity, and unified condition labels (Home Assistant + Apple WeatherKit)
+- **Forecasts** — 7-day list and 24-hour timeline with detail sheets
+- **Radar & charts** — Windy.com map embed plus temperature, precipitation, and wind charts
+- **Moon & sun** — Phase, rise/set, solar noon, and day length
+- **NWS alerts** — Active warnings with expandable details
+- **Hurricane tracker** — NOAA/NHC storm map, forecast cone, and home threat summary
+- **Responsive** — Mobile-friendly layout with dark theme independent of HA theme
 
-- **Current Conditions** — Live temperature, feels like, wind, gusts, high/low, condition, and date/time in a circular hero layout
-- **Radar** — Windy.com map embed and interactive chart (temperature, precipitation, wind) with Map/Chart toggle
-- **Forecast** — 7-day and 24-hour views with daily cards and hourly timeline
-- **Moon & Sun** — Moon phase with lunar details; Sun details with sunrise, sunset, solar noon, and day length
-- **Version & Update Status** — Integration version from manifest; polls GitHub every minute for "Update available" or "Latest version"
-- **Responsive** — Fluid layout, mobile-friendly, single-line menu bar across screen sizes
+### TTS & alerts
+- Scheduled forecasts, sensor triggers, condition-change and upcoming-precip alerts
+- Webhooks and voice/conversation weather queries
+- Sunrise/sunset announcements and automations
+- **NWS siren** — Play a custom sound before alert TTS (config/media)
+- Per–media-player volume, preroll, language, and optional AI rewrite
 
-### TTS Announcements
+### Settings
+Everything is configured in the panel — weather entity, TTS players, triggers, thresholds, webhooks, and NWS options. No YAML required.
 
-- **Time-based** — Scheduled forecasts at configurable intervals (e.g. every 3 hours, 8 AM–9 PM)
-- **Sensor-triggered** — Full forecast when presence or other binary sensors turn on
-- **Current change** — Alert when weather conditions change
-- **Upcoming change** — Precipitation alerts before rain or snow (configurable lead time)
-- **Webhook** — Personalized forecast via HTTP endpoint; multiple webhooks with optional names
-- **Voice** — Weather queries via Home Assistant conversation
-- **Sunrise/Sunset** — TTS announcements and automations at sunrise/sunset (configurable minutes before, intervals)
+## Install
 
-### Settings (Panel UI)
+**HACS (recommended)**
 
-- **Weather** — Weather entity selection
-- **TTS** — Per-media-player config (TTS entity, volume, preroll, cache, language, options); message prefix; time-based schedule; sensor triggers; current/upcoming alerts; webhooks; voice commands; precip/wind thresholds; optional AI rewrite; sunrise/sunset alerts
+1. HACS → Integrations → ⋮ → **Custom repositories**
+2. Add `https://github.com/zodyking/home-weather` (category: Integration)
+3. Install **Home Weather** and restart Home Assistant
+4. Settings → Devices & services → **Add integration** → Home Weather
 
-## Installation
+## Quick start
 
-### HACS (Recommended)
-
-1. HACS → Integrations → ⋮ → Custom repositories
-2. Add `https://github.com/zodyking/home-weather`, category: Integration
-3. Install "Home Weather"
-4. Restart Home Assistant
-
-## Configuration
-
-All configuration is done in the panel:
-
-1. Open Home Weather
-2. If not configured, you are redirected to Settings
-3. Set **Weather Entity** (must support forecasts)
-4. Optionally enable TTS and configure media players, triggers, and alerts
-5. Save
+1. Open **Home Weather** from the sidebar
+2. Choose a **weather entity** with daily and hourly forecasts
+3. Optionally enable TTS, NWS alerts, or hurricane tracker from Settings
+4. Save
 
 ## Requirements
 
-- Home Assistant 2024.1 or later
-- Weather entity with `weather.get_forecasts` (daily + hourly)
-- For TTS: TTS integration and media player entities
+- Home Assistant 2024.1+
+- Weather entity supporting `weather.get_forecasts` (daily + hourly)
+- TTS + media players (for announcements)
+- `panel_custom` enabled if the sidebar entry is missing
 
 ## Troubleshooting
 
-| Issue | Check |
-|-------|------|
-| Panel not in sidebar | `panel_custom` in `configuration.yaml`, restart HA |
-| Weather not loading | Weather entity in Settings, entity supports forecasts |
-| TTS not working | TTS engine and media players configured, test via Developer Tools |
-| Triggers not firing | TTS enabled, trigger toggles on, check HA logs |
+| Issue | Fix |
+|-------|-----|
+| Panel missing from sidebar | Add `panel_custom` in `configuration.yaml`, restart HA |
+| No weather data | Confirm entity in Settings; entity must expose forecasts |
+| TTS silent | Configure TTS engine + media players; use Test TTS in Settings |
+| NWS siren won't play | Place `.wav` files in `config/media/home_weather/sounds/` |
+| Hurricane map empty | No active storms, or NOAA/NHC feed temporarily unavailable |
 
 ## License
 
-MIT. See [LICENSE](LICENSE) if present.
+MIT — see [LICENSE](LICENSE).
 
 ## Credits
 
-Based on the [Weather Forecast Alert Blueprint](https://github.com/zodyking/weather-forecast-alert-blueprint) by zodyking.
+Inspired by the [Weather Forecast Alert Blueprint](https://github.com/zodyking/weather-forecast-alert-blueprint) by [@zodyking](https://github.com/zodyking).
