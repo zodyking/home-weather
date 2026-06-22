@@ -757,19 +757,68 @@ class HomeWeatherPanel extends HTMLElement {
     return !this._isDayTime(datetime, lat, lon);
   }
 
-  _getConditionLabel(condition, datetime) {
-    const c = (condition || "").toLowerCase().trim();
-    if (this._isNightTime(datetime) && (c === "sunny" || c === "clear" || c === "fair")) {
-      return "Clear skies";
-    }
-    return condition || "—";
+  _getConditionLabel(condition, datetime, conditionLabel) {
+    if (conditionLabel) return conditionLabel;
+    return this._conditionLabelFromSlug(condition) || "—";
   }
 
-  _formatConditionText(condition) {
-    if (!condition || !String(condition).trim()) return "—";
-    return String(condition)
-      .replace(/_/g, " ")
-      .replace(/\b\w/g, (c) => c.toUpperCase());
+  _conditionLabelFromSlug(condition) {
+    const slug = this._canonicalConditionSlug(condition);
+    const labels = {
+      "clear-night": "Clear Night",
+      cloudy: "Cloudy",
+      exceptional: "Exceptional",
+      hurricane: "Hurricane",
+      "tropical-storm": "Tropical Storm",
+      tornado: "Tornado",
+      fog: "Fog",
+      hail: "Hail",
+      thunderstorm: "Thunderstorm",
+      partlycloudy: "Partly Cloudy",
+      pouring: "Pouring Rain",
+      rainy: "Rain",
+      snowy: "Snow",
+      "snowy-rainy": "Snow & Rain",
+      sunny: "Sunny",
+      windy: "Windy",
+      "windy-variant": "Windy & Cloudy",
+    };
+    return labels[slug] || "";
+  }
+
+  _canonicalConditionSlug(condition) {
+    const c = (condition || "").toLowerCase().replace(/[\s_-]+/g, "");
+    if (c === "clearnight") return "clear-night";
+    if (c === "lightningrainy" || c === "lightning" || c === "thunderstorm" || c === "thunderstorms") return "thunderstorm";
+    if (c === "snowyrainy") return "snowy-rainy";
+    if (c === "windyvariant") return "windy-variant";
+    if (c === "heavyrain") return "pouring";
+    if (c.includes("pour")) return "pouring";
+    if (c === "tropicalstorm") return "tropical-storm";
+    if (c === "hurricane" || c.includes("hurricane")) return "hurricane";
+    if (c === "tornado" || c.includes("tornado")) return "tornado";
+    if (c.includes("tropical")) return "tropical-storm";
+    if (c.includes("thunder") || c.includes("lightning") || c === "storm" || c === "storms") return "thunderstorm";
+    if (c.includes("snow") && c.includes("rain")) return "snowy-rainy";
+    if (c.includes("snow") || c.includes("blizzard") || c.includes("flurr")) return "snowy";
+    if (c.includes("rain") || c.includes("drizzle") || c.includes("shower")) return "rainy";
+    if (c.includes("fog") || c.includes("mist") || c.includes("haze")) return "fog";
+    if (c.includes("hail")) return "hail";
+    if (c.includes("wind") && c.includes("cloud")) return "windy-variant";
+    if (c.includes("wind") || c.includes("breezy")) return "windy";
+    if (c.includes("partly")) return "partlycloudy";
+    if (c.includes("cloud") || c.includes("overcast")) return "cloudy";
+    if (c.includes("clear") || c.includes("sun") || c.includes("fair")) return "sunny";
+    return c || "cloudy";
+  }
+
+  _formatConditionText(entry) {
+    if (entry && typeof entry === "object" && entry.condition_label) {
+      return entry.condition_label;
+    }
+    const raw = typeof entry === "object" ? (entry?.condition || entry?.state || "") : entry;
+    if (!raw || !String(raw).trim()) return "—";
+    return this._conditionLabelFromSlug(raw) || String(raw).replace(/_/g, " ").replace(/\b\w/g, (ch) => ch.toUpperCase());
   }
 
   _renderHeaderTempPill() {
@@ -786,38 +835,46 @@ class HomeWeatherPanel extends HTMLElement {
   }
 
   _getConditionIcon(condition, size, datetime, forceDay = false) {
-    const c = (condition || "").toLowerCase().replace(/\s+/g, "");
+    const c = this._canonicalConditionSlug(condition).replace(/-/g, "");
     const isNight = forceDay ? false : this._isNightTime(datetime);
     // 7-day forecast: ONLY icons with "day" in filename. Others use day/night variants.
     const dayOnlyMap = {
       sunny: "clear-day", clear: "clear-day", fair: "clear-day", clearskies: "clear-day",
-      partlycloudy: "partly-cloudy-day", partly_cloudy: "partly-cloudy-day",
+      partlycloudy: "partly-cloudy-day",
       cloudy: "overcast-day", overcast: "overcast-day",
       fog: "fog-day", foggy: "fog-day", mist: "fog-day", hazy: "haze-day",
-      rain: "partly-cloudy-day-rain", rainy: "partly-cloudy-day-rain", drizzle: "partly-cloudy-day-drizzle",
-      snow: "partly-cloudy-day-snow", snowy: "partly-cloudy-day-snow", flurries: "partly-cloudy-day-snow",
-      lightning: "thunderstorms-day", thunderstorm: "thunderstorms-day", thunderstorms: "thunderstorms-day",
-      hail: "partly-cloudy-day-hail", sleet: "partly-cloudy-day-sleet", windy: "partly-cloudy-day",
+      rainy: "partly-cloudy-day-rain", rain: "partly-cloudy-day-rain", drizzle: "partly-cloudy-day-drizzle",
+      pouring: "partly-cloudy-day-rain", pouringrain: "partly-cloudy-day-rain",
+      snowy: "partly-cloudy-day-snow", snow: "partly-cloudy-day-snow", flurries: "partly-cloudy-day-snow",
+      thunderstorm: "thunderstorms-day", lightning: "thunderstorms-day", lightningrainy: "thunderstorms-day",
+      hail: "partly-cloudy-day-hail", snowyrainy: "partly-cloudy-day-sleet", sleet: "partly-cloudy-day-sleet",
+      windy: "partly-cloudy-day", windyvariant: "partly-cloudy-day", exceptional: "overcast-day",
+      hurricane: "hurricane", tropicalstorm: "hurricane", tornado: "thunderstorms-day",
+      clearnight: "clear-night",
     };
     const dayMap = {
       sunny: "clear-day", clear: "clear-day", fair: "clear-day", clearskies: "clear-day",
-      partlycloudy: "partly-cloudy-day", partly_cloudy: "partly-cloudy-day",
+      partlycloudy: "partly-cloudy-day",
       cloudy: "cloudy", overcast: "overcast-day",
       fog: "fog-day", foggy: "fog-day", mist: "mist", hazy: "haze-day",
-      rain: "rain", rainy: "rain", drizzle: "drizzle",
-      snow: "snow", snowy: "snow", flurries: "snow",
-      lightning: "thunderstorms-day", thunderstorm: "thunderstorms-day", thunderstorms: "thunderstorms-day",
-      hail: "hail", sleet: "sleet", windy: "wind",
+      rainy: "rain", rain: "rain", drizzle: "drizzle", pouring: "rain", pouringrain: "rain",
+      snowy: "snow", snow: "snow", flurries: "snow",
+      thunderstorm: "thunderstorms-day", lightning: "thunderstorms-day", lightningrainy: "thunderstorms-day",
+      hail: "hail", snowyrainy: "sleet", sleet: "sleet", windy: "wind", windyvariant: "wind",
+      exceptional: "cloudy", clearnight: "clear-night",
+      hurricane: "hurricane", tropicalstorm: "hurricane", tornado: "thunderstorms-day",
     };
     const nightMap = {
       sunny: "clear-night", clear: "clear-night", fair: "clear-night", clearskies: "clear-night",
-      partlycloudy: "partly-cloudy-night", partly_cloudy: "partly-cloudy-night",
+      partlycloudy: "partly-cloudy-night",
       cloudy: "cloudy", overcast: "overcast-night",
       fog: "fog-night", foggy: "fog-night", mist: "mist", hazy: "haze-night",
-      rain: "rain", rainy: "rain", drizzle: "drizzle",
-      snow: "snow", snowy: "snow", flurries: "snow",
-      lightning: "thunderstorms-night", thunderstorm: "thunderstorms-night", thunderstorms: "thunderstorms-night",
-      hail: "hail", sleet: "sleet", windy: "wind",
+      rainy: "rain", rain: "rain", drizzle: "drizzle", pouring: "rain", pouringrain: "rain",
+      snowy: "snow", snow: "snow", flurries: "snow",
+      thunderstorm: "thunderstorms-night", lightning: "thunderstorms-night", lightningrainy: "thunderstorms-night",
+      hail: "hail", snowyrainy: "sleet", sleet: "sleet", windy: "wind", windyvariant: "wind",
+      exceptional: "cloudy", clearnight: "clear-night",
+      hurricane: "hurricane", tropicalstorm: "hurricane", tornado: "thunderstorms-night",
     };
     const map = forceDay ? dayOnlyMap : (isNight ? nightMap : dayMap);
     let icon = map[c];
@@ -858,18 +915,18 @@ class HomeWeatherPanel extends HTMLElement {
   }
 
   _getAtmosphereTheme(condition, cloudCoverage, now) {
-    const c = (condition || "").toLowerCase();
+    const slug = this._canonicalConditionSlug(condition);
     const isNight = this._isNightTime(now);
     let mood = "cloudy";
-    if (c.includes("thunder") || c.includes("lightning") || c.includes("storm")) mood = "storm";
-    else if (c.includes("hail")) mood = "hail";
-    else if (c.includes("sleet")) mood = "sleet";
-    else if (c.includes("snow") || c.includes("flurr")) mood = "snow";
-    else if (c.includes("rain") || c.includes("drizzle") || c.includes("shower")) mood = "rain";
-    else if (c.includes("fog") || c.includes("mist") || c.includes("haze")) mood = "fog";
-    else if (c.includes("partly")) mood = "partly";
-    else if (c.includes("clear") || c.includes("sunny") || c.includes("fair")) mood = "clear";
-    else if (c.includes("cloud") || c.includes("overcast")) mood = "cloudy";
+    if (slug === "thunderstorm" || slug === "hurricane" || slug === "tropical-storm" || slug === "tornado") mood = "storm";
+    else if (slug === "hail") mood = "hail";
+    else if (slug === "snowy-rainy") mood = "sleet";
+    else if (slug === "snowy") mood = "snow";
+    else if (slug === "pouring" || slug === "rainy") mood = "rain";
+    else if (slug === "fog") mood = "fog";
+    else if (slug === "partlycloudy") mood = "partly";
+    else if (slug === "sunny" || slug === "clear-night") mood = "clear";
+    else if (slug === "cloudy" || slug === "windy-variant") mood = "cloudy";
 
     let cloudOpacity = 0.45;
     if (cloudCoverage != null) {
@@ -1645,16 +1702,6 @@ class HomeWeatherPanel extends HTMLElement {
           background-size: 220% 220%;
           animation: atmosphereDrift 14s ease-in-out infinite alternate;
         }
-        .atmosphere-bg__gradient::after {
-          content: "";
-          position: absolute;
-          inset: 0;
-          background: inherit;
-          background-size: inherit;
-          opacity: 0.45;
-          mix-blend-mode: soft-light;
-          animation: atmosphereDriftReverse 18s ease-in-out infinite alternate;
-        }
         /* Clear sky */
         .atmosphere--clear.atmosphere--day .atmosphere-bg__gradient {
           background: linear-gradient(160deg, #01579b 0%, #0288d1 35%, #4fc3f7 65%, #fff9c4 100%);
@@ -1776,26 +1823,6 @@ class HomeWeatherPanel extends HTMLElement {
             48vw 10vh 0 0 rgba(35, 42, 55, 0.38),
             70vw 6vh 0 0 rgba(45, 52, 65, 0.35);
         }
-        .atmosphere-bg__motion {
-          position: absolute;
-          inset: -25%;
-          pointer-events: none;
-          opacity: 0;
-          background:
-            radial-gradient(ellipse 70% 45% at 18% 28%, rgba(255, 255, 255, 0.12) 0%, transparent 55%),
-            radial-gradient(ellipse 65% 40% at 78% 62%, rgba(255, 255, 255, 0.1) 0%, transparent 52%),
-            radial-gradient(ellipse 50% 35% at 48% 12%, rgba(255, 255, 255, 0.08) 0%, transparent 50%);
-          animation: skyMotion 20s ease-in-out infinite alternate;
-        }
-        .atmosphere--clear .atmosphere-bg__motion,
-        .atmosphere--partly .atmosphere-bg__motion,
-        .atmosphere--cloudy .atmosphere-bg__motion,
-        .atmosphere--rain .atmosphere-bg__motion,
-        .atmosphere--storm .atmosphere-bg__motion,
-        .atmosphere--fog .atmosphere-bg__motion,
-        .atmosphere--snow .atmosphere-bg__motion,
-        .atmosphere--sleet .atmosphere-bg__motion,
-        .atmosphere--hail .atmosphere-bg__motion { opacity: 1; }
         .atmosphere--night .atmosphere-bg__clouds::before,
         .atmosphere--night .atmosphere-bg__clouds::after { background: rgba(120, 130, 150, 0.22); }
         /* Rain / hail / storm particles (canvas-driven) */
@@ -1912,7 +1939,7 @@ class HomeWeatherPanel extends HTMLElement {
             radial-gradient(ellipse at 28% 18%, rgba(255, 255, 255, 0.1) 0%, transparent 55%),
             linear-gradient(180deg, rgba(255, 255, 255, 0.05) 0%, rgba(0, 0, 0, 0.35) 100%);
           opacity: var(--atmosphere-cloud, 0.45);
-          animation: cloudVeilPulse 6s ease-in-out infinite, skyMotion 24s ease-in-out infinite alternate-reverse;
+          animation: cloudVeilPulse 6s ease-in-out infinite;
         }
         .atmosphere-content {
           position: relative;
@@ -1990,7 +2017,6 @@ class HomeWeatherPanel extends HTMLElement {
           font-size: var(--fs-display);
           font-weight: 600;
           color: #ffffff;
-          text-transform: capitalize;
           line-height: var(--lh-snug);
           text-shadow: 0 1px 8px rgba(0, 0, 0, 0.3);
         }
@@ -2308,10 +2334,6 @@ class HomeWeatherPanel extends HTMLElement {
           0% { background-position: 0% 30%; transform: scale(1); }
           100% { background-position: 100% 70%; transform: scale(1.04); }
         }
-        @keyframes atmosphereDriftReverse {
-          0% { background-position: 100% 20%; opacity: 0.35; }
-          100% { background-position: 0% 80%; opacity: 0.55; }
-        }
         @keyframes cloudDriftA {
           0% { transform: translateX(0) translateY(0) scale(1); }
           100% { transform: translateX(18%) translateY(8px) scale(1.08); }
@@ -2323,10 +2345,6 @@ class HomeWeatherPanel extends HTMLElement {
         @keyframes cloudBreathe {
           0%, 100% { opacity: 0.75; filter: blur(28px); }
           50% { opacity: 1; filter: blur(34px); }
-        }
-        @keyframes skyMotion {
-          0% { transform: translateX(-6%) translateY(-4%) scale(1); }
-          100% { transform: translateX(10%) translateY(5%) scale(1.06); }
         }
         @keyframes snowDrift {
           0% { transform: translateY(0); opacity: 0.85; }
@@ -2368,10 +2386,8 @@ class HomeWeatherPanel extends HTMLElement {
           50% { transform: translateX(2px); opacity: 1; }
         }
         @media (prefers-reduced-motion: reduce) {
-          .atmosphere-bg__gradient,
-          .atmosphere-bg__gradient::after { animation: none; transform: none; }
+          .atmosphere-bg__gradient { animation: none; transform: none; }
           .atmosphere-bg__veil { animation: none; }
-          .atmosphere-bg__motion { animation: none; }
           .atmosphere-bg__clouds::before,
           .atmosphere-bg__clouds::after,
           .atmosphere-bg__particles,
@@ -3562,7 +3578,7 @@ class HomeWeatherPanel extends HTMLElement {
       pressureUnit: current.pressure_unit,
       cloudCoverage,
     });
-    const condLabel = String(this._getConditionLabel(condition, now)).replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const condLabel = String(this._getConditionLabel(condition, now, current.condition_label)).replace(/</g, "&lt;").replace(/>/g, "&gt;");
     const moonNameSafe = String(moon.name || "").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
     // Compute week min/max for the daily range bars
@@ -3589,7 +3605,6 @@ class HomeWeatherPanel extends HTMLElement {
           <div class="atmosphere-bg" aria-hidden="true">
             <div class="atmosphere-bg__gradient"></div>
             <div class="atmosphere-bg__clouds"></div>
-            <div class="atmosphere-bg__motion"></div>
             <div class="atmosphere-bg__particles"></div>
             <div class="atmosphere-bg__effects"></div>
             <div class="atmosphere-bg__veil"></div>
@@ -3598,7 +3613,6 @@ class HomeWeatherPanel extends HTMLElement {
             <div class="atmosphere-eyebrow">Current conditions</div>
             <div class="atmosphere-hero">
               <div class="atmosphere-hero-main">
-                <div class="atmosphere-icon">${this._getConditionIcon(condition, "large", now)}</div>
                 <div class="atmosphere-headline">
                   <div class="atmosphere-temp-row">
                     <span class="atmosphere-temp">${String(temp).replace(/</g, "&lt;")}</span><span class="atmosphere-unit">°</span>
@@ -3650,7 +3664,7 @@ class HomeWeatherPanel extends HTMLElement {
               const dLo = d.templow != null ? Math.round(d.templow) : null;
               const precipVal = this._formatPrecip(d.precipitation_probability);
               const dayLabel = this._formatDayLabel(d.datetime);
-              const condText = this._formatConditionText(d.condition);
+              const condText = this._formatConditionText(d);
               // Range bar position (0-100%)
               let fillLeft = 0, fillWidth = 100;
               if (dHi != null && dLo != null) {
@@ -3763,7 +3777,7 @@ class HomeWeatherPanel extends HTMLElement {
       const t = h.temperature != null ? Math.round(h.temperature) : "—";
       const timeLabel = sel.index === 0 ? "Now" : this._formatTime(h.datetime);
       title = `${t}°`;
-      sub = `${timeLabel} · ${this._formatConditionText(h.condition)}`;
+      sub = `${timeLabel} · ${this._formatConditionText(h)}`;
       const windUnit = (this._weatherData?.current?.wind_speed_unit || "mph").toLowerCase();
       items = [
         { label: "Feels Like", value: h.apparent_temperature != null ? `${Math.round(h.apparent_temperature)}°` : "—" },
@@ -3781,7 +3795,7 @@ class HomeWeatherPanel extends HTMLElement {
       const lo = d.templow != null ? Math.round(d.templow) : "—";
       const dayLabel = this._formatDayLabel(d.datetime);
       title = `${hi}° / ${lo}°`;
-      sub = `${dayLabel} · ${this._formatConditionText(d.condition)}`;
+      sub = `${dayLabel} · ${this._formatConditionText(d)}`;
       items = [
         { label: "High", value: `${hi}°` },
         { label: "Low", value: `${lo}°` },
@@ -4600,7 +4614,7 @@ class HomeWeatherPanel extends HTMLElement {
                 <option value="">None</option>
                 ${(this._wwwSounds || []).map((f) => `<option value="${f}" ${nwsAlerts.sound_file === f ? "selected" : ""}>${f}</option>`).join("")}
               </select>
-              <p class="form-hint">Place <strong>.wav</strong> files (recommended) in <code>config/www/home_weather/sounds/</code>. Convert existing .mp3 with the <code>scripts/convert_alert_sounds.py</code> helper.</p>
+              <p class="form-hint">Place <strong>.wav</strong> files in <code>config/media/home_weather/sounds/</code> (copied automatically on setup). Convert existing .mp3 with the <code>scripts/convert_alert_sounds.py</code> helper.</p>
             </div>
             <div class="form-row-inline">
               <div class="form-group">

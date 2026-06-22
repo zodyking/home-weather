@@ -71,7 +71,7 @@ def main() -> int:
             print(f"Failed to convert {src}: {err.stderr.decode(errors='ignore')}", file=sys.stderr)
             return 1
 
-    print(f"Converted {len(sources)} file(s). Copy .wav files to config/www/home_weather/sounds/")
+    print(f"Converted {len(sources)} file(s). Copy .wav files to config/media/home_weather/sounds/")
     return 0
 
 

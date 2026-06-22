@@ -12,14 +12,19 @@ import asyncio
 import logging
 import re
 from datetime import datetime, timedelta
-from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
-from .const import NUMBER_WORDS, NWS_SOUNDS_WWW_SUBPATH
+from .condition_labels import (
+    condition_label_for_tts,
+    is_precipitation_active,
+    normalize_weather_condition,
+    precip_already_matches_upcoming,
+)
+from .const import NUMBER_WORDS, NWS_SOUNDS_SUBPATH
 from .sounds_setup import normalize_nws_sound_filename, sound_file_exists
 
 _LOGGER = logging.getLogger(__name__)
@@ -148,19 +153,8 @@ def _get_greeting() -> str:
 
 def _normalize_condition(condition: str) -> str:
     """Normalize weather condition for TTS pronunciation."""
-    if not condition:
-        return "current conditions"
-    
-    c = condition.lower().strip()
-    c = c.replace("-night", "").replace("-day", "")
-    c = c.replace("_night", "").replace("_day", "")
-    c = c.replace("_", " ").replace("-", " ")
-    c = c.replace("partlycloudy", "partly cloudy")
-    c = c.replace("mostlycloudy", "mostly cloudy")
-    c = c.replace("clearsky", "clear skies")
-    c = c.replace("thunderstorm", "thunderstorms")
-    
-    return c.strip()
+    slug = normalize_weather_condition(condition)
+    return condition_label_for_tts(slug)
 
 
 def _format_temperature(temp: int | float | None) -> str:
@@ -225,24 +219,42 @@ def _get_today_forecast(daily: list[dict]) -> dict | None:
     return daily[0] if daily else None
 
 
-def _get_upcoming_precipitation(hourly: list[dict], threshold: int = 30) -> list[dict]:
+def _get_upcoming_precipitation(
+    hourly: list[dict],
+    threshold: int = 30,
+    current: dict[str, Any] | None = None,
+) -> list[dict]:
     """Find upcoming precipitation events in the next 12 hours (future only)."""
+    if is_precipitation_active(current):
+        return []
+
     now = dt_util.now()
     upcoming = []
-    
+    current_slug = normalize_weather_condition(
+        (current or {}).get("condition") or (current or {}).get("state") or ""
+    )
+
     for h in hourly[:12]:
         h_time = _parse_datetime(h.get("datetime"))
         if h_time is None or h_time <= now:
-            continue  # Skip past hours
-        
+            continue
+
         precip_prob = h.get("precipitation_probability", 0) or 0
-        if precip_prob >= threshold:
-            upcoming.append({
-                "time": h_time,
-                "prob": precip_prob,
-                "condition": h.get("condition", "precipitation"),
-            })
-    
+        if precip_prob < threshold:
+            continue
+
+        hour_slug = normalize_weather_condition(h.get("condition") or "")
+        precip_kind = h.get("precipitation_kind") or h.get("condition")
+
+        if precip_already_matches_upcoming(current_slug, hour_slug, precip_kind):
+            continue
+
+        upcoming.append({
+            "time": h_time,
+            "prob": precip_prob,
+            "condition": h.get("condition", "precipitation"),
+        })
+
     return upcoming
 
 
@@ -321,7 +333,7 @@ def build_scheduled_forecast(
     
     # Upcoming precipitation
     precip_threshold = tts_config.get("precip_threshold", 30)
-    upcoming_precip = _get_upcoming_precipitation(hourly, precip_threshold)
+    upcoming_precip = _get_upcoming_precipitation(hourly, precip_threshold, current)
     if upcoming_precip:
         first = upcoming_precip[0]
         time_desc = _get_time_description(first["time"])
@@ -408,7 +420,7 @@ def build_webhook_message(
     
     # Most important: precipitation timing
     precip_threshold = tts_config.get("precip_threshold", 30)
-    upcoming_precip = _get_upcoming_precipitation(hourly, precip_threshold)
+    upcoming_precip = _get_upcoming_precipitation(hourly, precip_threshold, current)
     if upcoming_precip:
         first = upcoming_precip[0]
         time_desc = _get_time_description(first["time"])
@@ -1009,17 +1021,11 @@ def format_active_nws_alerts_for_tts(
 
 
 def nws_media_playback(sound_file: str) -> tuple[str, str]:
-    """Return /local/ playback URI and MIME type for an NWS siren file in www."""
+    """Return media-source playback URI and content type for an NWS siren file."""
     filename = normalize_nws_sound_filename(sound_file)
-    media_id = f"/local/{NWS_SOUNDS_WWW_SUBPATH}/{quote(filename)}"
-    ext = Path(filename).suffix.lower()
-    mime_map = {
-        ".wav": "audio/x-wav",
-        ".mp3": "audio/mpeg",
-        ".ogg": "audio/ogg",
-        ".flac": "audio/flac",
-    }
-    return media_id, mime_map.get(ext, "music")
+    encoded = quote(filename)
+    media_id = f"media-source://media_source/local/{NWS_SOUNDS_SUBPATH}/{encoded}"
+    return media_id, "music"
 
 
 async def play_nws_siren(
@@ -1036,7 +1042,7 @@ async def play_nws_siren(
         return
 
     if not sound_file_exists(hass, sound_file):
-        reason = f"Sound file not found in config/www/{NWS_SOUNDS_WWW_SUBPATH}/"
+        reason = f"Sound file not found in config/media/{NWS_SOUNDS_SUBPATH}/"
         _LOGGER.warning("NWS siren file missing: %s", sound_file)
         _fire_tts_status(
             hass,
@@ -1067,10 +1073,8 @@ async def play_nws_siren(
                 "play_media",
                 {
                     "entity_id": eid,
-                    "media": {
-                        "media_content_id": media_id,
-                        "media_content_type": media_type,
-                    },
+                    "media_content_id": media_id,
+                    "media_content_type": media_type,
                 },
                 blocking=True,
             )

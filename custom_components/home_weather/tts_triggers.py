@@ -24,6 +24,11 @@ from homeassistant.helpers.event import (
 )
 from homeassistant.util import dt as dt_util
 
+from .condition_labels import (
+    find_upcoming_precip_alert,
+    is_significant_condition_change,
+    normalize_weather_condition,
+)
 from .const import DOMAIN, WEBHOOK_LAST_TRIGGERED_KEY
 from .tts_notifications import (
     TTS_STATUS_EVENT,
@@ -75,13 +80,12 @@ def _is_alerts_active(config: dict[str, Any]) -> bool:
 
 
 def extract_weather_condition(state: Any) -> str:
-    """Read the weather condition from a state object."""
+    """Read and normalize the weather condition from a state object."""
     if not state:
         return ""
     condition = state.attributes.get("condition") if state.attributes else None
-    if condition:
-        return str(condition)
-    return str(state.state or "")
+    raw = str(condition) if condition else str(state.state or "")
+    return normalize_weather_condition(raw)
 
 
 def compute_trigger_hours(start_h: int, end_h: int, hour_pattern: int) -> list[int]:
@@ -394,6 +398,7 @@ class TTSTriggerManager:
                 not new_condition
                 or old_condition == new_condition
                 or self._last_condition == new_condition
+                or not is_significant_condition_change(old_condition, new_condition)
             ):
                 return
 
@@ -442,32 +447,32 @@ class TTSTriggerManager:
 
         weather_data = await self._resolve_weather_data(refresh=False)
         hourly = (weather_data or {}).get("hourly_forecast") or []
+        current = (weather_data or {}).get("current") or {}
         threshold = int(tts_config.get("precip_threshold", 30))
-        minutes_until = 30
-        precip_kind = "rain"
+        minutes_before = int(tts_config.get("minutes_before_announce", 30))
         probability = max(threshold, 60)
+        precip_kind = "rain"
+        minutes_until = minutes_before
 
-        now = dt_util.now()
-        for h in hourly:
-            try:
-                h_time_val = h.get("datetime")
-                if isinstance(h_time_val, str):
-                    h_time = dt_util.parse_datetime(h_time_val.replace("Z", "+00:00"))
-                else:
-                    h_time = h_time_val
-                if h_time and h_time.tzinfo is None:
-                    h_time = dt_util.as_local(h_time)
-                if not h_time or h_time <= now:
-                    continue
-                prob = int(h.get("precipitation_probability", 0) or 0)
-                if prob <= 0:
-                    continue
-                minutes_until = max(1, int((h_time - now).total_seconds() / 60))
-                probability = prob
-                precip_kind = h.get("precipitation_kind") or h.get("condition") or precip_kind
-                break
-            except Exception:
-                continue
+        match = find_upcoming_precip_alert(
+            current,
+            hourly,
+            minutes_before=minutes_before,
+            threshold=threshold,
+        )
+        if match:
+            minutes_until = match["minutes_until"]
+            probability = match["probability"]
+            precip_kind = match["precip_kind"]
+        else:
+            _LOGGER.info("Upcoming-change test skipped: precipitation already active or none in window")
+            _fire_tts_status(
+                self.hass, "skipped",
+                request_id=request_id,
+                reason="Precipitation already active or none in alert window",
+                alert_kind="upcoming_change",
+            )
+            return
 
         message = build_upcoming_change_message(precip_kind, minutes_until, probability)
         await dispatch_tts(
@@ -595,7 +600,7 @@ class TTSTriggerManager:
             _fire_tts_status(
                 self.hass, "failed",
                 request_id=request_id,
-                reason="Sound file not found in config/www/home_weather/sounds/",
+                reason="Sound file not found in config/media/home_weather/sounds/",
                 alert_kind="nws_siren",
             )
             return
@@ -1260,62 +1265,46 @@ class TTSTriggerManager:
 
         if not _weather_data_usable(weather_data):
             return
-        
+
         hourly = weather_data.get("hourly_forecast", [])
         current = weather_data.get("current") or {}
-        
-        # Don't alert if it's already precipitating
-        current_condition = (current.get("condition") or current.get("state", "")).lower()
-        if any(p in current_condition for p in ["rain", "snow", "sleet", "drizzle", "thunder"]):
-            return
-        
         now = dt_util.now()
-        alert_window = now + timedelta(minutes=minutes_before)
-        
-        for h in hourly:
-            precip_prob = h.get("precipitation_probability", 0) or 0
-            if precip_prob < threshold:
-                continue
-            
-            h_time_val = h.get("datetime")
-            if not h_time_val:
-                continue
-            
-            h_time = dt_util.parse_datetime(str(h_time_val).replace("Z", "+00:00")) if isinstance(h_time_val, str) else h_time_val
-            if h_time is None:
-                continue
-            # Ensure timezone-aware for comparison with now/alert_window
-            if h_time.tzinfo is None:
-                h_time = dt_util.as_local(h_time)
-            
-            # Check if within alert window
-            if now < h_time <= alert_window:
-                # Create unique key for this alert
-                alert_key = h_time.strftime("%Y-%m-%d-%H")
-                if alert_key in self._upcoming_alert_fired:
-                    continue
-                
-                self._upcoming_alert_fired.add(alert_key)
-                
-                # Calculate minutes until
-                minutes_until = int((h_time - now).total_seconds() / 60)
-                precip_kind = h.get("precipitation_kind") or h.get("condition", "precipitation")
-                
-                volume = None  # Volume controlled per media player
-                message = build_upcoming_change_message(precip_kind, minutes_until, precip_prob)
-                
-                await dispatch_tts(
-                    self.hass,
-                    media_players,
-                    tts_config,
-                    message,
-                    volume_override=volume,
-                    alert_kind="upcoming_change",
-                )
-                _LOGGER.info("Upcoming precip TTS sent: %s in %d minutes", precip_kind, minutes_until)
-                break  # Only alert for the first upcoming precip
-        
-        # Clean up old alerts (older than 2 hours); use string comparison to avoid naive/aware datetime mismatch
+
+        match = find_upcoming_precip_alert(
+            current,
+            hourly,
+            minutes_before=minutes_before,
+            threshold=threshold,
+            now=now,
+        )
+        if not match:
+            return
+
+        alert_key = match["alert_key"]
+        if alert_key in self._upcoming_alert_fired:
+            return
+
+        self._upcoming_alert_fired.add(alert_key)
+        message = build_upcoming_change_message(
+            match["precip_kind"],
+            match["minutes_until"],
+            match["probability"],
+        )
+
+        await dispatch_tts(
+            self.hass,
+            media_players,
+            tts_config,
+            message,
+            volume_override=None,
+            alert_kind="upcoming_change",
+        )
+        _LOGGER.info(
+            "Upcoming precip TTS sent: %s in %d minutes",
+            match["precip_kind"],
+            match["minutes_until"],
+        )
+
         cutoff_key = (now - timedelta(hours=2)).strftime("%Y-%m-%d-%H")
         self._upcoming_alert_fired = {k for k in self._upcoming_alert_fired if k > cutoff_key}
 

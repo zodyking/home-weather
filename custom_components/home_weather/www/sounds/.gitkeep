@@ -1,1 +1,1 @@
-# Place .wav alert sound files here for the NWS siren picker (bundled defaults copy to config/www on setup).
+# Bundled default NWS alert sounds (.wav). Copied to config/media/home_weather/sounds/ on setup.

@@ -6,13 +6,37 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.sun import is_day
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN, UPDATE_INTERVAL
+from .condition_labels import enrich_condition
 from .storage import HomeWeatherStorage
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _parse_forecast_dt(value: str | datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value
+    return dt_util.parse_datetime(str(value))
+
+
+def _is_night(hass: HomeAssistant, when: datetime | None) -> bool:
+    if when is None:
+        when = dt_util.now()
+    try:
+        return not is_day(hass, when)
+    except Exception:
+        return False
+
+
+def _apply_condition(raw: str | None, *, hass: HomeAssistant, when: datetime | None) -> tuple[str, str]:
+    slug, label = enrich_condition(raw, is_night=_is_night(hass, when))
+    return slug, label
 
 
 class WeatherCoordinator(DataUpdateCoordinator):
@@ -67,13 +91,19 @@ class WeatherCoordinator(DataUpdateCoordinator):
 
             # Get current conditions (use string keys - weather attr names vary by HA version)
             # Some entities expose native_* when using custom unit systems
+            raw_condition = state.attributes.get("condition") or state.state
+            now = dt_util.now()
+            condition_slug, condition_label = _apply_condition(
+                raw_condition, hass=self.hass, when=now
+            )
             current = {
                 "temperature": state.attributes.get("temperature")
                 or state.attributes.get("native_temperature"),
                 "apparent_temperature": state.attributes.get("apparent_temperature")
                 or state.attributes.get("native_apparent_temperature"),
-                "condition": state.attributes.get("condition"),
-                "state": state.state,
+                "condition": condition_slug,
+                "condition_label": condition_label,
+                "state": condition_slug,
                 "humidity": state.attributes.get("humidity"),
                 "wind_speed": state.attributes.get("wind_speed")
                 or state.attributes.get("native_wind_speed"),
@@ -112,12 +142,15 @@ class WeatherCoordinator(DataUpdateCoordinator):
                     forecast_data = result[weather_entity].get("forecast", [])
                     for item in forecast_data[:24]:
                         forecast_time = item.get("datetime") or item.get("forecast_time")
-                        if isinstance(forecast_time, str):
-                            forecast_time = dt_util.parse_datetime(forecast_time)
+                        parsed_time = _parse_forecast_dt(forecast_time)
+                        slug, label = _apply_condition(
+                            item.get("condition"), hass=self.hass, when=parsed_time
+                        )
                         entry = {
-                            "datetime": forecast_time.isoformat() if isinstance(forecast_time, datetime) else str(forecast_time) if forecast_time else "",
+                            "datetime": parsed_time.isoformat() if parsed_time else str(forecast_time or ""),
                             "temperature": item.get("temperature") or item.get("native_temperature"),
-                            "condition": item.get("condition"),
+                            "condition": slug,
+                            "condition_label": label,
                             "precipitation": item.get("precipitation", 0) or item.get("native_precipitation", 0),
                             "precipitation_probability": item.get("precipitation_probability", 0)
                             or item.get("native_precipitation_probability", 0),
@@ -152,13 +185,16 @@ class WeatherCoordinator(DataUpdateCoordinator):
                     forecast_data = result_daily[weather_entity].get("forecast", [])
                     for item in forecast_data[:7]:
                         forecast_time = item.get("datetime") or item.get("forecast_time")
-                        if isinstance(forecast_time, str):
-                            forecast_time = dt_util.parse_datetime(forecast_time)
+                        parsed_time = _parse_forecast_dt(forecast_time)
+                        slug, label = _apply_condition(
+                            item.get("condition"), hass=self.hass, when=parsed_time
+                        )
                         daily_forecast.append({
-                            "datetime": forecast_time.isoformat() if isinstance(forecast_time, datetime) else str(forecast_time) if forecast_time else "",
+                            "datetime": parsed_time.isoformat() if parsed_time else str(forecast_time or ""),
                             "temperature": item.get("temperature") or item.get("native_temperature"),
                             "templow": item.get("templow") or item.get("native_templow"),
-                            "condition": item.get("condition"),
+                            "condition": slug,
+                            "condition_label": label,
                             "precipitation": item.get("precipitation", 0) or item.get("native_precipitation", 0),
                             "precipitation_probability": item.get("precipitation_probability", 0)
                             or item.get("native_precipitation_probability", 0),

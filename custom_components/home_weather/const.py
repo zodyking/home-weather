@@ -54,8 +54,9 @@ DEFAULT_CONFIG: Final = {
     },
 }
 
-# Relative path under config/www for NWS alert siren files (media_source local)
-NWS_SOUNDS_WWW_SUBPATH: Final = "home_weather/sounds"
+# Relative path under config/media for NWS alert siren files (media_source local)
+NWS_SOUNDS_SUBPATH: Final = "home_weather/sounds"
+NWS_SOUNDS_WWW_SUBPATH: Final = NWS_SOUNDS_SUBPATH  # legacy alias
 
 # Update interval for weather coordinator (5 minutes)
 UPDATE_INTERVAL: Final = 300

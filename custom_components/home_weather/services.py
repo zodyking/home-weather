@@ -561,14 +561,19 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
     async def handle_list_www_sounds(
         hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
     ) -> None:
-        """List audio files in config/www/home_weather/sounds/ and bundled defaults."""
+        """List audio files in config/media/home_weather/sounds/."""
         from .sounds_setup import ensure_nws_sounds_dir, list_nws_sounds_merged
 
         await hass.async_add_executor_job(ensure_nws_sounds_dir, hass)
         sounds = await hass.async_add_executor_job(list_nws_sounds_merged, hass)
         connection.send_result(msg["id"], {"sounds": sounds})
 
-    @websocket_api.websocket_command({"type": "home_weather/get_hurricanes"})
+    @websocket_api.websocket_command(
+        {
+            vol.Required("type"): "home_weather/get_hurricanes",
+            vol.Optional("force_refresh", default=False): bool,
+        }
+    )
     @websocket_api.async_response
     async def handle_get_hurricanes(
         hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
@@ -581,7 +586,7 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
         if entry_data and entry_data.get("storage"):
             config = await entry_data["storage"].async_get()
 
-        force_refresh = bool(msg.get("force_refresh"))
+        force_refresh = msg["force_refresh"]
         try:
             payload = await async_get_hurricane_data(
                 hass, config, force_refresh=force_refresh
