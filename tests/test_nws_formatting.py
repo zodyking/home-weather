@@ -17,6 +17,20 @@ RIP_CURRENT = """
 * IMPACTS...Life threatening rip currents are likely for all people entering the surf zone.
 """
 
+SVR_WARNING = """
+SVROKX The National Weather Service in Upton NY has issued a
+
+* Severe Thunderstorm Warning for Southwest Suffolk and Southern Nassau Counties.
+
+* Until 345 PM EDT.
+
+* At 259 PM EDT, a severe thunderstorm was located near Levittown, moving east at 35 mph.
+
+HAZARD...60 mph wind gusts and penny size hail.
+
+&&
+"""
+
 
 def test_parse_nws_alert_description_structured_fields():
     result = parse_nws_alert_description(RIP_CURRENT)
@@ -56,3 +70,30 @@ def test_format_nws_alert_description_empty_input():
     assert format_nws_alert_for_tts({"event": "Test Alert"}) == (
         "National Weather Service Test Alert."
     )
+
+
+def test_parse_svr_warning_skips_vtec_preamble():
+    result = parse_nws_alert_description(SVR_WARNING)
+    assert result["what"] is not None
+    assert "has issued a" not in (result["what"] or "")
+    assert "SVROKX" not in (result["what"] or "")
+    assert "Severe Thunderstorm Warning" in (result["what"] or "")
+    assert result["additional"] is not None
+    assert "259 PM EDT" in result["additional"]
+
+
+def test_format_svr_warning_tts_uses_substantive_text():
+    result = format_nws_alert_for_tts(
+        {
+            "event": "Severe Thunderstorm Warning",
+            "description": SVR_WARNING,
+            "headline": (
+                "Severe Thunderstorm Warning issued June 22 at 2:59 PM EDT "
+                "until 3:45 PM EDT by NWS Upton NY"
+            ),
+        }
+    )
+    assert "has issued a" not in result
+    assert "SVROKX" not in result
+    assert "Severe Thunderstorm Warning" in result
+    assert "259 PM EDT" in result or "Levittown" in result

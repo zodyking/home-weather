@@ -1158,6 +1158,27 @@ class HomeWeatherPanel extends HTMLElement {
           border-bottom: var(--app-header-border-bottom, 1px solid var(--hw-border));
         }
         .topbar .icon-btn { flex-shrink: 0; width: 40px; min-width: 40px; height: 40px; min-height: 40px; }
+        .topbar-back-btn {
+          flex-shrink: 0;
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          height: 40px;
+          min-height: 40px;
+          padding: 0 12px;
+          margin-left: auto;
+          border: 1px solid var(--hw-border-strong);
+          background: var(--hw-input-bg);
+          border-radius: var(--radius-sm);
+          color: var(--hw-text);
+          font-size: 13px;
+          font-weight: 500;
+          cursor: pointer;
+          white-space: nowrap;
+          transition: background var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease);
+        }
+        .topbar-back-btn:hover { background: var(--hw-hover); border-color: var(--hw-border-strong); }
+        .topbar-back-btn svg { width: 20px; height: 20px; flex-shrink: 0; }
         .title-card { flex: 1; min-width: 0; display: flex; align-items: center; padding: 0 var(--space-2) 0 0; background: transparent; border: none; box-shadow: none; border-radius: 0; }
         .title-wrap { min-width: 0; flex: 1; overflow: hidden; }
         .eyebrow { color: var(--hw-muted); font-size: var(--fs-eyebrow); letter-spacing: 0.14em; text-transform: uppercase; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -1195,8 +1216,18 @@ class HomeWeatherPanel extends HTMLElement {
         .atmosphere-bg__gradient {
           position: absolute;
           inset: 0;
-          background-size: 200% 200%;
-          animation: atmosphereDrift 28s ease-in-out infinite alternate;
+          background-size: 220% 220%;
+          animation: atmosphereDrift 14s ease-in-out infinite alternate;
+        }
+        .atmosphere-bg__gradient::after {
+          content: "";
+          position: absolute;
+          inset: 0;
+          background: inherit;
+          background-size: inherit;
+          opacity: 0.45;
+          mix-blend-mode: soft-light;
+          animation: atmosphereDriftReverse 18s ease-in-out infinite alternate;
         }
         /* Clear sky */
         .atmosphere--clear.atmosphere--day .atmosphere-bg__gradient {
@@ -1279,15 +1310,45 @@ class HomeWeatherPanel extends HTMLElement {
           filter: blur(28px);
           background: rgba(255, 255, 255, 0.18);
         }
-        .atmosphere-bg__clouds::before { width: 55%; height: 35%; top: 8%; left: -10%; animation: cloudDriftA 48s ease-in-out infinite alternate; }
-        .atmosphere-bg__clouds::after { width: 45%; height: 30%; top: 18%; right: -8%; animation: cloudDriftB 56s ease-in-out infinite alternate; }
+        .atmosphere-bg__clouds::before { width: 55%; height: 35%; top: 8%; left: -10%; animation: cloudDriftA 28s ease-in-out infinite alternate, cloudBreathe 7s ease-in-out infinite alternate; }
+        .atmosphere-bg__clouds::after { width: 45%; height: 30%; top: 18%; right: -8%; animation: cloudDriftB 34s ease-in-out infinite alternate, cloudBreathe 9s ease-in-out infinite alternate-reverse; }
+        .atmosphere--clear .atmosphere-bg__clouds,
         .atmosphere--partly .atmosphere-bg__clouds,
         .atmosphere--cloudy .atmosphere-bg__clouds,
         .atmosphere--rain .atmosphere-bg__clouds,
         .atmosphere--storm .atmosphere-bg__clouds,
         .atmosphere--fog .atmosphere-bg__clouds { opacity: 1; }
+        .atmosphere--clear .atmosphere-bg__clouds { opacity: 0.35; }
+        .atmosphere--partly .atmosphere-bg__clouds { opacity: 0.65; }
         .atmosphere--cloudy .atmosphere-bg__clouds::before,
-        .atmosphere--cloudy .atmosphere-bg__clouds::after { background: rgba(200, 210, 220, 0.35); filter: blur(36px); }
+        .atmosphere--cloudy .atmosphere-bg__clouds::after {
+          background: rgba(200, 210, 220, 0.42);
+          filter: blur(36px);
+          box-shadow:
+            35vw 8vh 0 0 rgba(180, 190, 200, 0.28),
+            60vw 18vh 0 0 rgba(160, 175, 190, 0.22),
+            -8vw 22vh 0 0 rgba(190, 200, 210, 0.25);
+        }
+        .atmosphere-bg__motion {
+          position: absolute;
+          inset: -25%;
+          pointer-events: none;
+          opacity: 0;
+          background:
+            radial-gradient(ellipse 70% 45% at 18% 28%, rgba(255, 255, 255, 0.12) 0%, transparent 55%),
+            radial-gradient(ellipse 65% 40% at 78% 62%, rgba(255, 255, 255, 0.1) 0%, transparent 52%),
+            radial-gradient(ellipse 50% 35% at 48% 12%, rgba(255, 255, 255, 0.08) 0%, transparent 50%);
+          animation: skyMotion 20s ease-in-out infinite alternate;
+        }
+        .atmosphere--clear .atmosphere-bg__motion,
+        .atmosphere--partly .atmosphere-bg__motion,
+        .atmosphere--cloudy .atmosphere-bg__motion,
+        .atmosphere--rain .atmosphere-bg__motion,
+        .atmosphere--storm .atmosphere-bg__motion,
+        .atmosphere--fog .atmosphere-bg__motion,
+        .atmosphere--snow .atmosphere-bg__motion,
+        .atmosphere--sleet .atmosphere-bg__motion,
+        .atmosphere--hail .atmosphere-bg__motion { opacity: 1; }
         .atmosphere--night .atmosphere-bg__clouds::before,
         .atmosphere--night .atmosphere-bg__clouds::after { background: rgba(120, 130, 150, 0.22); }
         /* Rain particles */
@@ -1302,7 +1363,7 @@ class HomeWeatherPanel extends HTMLElement {
           background-size: 12px 24px;
         }
         .atmosphere--rain .atmosphere-bg__particles,
-        .atmosphere--storm .atmosphere-bg__particles { opacity: calc(0.55 + var(--atmosphere-intensity, 0.6) * 0.35); animation: rainFall 0.75s linear infinite; }
+        .atmosphere--storm .atmosphere-bg__particles { opacity: calc(0.55 + var(--atmosphere-intensity, 0.6) * 0.35); animation: rainFall 0.55s linear infinite; }
         .atmosphere--night.atmosphere--rain .atmosphere-bg__particles,
         .atmosphere--night.atmosphere--storm .atmosphere-bg__particles { background-image: repeating-linear-gradient(175deg, transparent, transparent 4px, rgba(130, 170, 210, 0.4) 4px, rgba(130, 170, 210, 0.4) 5px); }
         /* Snow particles */
@@ -1418,7 +1479,7 @@ class HomeWeatherPanel extends HTMLElement {
             radial-gradient(ellipse at 28% 18%, rgba(255, 255, 255, 0.1) 0%, transparent 55%),
             linear-gradient(180deg, rgba(255, 255, 255, 0.05) 0%, rgba(0, 0, 0, 0.35) 100%);
           opacity: var(--atmosphere-cloud, 0.45);
-          animation: cloudVeilPulse 9s ease-in-out infinite;
+          animation: cloudVeilPulse 6s ease-in-out infinite, skyMotion 24s ease-in-out infinite alternate-reverse;
         }
         .atmosphere-content {
           position: relative;
@@ -1434,40 +1495,32 @@ class HomeWeatherPanel extends HTMLElement {
           letter-spacing: 0.14em;
           text-transform: uppercase;
           color: rgba(255, 255, 255, 0.65);
+          text-align: center;
+          width: 100%;
         }
         .atmosphere-hero {
           display: flex;
           flex-direction: column;
+          align-items: center;
           gap: var(--space-4);
           min-width: 0;
+          width: 100%;
         }
         .atmosphere-hero-main {
           display: flex;
           flex-direction: column;
-          align-items: flex-start;
+          align-items: center;
+          justify-content: center;
           gap: var(--space-3);
+          width: 100%;
         }
         @media (min-width: 640px) {
           .atmosphere-hero-main {
             flex-direction: row;
             align-items: center;
+            justify-content: center;
             gap: var(--space-5);
           }
-        }
-        @media (max-width: 1099px) {
-          .atmosphere-eyebrow { text-align: center; width: 100%; }
-          .atmosphere-hero { align-items: stretch; width: 100%; }
-          .atmosphere-hero-main {
-            align-items: center;
-            justify-content: center;
-            width: 100%;
-          }
-          .atmosphere-headline { text-align: center; width: 100%; }
-          .atmosphere-temp-row { justify-content: center; }
-          .atmosphere-hilo { max-width: none; align-self: stretch; }
-        }
-        @media (min-width: 1100px) {
-          .atmosphere-hilo { max-width: 420px; }
         }
         .atmosphere-icon { display: flex; align-items: center; flex-shrink: 0; }
         .atmosphere-icon .weather-icon img {
@@ -1476,8 +1529,8 @@ class HomeWeatherPanel extends HTMLElement {
           object-fit: contain;
           filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.45));
         }
-        .atmosphere-headline { min-width: 0; }
-        .atmosphere-temp-row { display: flex; align-items: flex-start; gap: var(--space-2); }
+        .atmosphere-headline { min-width: 0; text-align: center; width: 100%; }
+        .atmosphere-temp-row { display: flex; align-items: flex-start; justify-content: center; gap: var(--space-2); }
         .atmosphere-temp {
           font-size: var(--fs-hero);
           font-weight: 700;
@@ -1506,7 +1559,7 @@ class HomeWeatherPanel extends HTMLElement {
           color: rgba(255, 255, 255, 0.72);
           margin-top: var(--space-1);
         }
-        .atmosphere-hilo { width: 100%; }
+        .atmosphere-hilo { width: 100%; max-width: none; align-self: stretch; }
         .atmosphere-hilo-labels {
           display: flex;
           justify-content: space-between;
@@ -1690,16 +1743,43 @@ class HomeWeatherPanel extends HTMLElement {
         .radar-card { display: flex; flex-direction: column; min-width: 0; }
         .radar-card > .collapsible-header { align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); }
         .radar-card .collapsible-header-left { flex: 1; min-width: 0; }
-        .radar-card .collapsible-header .switcher { flex-shrink: 0; margin-left: auto; }
-        .radar-card .collapsible-subtitle { display: none; }
-        .radar-card .radar-body { flex: 1 0 auto; min-height: 200px; display: flex; flex-direction: column; position: relative; }
+        .radar-card .collapsible-subtitle { display: block; }
+        .radar-card > .collapsible-content { gap: var(--space-3); padding-top: 0; }
+        .radar-toolbar {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: var(--space-2) var(--space-3);
+          flex-wrap: wrap;
+          width: 100%;
+          min-width: 0;
+        }
+        .radar-toolbar__modes { flex-shrink: 0; }
+        .radar-toolbar__metrics { display: none; flex: 1 1 auto; justify-content: flex-end; min-width: 0; }
+        .radar-toolbar--chart .radar-toolbar__metrics { display: flex; }
+        .radar-card .radar-body { flex: 1 0 auto; min-height: 150px; display: flex; flex-direction: column; position: relative; }
         .radar-card .radar-view { display: none; flex: 1; min-height: 0; flex-direction: column; }
         .radar-card .radar-view.active { display: flex; }
-        .windy-map-container { flex: 1; min-height: clamp(180px, 32vw, 260px); min-width: 0; position: relative; aspect-ratio: 16/10; max-height: 100%; border-radius: var(--radius-md); overflow: hidden; border: 1px solid var(--card-border); background: var(--secondary-background-color); }
+        .windy-map-container {
+          flex: 1;
+          min-height: clamp(150px, 22vw, 200px);
+          min-width: 0;
+          position: relative;
+          aspect-ratio: 16 / 9;
+          max-height: 220px;
+          border-radius: var(--radius-md);
+          overflow: hidden;
+          border: 1px solid var(--card-border);
+          background: var(--secondary-background-color);
+        }
         .windy-map-container iframe { width: 100%; height: 100%; border: none; display: block; }
         .windy-skeleton { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: var(--fs-small); }
-        .chart-container { flex: 1; min-height: clamp(180px, 28vw, 240px); min-width: 0; width: 100%; }
-        .radar-card .forecast-top { margin-bottom: var(--space-2); justify-content: flex-end; }
+        .chart-container { flex: 1; min-height: clamp(150px, 22vw, 220px); max-height: 220px; min-width: 0; width: 100%; }
+        @media (max-width: 480px) {
+          .radar-toolbar { flex-direction: column; align-items: stretch; }
+          .radar-toolbar__modes { align-self: flex-start; }
+          .radar-toolbar--chart .radar-toolbar__metrics { justify-content: flex-start; }
+        }
 
         /* Metric switcher */
         .metric-switcher { display: flex; align-items: center; gap: var(--space-1); background: var(--secondary-background-color); border: 1px solid var(--card-border); border-radius: 999px; padding: var(--space-1); flex-wrap: wrap; }
@@ -1785,16 +1865,28 @@ class HomeWeatherPanel extends HTMLElement {
         @keyframes cardIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes fadeSlideIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes atmosphereDrift {
-          0% { background-position: 0% 40%; }
-          100% { background-position: 100% 60%; }
+          0% { background-position: 0% 30%; transform: scale(1); }
+          100% { background-position: 100% 70%; transform: scale(1.04); }
+        }
+        @keyframes atmosphereDriftReverse {
+          0% { background-position: 100% 20%; opacity: 0.35; }
+          100% { background-position: 0% 80%; opacity: 0.55; }
         }
         @keyframes cloudDriftA {
-          0% { transform: translateX(0) translateY(0); }
-          100% { transform: translateX(12%) translateY(4px); }
+          0% { transform: translateX(0) translateY(0) scale(1); }
+          100% { transform: translateX(18%) translateY(8px) scale(1.08); }
         }
         @keyframes cloudDriftB {
-          0% { transform: translateX(0) translateY(0); }
-          100% { transform: translateX(-10%) translateY(-3px); }
+          0% { transform: translateX(0) translateY(0) scale(1); }
+          100% { transform: translateX(-16%) translateY(-6px) scale(1.06); }
+        }
+        @keyframes cloudBreathe {
+          0%, 100% { opacity: 0.75; filter: blur(28px); }
+          50% { opacity: 1; filter: blur(34px); }
+        }
+        @keyframes skyMotion {
+          0% { transform: translateX(-6%) translateY(-4%) scale(1); }
+          100% { transform: translateX(10%) translateY(5%) scale(1.06); }
         }
         @keyframes rainFall {
           0% { background-position: 0 0; }
@@ -1829,8 +1921,8 @@ class HomeWeatherPanel extends HTMLElement {
           100% { background-position: 100% 0; }
         }
         @keyframes cloudVeilPulse {
-          0%, 100% { opacity: calc(var(--atmosphere-cloud, 0.45) * 0.85); }
-          50% { opacity: var(--atmosphere-cloud, 0.45); }
+          0%, 100% { opacity: calc(var(--atmosphere-cloud, 0.45) * 0.75); }
+          50% { opacity: calc(var(--atmosphere-cloud, 0.45) * 1.15); }
         }
         @keyframes metricIn {
           from { opacity: 0; transform: translateY(10px); }
@@ -1844,8 +1936,10 @@ class HomeWeatherPanel extends HTMLElement {
           50% { transform: translateX(2px); opacity: 1; }
         }
         @media (prefers-reduced-motion: reduce) {
-          .atmosphere-bg__gradient { animation: none; }
+          .atmosphere-bg__gradient,
+          .atmosphere-bg__gradient::after { animation: none; transform: none; }
           .atmosphere-bg__veil { animation: none; }
+          .atmosphere-bg__motion { animation: none; }
           .atmosphere-bg__clouds::before,
           .atmosphere-bg__clouds::after,
           .atmosphere-bg__particles,
@@ -1859,22 +1953,32 @@ class HomeWeatherPanel extends HTMLElement {
           .metric-uv-fill { animation: none; }
           .metric-wind-arrow { animation: none; }
         }
-        .settings-view { padding: clamp(12px, 2vw, 18px); max-width: 1800px; margin: 0 auto; width: 100%; box-sizing: border-box; }
-        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px solid var(--card-border); flex-wrap: wrap; gap: 12px; }
-        .header-left { display: flex; align-items: center; gap: 12px; }
-        .header-right { display: flex; align-items: center; margin-left: auto; }
-        .header h1 { margin: 0; font-size: 20px; font-weight: 600; color: var(--primary-text-color); letter-spacing: -0.01em; }
-        .header-title-block { display: flex; flex-direction: column; }
-        .header-eyebrow { font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--secondary-text-color); }
-        .header-nav { display: flex; gap: 0; }
-        .header-btn { padding: 8px; background: transparent; border: none; border-radius: 8px; color: var(--primary-text-color); cursor: pointer; display: flex; align-items: center; justify-content: center; }
-        .header-btn:hover { background: var(--secondary-background-color); }
-        .header-btn svg { width: 24px; height: 24px; }
+        .settings-view {
+          display: flex;
+          flex-direction: column;
+          min-height: 100%;
+          max-width: none;
+          margin: 0;
+          padding: 0;
+          width: 100%;
+          box-sizing: border-box;
+        }
+        .settings-body {
+          flex: 1;
+          padding: clamp(12px, 2vw, 18px);
+          max-width: 1800px;
+          margin: 0 auto;
+          width: 100%;
+          box-sizing: border-box;
+        }
         .hamburger { display: none; padding: 8px; background: transparent; border: none; cursor: pointer; color: var(--primary-text-color); border-radius: 8px; }
         .hamburger:hover { background: var(--secondary-background-color); }
         .hamburger svg { width: 24px; height: 24px; display: block; }
         @media (max-width: 768px) { .hamburger { display: block; } }
         .narrow .hamburger { display: block; }
+        .topbar .hamburger.icon-btn { display: none; }
+        @media (max-width: 768px) { .topbar .hamburger.icon-btn { display: inline-flex; } }
+        .narrow .topbar .hamburger.icon-btn { display: inline-flex; }
         /* Settings design tokens */
         .settings-form {
           --form-gap: 16px;
@@ -1913,17 +2017,31 @@ class HomeWeatherPanel extends HTMLElement {
         .alert-expand:hover { background: var(--card-border); color: var(--primary-text-color); }
         .alert-card.expanded .alert-expand { transform: rotate(180deg); }
         .alert-card-head[data-alert-toggle] { cursor: pointer; }
-        .alert-body { font-size: 15px; color: var(--primary-text-color); line-height: 1.55; margin: 0; }
-        .alert-extra { font-size: 14px; color: var(--secondary-text-color); line-height: 1.55; margin: 0; display: none; }
-        .alert-card.expanded .alert-extra--collapsed { display: block; }
+        .alert-body { font-size: 15px; color: var(--primary-text-color); line-height: 1.55; margin: 0; overflow-wrap: anywhere; word-break: break-word; }
+        .alert-details { display: none; flex-direction: column; gap: 10px; }
+        .alert-card.expanded .alert-details { display: flex; }
+        .alert-detail-section {
+          width: 100%;
+          background: var(--secondary-background-color);
+          border: 1px solid var(--card-border);
+          border-radius: var(--radius-sm);
+          padding: 12px 14px;
+        }
+        .alert-detail-label { font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--secondary-text-color); margin-bottom: 6px; }
+        .alert-detail-value { font-size: 13px; color: var(--primary-text-color); line-height: 1.55; margin: 0; font-variant-numeric: tabular-nums; }
+        .alert-detail-section--text .alert-detail-value { color: var(--secondary-text-color); }
+        .alert-footer {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 8px 18px;
+          margin: 0;
+          padding-top: 10px;
+          border-top: 1px solid var(--card-border);
+        }
         .alert-pill { font-size: 10px; font-weight: 700; letter-spacing: 0.12em; padding: 3px 10px; border-radius: 999px; background: var(--secondary-background-color); color: var(--secondary-text-color); }
         .alert-card.sev-warning .alert-pill { background: rgba(244,67,54,0.15); color: #ff8a80; }
         .alert-card.sev-watch .alert-pill { background: rgba(255,152,0,0.15); color: #ffb74d; }
         .alert-card.sev-advisory .alert-pill { background: var(--panel-accent-dim); color: var(--panel-accent-hover); }
-        .alert-desc { font-size: 14px; color: var(--secondary-text-color); line-height: 1.55; margin: 0; }
-        .alert-meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px 18px; margin: 0; padding-top: 8px; border-top: 1px solid var(--card-border); }
-        .alert-meta dt { font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--secondary-text-color); }
-        .alert-meta dd { font-size: 13px; color: var(--primary-text-color); margin: 2px 0 0; font-variant-numeric: tabular-nums; }
 
         .settings-group { display: flex; flex-direction: column; gap: 12px; }
         .settings-group-title { font-size: 11px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--secondary-text-color); }
@@ -2016,8 +2134,16 @@ class HomeWeatherPanel extends HTMLElement {
           gap: 8px;
         }
         .media-player-list .settings-panel--player { margin: 0; }
-        .media-player-playback-grid { grid-template-columns: 1fr 120px auto; align-items: end; }
-        @media (max-width: 640px) { .media-player-playback-grid { grid-template-columns: 1fr; } }
+        .media-player-playback-block { display: flex; flex-direction: column; gap: var(--form-gap-sm); margin-bottom: var(--form-gap); }
+        .media-player-playback-block > .form-group { margin-bottom: 0; }
+        .playback-options-row {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          gap: var(--form-gap-sm) var(--form-gap);
+        }
+        .playback-options-row .form-group { margin-bottom: 0; flex: 0 1 148px; min-width: 120px; max-width: 180px; }
+        .playback-options-row .settings-toggle-row { margin-bottom: 0; }
         .media-player-actions { display: flex; justify-content: flex-end; padding-top: 4px; }
         .media-player-add-row { margin-top: 4px; }
         .media-player-add-row select { flex: 1; min-width: 0; }
@@ -2044,18 +2170,66 @@ class HomeWeatherPanel extends HTMLElement {
         .form-group input, .form-group select { padding: 10px 14px; height: var(--form-input-height); border: 1px solid var(--input-border); border-radius: 8px; background: var(--input-bg); color: var(--primary-text-color); font-size: 14px; box-sizing: border-box; }
         .form-group input[type="checkbox"] { width: auto; padding: 0; height: auto; }
         .form-row { display: flex; align-items: center; gap: var(--form-gap-sm); }
-        .form-row-inline { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--form-gap-sm); align-items: end; margin-bottom: var(--form-gap); }
+        .form-row-inline {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
+          gap: var(--form-gap-sm);
+          align-items: end;
+          margin-bottom: var(--form-gap);
+        }
         .form-row-inline .form-group { margin-bottom: 0; }
-        @media (max-width: 640px) { .form-row-inline { grid-template-columns: 1fr; } }
-        .settings-toggle-row { display: flex; align-items: center; justify-content: space-between; gap: var(--form-gap-sm); padding: 12px 0; }
-        .settings-toggle-row .inline-toggle-label { margin: 0; }
-        .form-group.settings-toggle-row { flex-direction: row; flex-wrap: nowrap; }
-        .days-of-week-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--form-gap-sm); margin-bottom: var(--form-gap); }
-        .day-toggle-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: var(--secondary-background-color); border-radius: 8px; }
-        .day-toggle-row .day-label { font-size: var(--form-label-size); font-weight: var(--form-label-weight); color: var(--primary-text-color); }
-        @media (max-width: 480px) { .days-of-week-grid { grid-template-columns: repeat(2, 1fr); } }
-        .form-group.settings-toggle-row { flex-direction: row; flex-wrap: nowrap; align-items: center; }
-        .form-group.settings-toggle-row label:first-of-type { margin-bottom: 0; flex: 1; }
+        .settings-toggle-row,
+        .inline-toggle {
+          display: inline-flex;
+          align-items: center;
+          flex-wrap: wrap;
+          gap: 8px 12px;
+          padding: 10px 14px;
+          margin-bottom: var(--form-gap-sm);
+          justify-content: flex-start;
+          background: rgba(255, 255, 255, 0.04);
+          border: 1px solid var(--hw-border);
+          border-radius: var(--radius-sm);
+          width: fit-content;
+          max-width: 100%;
+          box-sizing: border-box;
+        }
+        .settings-toggle-row--wide,
+        .inline-toggle--wide {
+          display: flex;
+          width: 100%;
+          max-width: min(520px, 100%);
+        }
+        .settings-toggle-row .inline-toggle-label,
+        .inline-toggle-label,
+        .settings-toggle-row > label:first-of-type:not(.toggle-switch) {
+          flex: 0 1 auto;
+          margin: 0;
+          font-size: var(--form-label-size);
+          font-weight: var(--form-label-weight);
+          color: var(--primary-text-color);
+          line-height: 1.35;
+        }
+        .settings-toggle-row .toggle-switch,
+        .inline-toggle .toggle-switch { flex-shrink: 0; }
+        .days-of-week-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--form-gap-sm); margin-bottom: var(--form-gap); }
+        .day-toggle-row {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 10px 12px;
+          background: var(--secondary-background-color);
+          border-radius: 8px;
+          min-width: 0;
+        }
+        .day-toggle-row .day-label {
+          flex: 0 1 auto;
+          font-size: var(--form-label-size);
+          font-weight: var(--form-label-weight);
+          color: var(--primary-text-color);
+        }
+        .day-toggle-row .toggle-switch { flex-shrink: 0; margin-left: auto; }
+        @media (max-width: 480px) { .days-of-week-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
         .form-row .btn-icon { padding: 8px 12px; min-width: auto; }
         .media-player-item { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: var(--card-background-color); border: 1px solid var(--card-border); border-radius: 8px; }
         .media-player-item select { flex: 1; }
@@ -2079,11 +2253,28 @@ class HomeWeatherPanel extends HTMLElement {
         .collapsible-header-left > div:last-child { min-width: 0; }
         .collapsible-title { font-size: 15px; font-weight: 600; color: var(--primary-text-color); }
         .collapsible-subtitle { font-size: 12px; color: var(--secondary-text-color); margin-top: 2px; }
-        .collapsible-chevron { width: 20px; height: 20px; color: var(--secondary-text-color); transition: transform 0.2s; flex-shrink: 0; }
-        .collapsible-section.open .collapsible-chevron { transform: rotate(180deg); }
+        .collapsible-chevron { width: 20px; height: 20px; color: var(--secondary-text-color); transition: transform 0.2s; flex-shrink: 0; pointer-events: none; }
+        .collapsible-toggle {
+          flex-shrink: 0;
+          width: 36px;
+          height: 36px;
+          min-width: 36px;
+          border: 1px solid var(--card-border);
+          background: var(--secondary-background-color);
+          border-radius: var(--radius-sm);
+          color: var(--secondary-text-color);
+          cursor: pointer;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          padding: 0;
+          transition: background 0.2s, border-color 0.2s, transform 0.2s;
+        }
+        .collapsible-toggle:hover { background: var(--card-border); color: var(--primary-text-color); }
+        .collapsible-section.open > .collapsible-header .collapsible-chevron { transform: rotate(180deg); }
         .collapsible-content { padding: var(--section-padding); display: none; flex-direction: column; gap: var(--form-gap); }
         .collapsible-header + .collapsible-content { border-top: 1px solid var(--card-border); }
-        .collapsible-section.open .collapsible-content { display: flex; }
+        .collapsible-section.open > .collapsible-content { display: flex; }
         .subsection-block { display: flex; flex-direction: column; gap: var(--form-gap-sm); }
         .subsection-title { font-size: 14px; font-weight: 600; color: var(--primary-text-color); margin-bottom: 4px; }
         .range-slider { display: flex; align-items: center; gap: 12px; width: 100%; }
@@ -2106,10 +2297,13 @@ class HomeWeatherPanel extends HTMLElement {
         .multi-select-item.selected { background: var(--accent-color); color: white; }
         .multi-select-item input { display: none; }
         .textarea-field { width: 100%; min-height: 100px; padding: 12px; border: 1px solid var(--input-border); border-radius: 8px; background: var(--input-bg); color: var(--primary-text-color); font-size: 14px; font-family: inherit; resize: vertical; }
-        .inline-toggle { display: flex; align-items: center; gap: 12px; padding: 12px 0; }
-        .inline-toggle-label { flex: 1; font-size: 14px; color: var(--primary-text-color); }
         .settings-section-divider { border: none; border-top: 1px solid var(--card-border); margin: 20px 0; }
-        .form-hint { font-size: 12px; color: var(--secondary-text-color); margin-bottom: 16px; }
+        .form-hint { font-size: 12px; color: var(--secondary-text-color); margin: 0 0 8px; line-height: 1.45; }
+        .settings-form .collapsible-content > .form-group:last-child,
+        .settings-form .collapsible-content > .inline-toggle:last-child,
+        .settings-form .collapsible-content > .settings-toggle-row:last-child,
+        .settings-form .collapsible-content > .media-player-playback-block:last-child { margin-bottom: 0; }
+        .settings-form .range-slider { max-width: min(440px, 100%); }
         .webhook-status-row { display: flex; align-items: center; gap: 10px; }
         .webhook-status-dot { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; }
         .webhook-status-dot.idle { background: var(--panel-danger); }
@@ -2152,21 +2346,10 @@ class HomeWeatherPanel extends HTMLElement {
       ${this._currentView === "forecast" || this._currentView === "alerts"
         ? this._currentView === "alerts"
           ? `<div class="settings-view ${this._isNarrow ? "narrow" : ""}">
-            <div class="header">
-              <div class="header-left">
-                <button class="hamburger" id="hamburger-btn" aria-label="Open Home Assistant sidebar">
-                  <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></svg>
-                </button>
-                <h1>NWS Alerts</h1>
-              </div>
-              <div class="header-right">
-                <button class="header-btn" id="back-btn" aria-label="Back to dashboard" data-view="forecast">
-                  <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
-                  <span style="margin-left:6px;font-size:14px">Back to dashboard</span>
-                </button>
-              </div>
-            </div>
+            ${this._renderPanelHeader("NWS Alerts", "")}
+            <div class="settings-body">
             ${this._renderContent()}
+            </div>
           </div>`
           : `<div class="hud-wrapper">
             <div class="weather-app">
@@ -2192,24 +2375,10 @@ class HomeWeatherPanel extends HTMLElement {
             </div>
           </div>`
         : `<div class="settings-view ${this._isNarrow ? "narrow" : ""}">
-            <div class="header">
-              <div class="header-left">
-                <button class="hamburger" id="hamburger-btn" aria-label="Open Home Assistant sidebar">
-                  <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></svg>
-                </button>
-                <div class="header-title-block">
-                  <div class="header-eyebrow">Home Weather</div>
-                  <h1>Settings</h1>
-                </div>
-              </div>
-              <div class="header-right">
-                <button class="header-btn" id="back-btn" aria-label="Back to dashboard" data-view="forecast">
-                  <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
-                  <span style="margin-left:6px;font-size:14px">Back to dashboard</span>
-                </button>
-              </div>
-            </div>
+            ${this._renderPanelHeader("Settings", "Home Weather")}
+            <div class="settings-body">
             ${this._renderContent()}
+            </div>
           </div>`
       }
     `;
@@ -2235,6 +2404,7 @@ class HomeWeatherPanel extends HTMLElement {
     });
     if (gearBtn) gearBtn.addEventListener("click", async () => {
       this._currentView = "settings";
+      this._expandedSections = new Set();
       await this._loadWwwSounds();
       this._render();
       this._loadWebhookInfo();
@@ -2283,7 +2453,7 @@ class HomeWeatherPanel extends HTMLElement {
       });
       s.querySelectorAll("[data-toggle-radar]").forEach((hdr) => {
         hdr.addEventListener("click", (e) => {
-          if (e.target.closest(".switcher, .metric-switcher, button")) return;
+          if (e.target.closest(".radar-toolbar, .switcher, .metric-switcher, button")) return;
           const card = hdr.closest(".collapsible-section");
           if (!card) return;
           const open = !card.classList.contains("open");
@@ -2337,13 +2507,8 @@ class HomeWeatherPanel extends HTMLElement {
     s.querySelectorAll(".dashboard .switcher button[data-radar-view]").forEach((btn) => {
       btn.classList.toggle("active", btn.dataset.radarView === this._radarView);
     });
-    // Show metric switcher only in chart view
-    s.querySelectorAll(".radar-metric-row, .metric-switcher").forEach((el) => {
-      if (el.classList.contains("metric-switcher")) {
-        el.style.display = this._radarView === "chart" ? "flex" : "none";
-      } else {
-        el.style.display = this._radarView === "chart" ? "flex" : "none";
-      }
+    s.querySelectorAll(".radar-toolbar").forEach((toolbar) => {
+      toolbar.classList.toggle("radar-toolbar--chart", this._radarView === "chart");
     });
     if (this._radarView === "chart") this._initApexChart();
   }
@@ -2394,7 +2559,34 @@ class HomeWeatherPanel extends HTMLElement {
     if (!s) return;
     s.querySelectorAll(".collapsible-section[data-section-id]").forEach((section) => {
       const id = section.dataset.sectionId;
-      section.classList.toggle("open", this._expandedSections.has(id));
+      const isOpen = this._expandedSections.has(id);
+      section.classList.toggle("open", isOpen);
+      const toggle = section.querySelector(":scope > .collapsible-header .collapsible-toggle");
+      if (toggle) toggle.setAttribute("aria-expanded", isOpen ? "true" : "false");
+    });
+  }
+
+  _handleCollapsibleToggle(sectionId, s) {
+    if (!sectionId) return;
+    this._toggleSection(sectionId);
+    this._applyExpandedSectionsToDom(s);
+  }
+
+  _attachCollapsibleHandlers(s) {
+    if (!s) return;
+    s.querySelectorAll(".collapsible-section[data-section-id] > .collapsible-header").forEach((header) => {
+      header.addEventListener("click", (e) => {
+        if (e.target.closest(".toggle-switch, button, input, select, textarea, label, .entity-autocomplete-dropdown, .collapsible-toggle")) return;
+        const section = header.closest(".collapsible-section");
+        this._handleCollapsibleToggle(section?.dataset?.sectionId, s);
+      });
+    });
+    s.querySelectorAll(".collapsible-toggle").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const section = btn.closest(".collapsible-section");
+        this._handleCollapsibleToggle(section?.dataset?.sectionId, s);
+      });
     });
   }
 
@@ -2410,16 +2602,7 @@ class HomeWeatherPanel extends HTMLElement {
     if (we) we.addEventListener("change", (e) => { this._settings.weather_entity = e.target.value || null; });
 
     // Collapsible sections — exclusive groups, all collapsed by default
-    s.querySelectorAll(".collapsible-header").forEach((header) => {
-      header.addEventListener("click", (e) => {
-        if (e.target.closest(".toggle-switch, button, input, select, textarea, label, .entity-autocomplete-dropdown")) return;
-        const section = header.closest(".collapsible-section");
-        const sectionId = section?.dataset?.sectionId;
-        if (!sectionId) return;
-        this._toggleSection(sectionId);
-        this._applyExpandedSectionsToDom(s);
-      });
-    });
+    this._attachCollapsibleHandlers(s);
     
     // Range sliders - update display value
     s.querySelectorAll('input[type="range"]').forEach((slider) => {
@@ -2904,6 +3087,7 @@ class HomeWeatherPanel extends HTMLElement {
           <div class="atmosphere-bg" aria-hidden="true">
             <div class="atmosphere-bg__gradient"></div>
             <div class="atmosphere-bg__clouds"></div>
+            <div class="atmosphere-bg__motion"></div>
             <div class="atmosphere-bg__particles"></div>
             <div class="atmosphere-bg__effects"></div>
             <div class="atmosphere-bg__veil"></div>
@@ -2997,16 +3181,18 @@ class HomeWeatherPanel extends HTMLElement {
                 <div class="collapsible-subtitle">Live map and hourly chart</div>
               </div>
             </div>
-            <div class="switcher radar-header-switcher">
-              <button type="button" class="${this._radarView === "map" ? "active" : ""}" data-radar-view="map">Map</button>
-              <button type="button" class="${this._radarView === "chart" ? "active" : ""}" data-radar-view="chart">Chart</button>
-            </div>
             <svg class="collapsible-chevron" viewBox="0 0 24 24" fill="currentColor"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/></svg>
           </div>
           <div class="collapsible-content">
-            <div class="forecast-top radar-metric-row" style="width:100%;${this._radarView !== "chart" ? " display:none;" : ""}">
-              <div class="metric-switcher">
-                ${Object.entries(metricLabels).map(([key, label]) => `<button type="button" class="${chartMetric === key ? "active" : ""}" data-chart-metric="${key}">${label}</button>`).join("")}
+            <div class="radar-toolbar${this._radarView === "chart" ? " radar-toolbar--chart" : ""}">
+              <div class="radar-toolbar__modes switcher">
+                <button type="button" class="${this._radarView === "map" ? "active" : ""}" data-radar-view="map">Map</button>
+                <button type="button" class="${this._radarView === "chart" ? "active" : ""}" data-radar-view="chart">Chart</button>
+              </div>
+              <div class="radar-toolbar__metrics">
+                <div class="metric-switcher">
+                  ${Object.entries(metricLabels).map(([key, label]) => `<button type="button" class="${chartMetric === key ? "active" : ""}" data-chart-metric="${key}">${label}</button>`).join("")}
+                </div>
               </div>
             </div>
             <div class="radar-body">
@@ -3315,37 +3501,80 @@ class HomeWeatherPanel extends HTMLElement {
     }
   }
 
+  _isNwsPreamble(text) {
+    const s = String(text || "").trim();
+    if (!s) return true;
+    if (/^[A-Z0-9]{4,8}\s/.test(s)) return true;
+    if (/\bhas issued an?\s*$/i.test(s)) return true;
+    if (/National Weather Service/i.test(s) && s.length < 120 && !/\b(at|until|hazard|warning for)\b/i.test(s)) return true;
+    return false;
+  }
+
   _parseNwsAlertDescription(raw) {
     const empty = { what: null, where: null, when: null, impacts: null, additional: null, other: [] };
-    if (!raw || !String(raw).trim()) return empty;
-    const text = String(raw).trim();
-    const result = { ...empty, other: [] };
-    const blocks = ("\n" + text).split(/\n\s*\*\s*/);
-    for (const block of blocks) {
-      const trimmed = block.trim();
-      if (!trimmed) continue;
+    const knownKeys = new Set(["what", "where", "when", "impacts", "additional", "additional details", "hazard", "source"]);
+    const assignField = (result, key, body) => {
+      if (key === "what") result.what = body;
+      else if (key === "where") result.where = body;
+      else if (key === "when") result.when = body;
+      else if (key === "impacts" || key === "hazard") result.impacts = result.impacts ? `${result.impacts} ${body}` : body;
+      else if (key === "additional" || key === "additional details") result.additional = body;
+      else result.other.push({ key, body });
+    };
+    const pushBullet = (result, body) => {
+      if (!body || body === "&&" || this._isNwsPreamble(body)) return;
+      if (!result.what) result.what = body;
+      else result.other.push({ key: null, body });
+    };
+    const processLine = (result, line) => {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed === "&&") return;
       const dotIdx = trimmed.indexOf("...");
       if (dotIdx !== -1) {
         const key = trimmed.slice(0, dotIdx).trim().replace(/\./g, "").toLowerCase();
         const body = trimmed.slice(dotIdx + 3).trim().replace(/\s+/g, " ");
-        if (!body) continue;
-        if (key === "what") result.what = body;
-        else if (key === "where") result.where = body;
-        else if (key === "when") result.when = body;
-        else if (key === "impacts") result.impacts = body;
-        else if (key === "additional" || key === "additional details") result.additional = body;
-        else result.other.push({ key, body });
-      } else {
-        const body = trimmed.replace(/^\*\s*/, "").replace(/\s+/g, " ").trim();
-        if (body && !result.what) result.what = body;
-        else if (body) result.other.push({ key: null, body });
+        if (knownKeys.has(key) && body) {
+          assignField(result, key, body);
+          return;
+        }
       }
+      pushBullet(result, trimmed.replace(/^\*\s*/, "").replace(/\s+/g, " ").trim());
+    };
+    if (!raw || !String(raw).trim()) return empty;
+    const text = String(raw).trim().replace(/\s*&&\s*$/g, "").trim();
+    const result = { ...empty, other: [] };
+    const blocks = ("\n" + text).split(/\n\s*\*\s*/);
+    for (const block of blocks) {
+      const trimmed = block.trim();
+      if (!trimmed || trimmed === "&&") continue;
+      if (this._isNwsPreamble(trimmed)) continue;
+      trimmed.split(/\n+/).forEach((line) => processLine(result, line));
+    }
+    if (result.what && this._isNwsPreamble(result.what)) {
+      result.what = null;
     }
     if (!result.what && !result.where && !result.when && result.other.length === 0) {
       const fallback = text.replace(/\*\s*/g, "").replace(/\.\.\./g, ". ").replace(/\s+/g, " ").trim();
-      if (fallback) result.what = fallback;
+      if (fallback && !this._isNwsPreamble(fallback)) result.what = fallback;
     }
     return result;
+  }
+
+  _pickAlertMainBody(alert, parsed) {
+    const headline = String(alert?.headline || "").trim();
+    const candidates = [];
+    if (parsed.what && !this._isNwsPreamble(parsed.what)) candidates.push(parsed.what);
+    if (headline) candidates.push(headline);
+    if (parsed.impacts) candidates.push(parsed.impacts);
+    for (const entry of parsed.other || []) {
+      if (entry?.body) candidates.push(entry.body);
+    }
+    if (parsed.additional) candidates.push(parsed.additional);
+    const picked = candidates.find((c) => c && !this._isNwsPreamble(c));
+    if (picked) return picked;
+    const bullets = (parsed.other || []).map((o) => o.body).filter(Boolean);
+    if (bullets.length >= 2) return `${bullets[0]} ${bullets[1]}`.trim();
+    return bullets[0] || headline || parsed.what || "";
   }
 
   _getActiveAlertCount() {
@@ -3396,34 +3625,48 @@ class HomeWeatherPanel extends HTMLElement {
       const descRaw = a.description || "";
       const parsed = this._parseNwsAlertDescription(descRaw);
       const esc = (s) => String(s).replace(/</g, "&lt;").replace(/>/g, "&gt;");
-      const mainBody = parsed.what || parsed.impacts || parsed.additional || (parsed.other[0]?.body ?? "");
+      const mainBody = this._pickAlertMainBody(a, parsed);
       const extraParts = [];
       if (parsed.impacts && parsed.impacts !== mainBody) extraParts.push(parsed.impacts);
-      if (parsed.additional) extraParts.push(parsed.additional);
-      parsed.other.forEach((o) => extraParts.push(o.body));
+      if (parsed.additional && parsed.additional !== mainBody) extraParts.push(parsed.additional);
+      parsed.other.forEach((o) => {
+        if (o.body && o.body !== mainBody && !extraParts.includes(o.body)) extraParts.push(o.body);
+      });
       const extraText = extraParts.join(" ");
-      const isLong = extraText.length > 120;
+      const isLong = extraText.length > 120 || mainBody.length > 160;
       const effective = a.effective ? new Date(a.effective).toLocaleString() : "—";
       const expires = a.expires ? new Date(a.expires).toLocaleString() : "—";
       const sev = String(a.event || "").toLowerCase();
       const sevClass = sev.includes("warning") ? "sev-warning" : sev.includes("watch") ? "sev-watch" : "sev-advisory";
       const sevLabel = sevClass.replace("sev-", "");
-      const metaFields = [];
-      if (parsed.where) metaFields.push({ label: "Where", value: parsed.where });
-      if (parsed.when) metaFields.push({ label: "When", value: parsed.when });
-      metaFields.push({ label: "Effective", value: effective });
-      metaFields.push({ label: "Expires", value: expires });
-      const metaHtml = metaFields.map((f) => `<div><dt>${esc(f.label)}</dt><dd>${esc(f.value)}</dd></div>`).join("");
+      const hasWhere = !!parsed.where;
+      const hasWhen = !!parsed.when;
+      const hasDetails = hasWhere || hasWhen || isLong || extraParts.length > 0;
+      const detailSections = [];
+      if (hasWhere) {
+        detailSections.push(`<div class="alert-detail-section"><div class="alert-detail-label">Where</div><p class="alert-detail-value">${esc(parsed.where)}</p></div>`);
+      }
+      if (hasWhen) {
+        detailSections.push(`<div class="alert-detail-section"><div class="alert-detail-label">When</div><p class="alert-detail-value">${esc(parsed.when)}</p></div>`);
+      }
+      if (isLong) {
+        detailSections.push(`<div class="alert-detail-section alert-detail-section--text"><p class="alert-detail-value">${esc(extraText)}</p></div>`);
+      }
+      const detailsHtml = hasDetails ? `<div class="alert-details">${detailSections.join("")}</div>` : "";
+      const footerHtml = `<footer class="alert-footer">
+        <div><div class="alert-detail-label">Effective</div><p class="alert-detail-value">${esc(effective)}</p></div>
+        <div><div class="alert-detail-label">Expires</div><p class="alert-detail-value">${esc(expires)}</p></div>
+      </footer>`;
       return `<article class="alert-card ${sevClass}" data-alert-index="${i}">
-        <header class="alert-card-head" data-alert-toggle="${i}">
+        <header class="alert-card-head"${hasDetails ? ` data-alert-toggle="${i}"` : ""}>
           <span class="alert-severity-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor" width="22" height="22">${severityIcon(sevClass)}</svg></span>
           <span class="alert-pill">${sevLabel.toUpperCase()}</span>
           <h3>${event}</h3>
-          ${isLong ? `<button class="alert-expand" aria-label="Toggle details" data-alert-expand="${i}"><svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/></svg></button>` : ""}
+          ${hasDetails ? `<button class="alert-expand" aria-label="Toggle details" data-alert-expand="${i}"><svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/></svg></button>` : ""}
         </header>
         ${mainBody ? `<p class="alert-body">${esc(mainBody)}</p>` : ""}
-        ${isLong ? `<div class="alert-extra alert-extra--collapsed" data-alert-extra="${i}">${esc(extraText)}</div>` : ""}
-        <dl class="alert-meta">${metaHtml}</dl>
+        ${detailsHtml}
+        ${footerHtml}
       </article>`;
     }).join("");
     return `<section class="alerts-page"><h2 class="alerts-title">Active weather alerts</h2><div class="alerts-list">${rows}</div></section>`;
@@ -3461,6 +3704,29 @@ class HomeWeatherPanel extends HTMLElement {
         this._alertsLoading = false;
         this._render();
       });
+  }
+
+  _renderPanelHeader(title, eyebrow = "") {
+    const eyebrowHtml = eyebrow
+      ? `<div class="eyebrow">${eyebrow}</div>`
+      : "";
+    return `
+      <header class="topbar">
+        <button class="hamburger icon-btn" id="hamburger-btn" aria-label="Open Home Assistant sidebar">
+          <svg viewBox="0 0 24 24" fill="currentColor" width="22" height="22"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></svg>
+        </button>
+        <section class="title-card">
+          <div class="title-wrap">
+            ${eyebrowHtml}
+            <div class="title">${title}</div>
+          </div>
+        </section>
+        <button type="button" class="topbar-back-btn" id="back-btn" aria-label="Back to dashboard" data-view="forecast">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+          <span>Back to dashboard</span>
+        </button>
+      </header>
+    `;
   }
 
   _renderSettings() {
@@ -3504,7 +3770,8 @@ class HomeWeatherPanel extends HTMLElement {
     // Track expanded sections — all collapsed by default
     if (!this._expandedSections) this._expandedSections = new Set();
 
-    const chevronSvg = `<svg class="collapsible-chevron" viewBox="0 0 24 24" fill="currentColor"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/></svg>`;
+    const chevronSvg = `<svg class="collapsible-chevron" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/></svg>`;
+    const chevronBtn = (expanded = false) => `<button type="button" class="collapsible-toggle" aria-label="Toggle section" aria-expanded="${expanded ? "true" : "false"}">${chevronSvg}</button>`;
 
     const entityFriendlyName = (entityId, fallback = "New player") => {
       if (!entityId) return fallback;
@@ -3546,7 +3813,7 @@ class HomeWeatherPanel extends HTMLElement {
               ${subtitle ? `<div class="collapsible-subtitle">${subtitle}</div>` : ""}
             </div>
           </div>
-          ${chevronSvg}
+          ${chevronBtn(this._expandedSections.has(id))}
         </div>
         <div class="collapsible-content">
           ${content}
@@ -3560,7 +3827,7 @@ class HomeWeatherPanel extends HTMLElement {
           <div class="collapsible-header-left">
             <div class="collapsible-title">${title}</div>
           </div>
-          ${chevronSvg}
+          ${chevronBtn(this._expandedSections.has(id))}
         </div>
         <div class="collapsible-content collapsible-content--category">
           ${subtitle ? `<p class="settings-category-hint">${subtitle}</p>` : ""}
@@ -3581,7 +3848,7 @@ class HomeWeatherPanel extends HTMLElement {
           <div class="collapsible-header-left">
             <div class="collapsible-title">${title}${optionalTag}</div>
           </div>
-          ${chevronSvg}
+          ${chevronBtn(this._expandedSections.has(id))}
         </div>
         <div class="collapsible-content">
           ${content}
@@ -3613,7 +3880,7 @@ class HomeWeatherPanel extends HTMLElement {
         </div>
       `;
       const playbackBlock = `
-        <div class="form-row-inline media-player-playback-grid">
+        <div class="media-player-playback-block">
           <div class="form-group">
             <label>Volume</label>
             <div class="range-slider">
@@ -3621,16 +3888,18 @@ class HomeWeatherPanel extends HTMLElement {
               <span class="range-value">${Math.round((m.volume || 0.6) * 100)}%</span>
             </div>
           </div>
-          <div class="form-group">
-            <label>Preroll (ms)</label>
-            <input type="number" class="media-player-preroll" data-field="preroll_ms" min="0" max="2000" step="50" value="${m.preroll_ms ?? 150}"/>
-          </div>
-          <div class="form-group settings-toggle-row">
-            <label>Cache TTS</label>
-            <label class="toggle-switch">
-              <input type="checkbox" class="media-player-cache" data-field="cache" ${m.cache ? "checked" : ""}/>
-              <span class="toggle-slider"></span>
-            </label>
+          <div class="playback-options-row">
+            <div class="form-group">
+              <label>Preroll (ms)</label>
+              <input type="number" class="media-player-preroll" data-field="preroll_ms" min="0" max="2000" step="50" value="${m.preroll_ms ?? 150}"/>
+            </div>
+            <div class="settings-toggle-row">
+              <span class="inline-toggle-label">Cache TTS</span>
+              <label class="toggle-switch">
+                <input type="checkbox" class="media-player-cache" data-field="cache" ${m.cache ? "checked" : ""}/>
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
           </div>
         </div>
       `;
@@ -3841,7 +4110,7 @@ class HomeWeatherPanel extends HTMLElement {
                 ${renderSlider("nws-alerts-tts-volume", nwsAlerts.tts_volume, 0, 1, 0.05, "%")}
               </div>
             </div>
-            <div class="inline-toggle" style="padding-top: 0;">
+            <div class="inline-toggle inline-toggle--wide">
               <span class="inline-toggle-label">Replay active alerts after time-based forecasts</span>
               <label class="toggle-switch">
                 <input type="checkbox" id="nws-alerts-replay-forecast" ${nwsAlerts.replay_on_time_based_forecast !== false ? "checked" : ""}/>
@@ -3956,7 +4225,7 @@ class HomeWeatherPanel extends HTMLElement {
                         </select>
                       </div>
                     </div>
-                    <div class="settings-toggle-row">
+                    <div class="inline-toggle">
                       <span class="inline-toggle-label">Enabled</span>
                       <label class="toggle-switch">
                         <input type="checkbox" class="webhook-enabled" data-idx="${i}" ${wh.enabled !== false ? "checked" : ""}/>

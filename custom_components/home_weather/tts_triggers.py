@@ -579,11 +579,23 @@ class TTSTriggerManager:
             )
             return
         nws = config.get("nws_alerts", {})
-        if not (nws.get("sound_file") or "").strip():
+        from .sounds_setup import normalize_nws_sound_filename, sound_file_exists
+
+        sound_file = normalize_nws_sound_filename(nws.get("sound_file") or "")
+        if not sound_file:
             _LOGGER.warning("No NWS siren sound file configured")
             _fire_tts_status(
                 self.hass, "skipped",
                 request_id=request_id, reason="No siren sound file configured",
+                alert_kind="nws_siren",
+            )
+            return
+        if not sound_file_exists(self.hass, sound_file):
+            _LOGGER.warning("NWS siren sound file not found: %s", sound_file)
+            _fire_tts_status(
+                self.hass, "failed",
+                request_id=request_id,
+                reason="Sound file not found in config/www/home_weather/sounds/",
                 alert_kind="nws_siren",
             )
             return

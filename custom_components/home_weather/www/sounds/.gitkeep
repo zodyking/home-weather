@@ -1,1 +1,1 @@
-# Place .mp3, .wav, or .ogg audio files here for the NWS alerts siren picker.
+# Place .wav alert sound files here for the NWS siren picker (bundled defaults copy to config/www on setup).

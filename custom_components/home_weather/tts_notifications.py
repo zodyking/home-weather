@@ -14,11 +14,13 @@ import re
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
 from .const import NUMBER_WORDS, NWS_SOUNDS_WWW_SUBPATH
+from .sounds_setup import normalize_nws_sound_filename, sound_file_exists
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -811,6 +813,24 @@ async def send_tts_with_ai_rewrite(
     )
 
 
+def _is_nws_preamble(text: str) -> bool:
+    """Return True for VTEC lead-in blocks that are not useful alert content."""
+    s = text.strip()
+    if not s:
+        return True
+    if re.match(r"^[A-Z0-9]{4,8}\s", s):
+        return True
+    if re.search(r"\bhas issued an?\s*$", s, re.IGNORECASE):
+        return True
+    if (
+        re.search(r"National Weather Service", s, re.IGNORECASE)
+        and len(s) < 120
+        and not re.search(r"\b(at|until|hazard|warning for)\b", s, re.IGNORECASE)
+    ):
+        return True
+    return False
+
+
 def parse_nws_alert_description(raw: str) -> dict[str, str | None]:
     """Parse NWS bullet-style descriptions into structured fields."""
     result: dict[str, str | None] = {
@@ -820,47 +840,67 @@ def parse_nws_alert_description(raw: str) -> dict[str, str | None]:
         "impacts": None,
         "additional": None,
     }
+    known_keys = frozenset(
+        {"what", "where", "when", "impacts", "additional", "additional details", "hazard", "source"}
+    )
+    other: list[str] = []
+
+    def assign_field(key: str, body: str) -> None:
+        if key == "what":
+            result["what"] = body
+        elif key == "where":
+            result["where"] = body
+        elif key == "when":
+            result["when"] = body
+        elif key in ("impacts", "hazard"):
+            prev = result.get("impacts")
+            result["impacts"] = f"{prev} {body}".strip() if prev else body
+        elif key in ("additional", "additional details"):
+            result["additional"] = body
+        else:
+            other.append(body)
+
+    def push_bullet(body: str) -> None:
+        if not body or body == "&&" or _is_nws_preamble(body):
+            return
+        if not result["what"]:
+            result["what"] = body
+        else:
+            other.append(body)
+
+    def process_line(line: str) -> None:
+        trimmed = line.strip()
+        if not trimmed or trimmed == "&&":
+            return
+        if "..." in trimmed:
+            head, _, tail = trimmed.partition("...")
+            key = head.strip().rstrip(".").lower()
+            body = " ".join(tail.split())
+            if key in known_keys and body:
+                assign_field(key, body)
+                return
+        clean = re.sub(r"\*+\s*", "", trimmed)
+        clean = " ".join(clean.split())
+        push_bullet(clean)
+
     if not raw or not raw.strip():
         return result
 
-    text = raw.strip()
-    other: list[str] = []
-
+    text = re.sub(r"\s*&&\s*$", "", raw.strip())
     for chunk in re.split(r"\n\s*\*\s*", "\n" + text):
         chunk = chunk.strip()
-        if not chunk:
+        if not chunk or chunk == "&&" or _is_nws_preamble(chunk):
             continue
-        if "..." in chunk:
-            head, _, tail = chunk.partition("...")
-            key = head.strip().rstrip(".").lower()
-            body = " ".join(tail.split())
-            if not body:
-                continue
-            if key == "what":
-                result["what"] = body
-            elif key == "where":
-                result["where"] = body
-            elif key == "when":
-                result["when"] = body
-            elif key == "impacts":
-                result["impacts"] = body
-            elif key in ("additional", "additional details"):
-                result["additional"] = body
-            else:
-                other.append(body)
-        else:
-            clean = re.sub(r"\*+\s*", "", chunk)
-            clean = " ".join(clean.split())
-            if clean:
-                if not result["what"]:
-                    result["what"] = clean
-                else:
-                    other.append(clean)
+        for line in chunk.splitlines():
+            process_line(line)
+
+    if result["what"] and _is_nws_preamble(result["what"]):
+        result["what"] = None
 
     if not any(result.values()) and not other:
         fallback = re.sub(r"\*+\s*", "", text).replace("...", ". ")
         fallback = " ".join(fallback.split())
-        if fallback:
+        if fallback and not _is_nws_preamble(fallback):
             result["what"] = fallback
 
     if other:
@@ -969,9 +1009,9 @@ def format_active_nws_alerts_for_tts(
 
 
 def nws_media_playback(sound_file: str) -> tuple[str, str]:
-    """Return media_source URI and MIME type for an NWS siren file."""
-    filename = sound_file.strip().lstrip("/")
-    media_id = f"media-source://media_source/local/{NWS_SOUNDS_WWW_SUBPATH}/{filename}"
+    """Return /local/ playback URI and MIME type for an NWS siren file in www."""
+    filename = normalize_nws_sound_filename(sound_file)
+    media_id = f"/local/{NWS_SOUNDS_WWW_SUBPATH}/{quote(filename)}"
     ext = Path(filename).suffix.lower()
     mime_map = {
         ".wav": "audio/x-wav",
@@ -989,10 +1029,22 @@ async def play_nws_siren(
     *,
     request_id: str | None = None,
 ) -> None:
-    """Play the configured NWS siren on all media players via media_source."""
+    """Play the configured NWS siren on all media players via /local/ www path."""
     nws = config.get("nws_alerts", {})
-    sound_file = (nws.get("sound_file") or "").strip()
+    sound_file = normalize_nws_sound_filename(nws.get("sound_file") or "")
     if not sound_file or not media_players_config:
+        return
+
+    if not sound_file_exists(hass, sound_file):
+        reason = f"Sound file not found in config/www/{NWS_SOUNDS_WWW_SUBPATH}/"
+        _LOGGER.warning("NWS siren file missing: %s", sound_file)
+        _fire_tts_status(
+            hass,
+            "failed",
+            request_id=request_id,
+            reason=reason,
+            alert_kind="nws_siren",
+        )
         return
 
     sound_vol = max(0, min(1, float(nws.get("sound_volume", 0.8))))

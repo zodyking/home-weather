@@ -561,11 +561,11 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
     async def handle_list_www_sounds(
         hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
     ) -> None:
-        """List audio files in config/www/home_weather/sounds/."""
-        from .sounds_setup import ensure_nws_sounds_dir, list_nws_sound_files
+        """List audio files in config/www/home_weather/sounds/ and bundled defaults."""
+        from .sounds_setup import ensure_nws_sounds_dir, list_nws_sounds_merged
 
-        sounds_dir = await hass.async_add_executor_job(ensure_nws_sounds_dir, hass)
-        sounds = await hass.async_add_executor_job(list_nws_sound_files, sounds_dir)
+        await hass.async_add_executor_job(ensure_nws_sounds_dir, hass)
+        sounds = await hass.async_add_executor_job(list_nws_sounds_merged, hass)
         connection.send_result(msg["id"], {"sounds": sounds})
 
     websocket_api.async_register_command(hass, handle_get_config)
