@@ -6,7 +6,9 @@ from custom_components.home_weather.earthquake_data import (
     detect_earthquake_events,
     parse_earthquake_feature,
     parse_earthquake_features,
+    parse_earthquake_features_for_map,
     passes_earthquake_filters,
+    passes_map_filters,
 )
 
 HOME = {"lat": 35.1, "lon": -96.1}
@@ -47,7 +49,7 @@ FAR_EQ = {
     "properties": {
         **NEAR_EQ["properties"],
         "id": "us7000abc3",
-        "mag": 4.1,
+        "mag": 4.8,
         "place": "Off coast of Alaska",
     },
     "geometry": {
@@ -80,8 +82,11 @@ DEFAULT_EQ_CONFIG = {
     "enabled": True,
     "min_magnitude": 2.5,
     "radius_miles": 500,
-    "feed_type": "2.5_day",
+    "feed_type": "all_hour",
     "tsunami_alert_enabled": True,
+    "map_show_worldwide": True,
+    "map_min_magnitude": 4.5,
+    "map_feed_type": "4.5_week",
 }
 
 
@@ -158,9 +163,23 @@ def test_missing_geometry_handled_safely():
 
 def test_build_coordinator_payload_nearest_first():
     events = parse_earthquake_features([FAR_EQ, NEAR_EQ], HOME, {**DEFAULT_EQ_CONFIG, "radius_miles": 5000})
-    payload = build_coordinator_payload(events)
+    map_events = parse_earthquake_features_for_map([FAR_EQ, NEAR_EQ, LOW_MAG_EQ], HOME, DEFAULT_EQ_CONFIG)
+    payload = build_coordinator_payload(events, map_events)
     assert payload["active_count"] == 2
+    assert payload["map_count"] == 1
     assert payload["nearby_active"] is True
     assert payload["primary_event"]["id"] == "us7000abc1"
     assert payload["geojson"]["type"] == "FeatureCollection"
-    assert len(payload["geojson"]["features"]) == 2
+    assert len(payload["geojson"]["features"]) == 1
+    assert payload["geojson"]["features"][0]["properties"]["nearby"] is True
+
+
+def test_map_filters_ignore_radius():
+    event = parse_earthquake_feature(FAR_EQ, HOME)
+    assert event is not None
+    assert not passes_earthquake_filters(event, DEFAULT_EQ_CONFIG)
+    assert passes_map_filters(event, DEFAULT_EQ_CONFIG)
+
+    map_events = parse_earthquake_features_for_map([FAR_EQ, LOW_MAG_EQ, NEAR_EQ], HOME, DEFAULT_EQ_CONFIG)
+    assert len(map_events) == 1
+    assert map_events[0]["id"] == "us7000abc3"

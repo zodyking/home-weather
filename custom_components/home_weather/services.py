@@ -643,8 +643,10 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
                 msg["id"],
                 {
                     "events": [],
+                    "map_events": [],
                     "geojson": {"type": "FeatureCollection", "features": []},
                     "active_count": 0,
+                    "map_count": 0,
                     "nearby_active": False,
                 },
             )

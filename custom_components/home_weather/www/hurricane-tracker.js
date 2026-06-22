@@ -344,9 +344,7 @@
           backdrop-filter: blur(6px);
         }
         .leaflet-control-attribution a { color: #90caf9 !important; }
-        .hw-forecast-label,
-        .hw-outlook-label,
-        .hw-storm-track-label {
+        .hw-forecast-label {
           background: rgba(17, 20, 28, 0.88);
           color: #fff;
           border: 1px solid rgba(255,255,255,0.12);
@@ -357,70 +355,44 @@
           box-shadow: 0 4px 12px rgba(0,0,0,0.35);
           backdrop-filter: blur(8px);
         }
-        .hw-outlook-label { color: #ffb74d; }
         .hw-tornado-polygon {
           stroke: #e040fb;
           fill: rgba(224, 64, 251, 0.18);
         }
-        .hw-tornado-label {
-          background: rgba(74, 20, 140, 0.92);
-          color: #f3e5f5;
-          border: 1px solid rgba(224, 64, 251, 0.55);
-          border-radius: 6px;
-          padding: 3px 8px;
-          font-size: 11px;
-          font-weight: 600;
-          box-shadow: 0 4px 12px rgba(0,0,0,0.35);
+        .hw-hazard-icon-marker {
+          background: transparent;
+          border: none;
         }
-        .hw-earthquake-marker {
-          border-radius: 50%;
-          border: 2px solid rgba(255,255,255,0.85);
-          box-shadow: 0 0 0 2px rgba(0,0,0,0.35);
-        }
-        .hw-earthquake-marker.is-tsunami {
-          box-shadow: 0 0 0 3px rgba(3,169,244,0.75), 0 0 12px rgba(3,169,244,0.45);
-        }
-        .hw-earthquake-label {
-          background: rgba(20, 24, 28, 0.92);
-          color: #ffe082;
-          border: 1px solid rgba(255, 193, 7, 0.45);
-          border-radius: 6px;
-          padding: 3px 8px;
-          font-size: 11px;
-          font-weight: 600;
-          box-shadow: 0 4px 12px rgba(0,0,0,0.35);
-        }
-        .hw-storm-marker-wrap {
+        .hw-hazard-icon-wrap {
           display: flex;
-          flex-direction: column;
           align-items: center;
-          gap: 6px;
-          text-align: center;
-          transform: translate(-50%, -50%);
+          justify-content: center;
+          filter: drop-shadow(0 2px 8px rgba(0,0,0,0.5));
         }
-        .hw-storm-name {
-          background: rgba(17, 20, 28, 0.92);
-          color: #fff;
-          border: 1px solid rgba(255,255,255,0.14);
-          border-left: 3px solid var(--storm-color, #e53935);
-          border-radius: 8px;
-          padding: 5px 10px;
-          font-size: 12px;
-          font-weight: 700;
-          line-height: 1.25;
-          white-space: nowrap;
-          box-shadow: 0 6px 18px rgba(0,0,0,0.4);
-          backdrop-filter: blur(10px);
-        }
-        .hw-storm-meta {
+        .hw-hazard-icon-wrap img {
           display: block;
-          margin-top: 2px;
-          font-size: 10px;
-          font-weight: 500;
-          color: #b0bec5;
+          pointer-events: none;
+        }
+        .hw-hazard-icon-wrap.is-primary {
+          filter: drop-shadow(0 0 8px rgba(255,255,255,0.55)) drop-shadow(0 2px 8px rgba(0,0,0,0.5));
+        }
+        .hw-hazard-icon-wrap.is-tsunami {
+          filter: drop-shadow(0 0 10px rgba(3,169,244,0.85)) drop-shadow(0 2px 8px rgba(0,0,0,0.5));
+        }
+        .hw-hazard-icon-wrap.is-nearby {
+          filter: drop-shadow(0 0 10px rgba(255,193,7,0.75)) drop-shadow(0 2px 8px rgba(0,0,0,0.5));
+        }
+        .hw-storm-icon-wrap {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          filter: drop-shadow(0 2px 8px rgba(0,0,0,0.5));
+        }
+        .hw-storm-icon-wrap.is-primary {
+          filter: drop-shadow(0 0 10px var(--storm-color, #e53935)) drop-shadow(0 2px 8px rgba(0,0,0,0.5));
         }
         .hw-storm-icon {
-          filter: drop-shadow(0 2px 6px rgba(0,0,0,0.45));
+          filter: none;
         }
         .hw-home-marker.in-cone {
           filter: drop-shadow(0 0 6px rgba(244,67,54,0.9));
@@ -638,20 +610,36 @@
       return null;
     }
 
-    _addMapLabel(lat, lon, text, className, direction, offset, showPermanent) {
+    _createHazardIcon(iconName, options = {}) {
       const L = global.L;
-      if (!L || lat == null || lon == null || !text) return;
-      if (showPermanent === false) return;
-      L.marker([lat, lon], {
-        icon: L.divIcon({
-          className: "hw-map-label-anchor",
-          html: `<div class="${className}">${this._esc(text)}</div>`,
-          iconSize: [0, 0],
-          iconAnchor: [0, 0],
-        }),
-        interactive: false,
-        zIndexOffset: 400,
-      }).addTo(this._layerGroup);
+      if (!L) return null;
+      const size = options.size ?? 32;
+      const extraClass = options.className ? ` ${options.className}` : "";
+      return L.divIcon({
+        className: "hw-hazard-icon-marker",
+        html: `<div class="hw-hazard-icon-wrap${extraClass}"><img src="/local/home_weather/icons/${iconName}.svg" width="${size}" height="${size}" alt="" draggable="false"/></div>`,
+        iconSize: [size, size],
+        iconAnchor: [size / 2, size / 2],
+      });
+    }
+
+    _addHazardMarker(lat, lon, iconName, options = {}) {
+      const L = global.L;
+      if (!L || lat == null || lon == null) return null;
+      if (options.show === false) return null;
+      const size = options.size ?? 32;
+      const icon = options.icon || this._createHazardIcon(iconName, {
+        size,
+        className: options.className,
+      });
+      if (!icon) return null;
+      const marker = L.marker([lat, lon], {
+        icon,
+        zIndexOffset: options.zIndexOffset ?? 400,
+      });
+      if (options.popup) marker.bindPopup(options.popup);
+      marker.addTo(options.group || this._layerGroup);
+      return marker;
     }
 
     _renderError() {
@@ -740,6 +728,7 @@
       const earthquake = this._earthquakeData || {};
       const eqPrimary = earthquake.primary_event || {};
       const eqCount = earthquake.active_count || 0;
+      const eqMapCount = earthquake.map_count ?? eqCount;
       const eqDistance = this._fmtMiles(earthquake.nearest_distance_miles);
       const eqMag = eqPrimary.magnitude != null ? `M${eqPrimary.magnitude}` : "—";
       const eqDepth = eqPrimary.depth_km != null ? `${Math.round(eqPrimary.depth_km)} km` : "—";
@@ -790,7 +779,8 @@
           <details class="hurricane-status-details" ${eqOpen ? "open" : ""}>
             <summary>Earthquakes</summary>
             <div class="hurricane-status-details-body">
-              <div class="hurricane-stat"><span>Within range</span><strong>${eqCount}</strong></div>
+              <div class="hurricane-stat"><span>Worldwide on map</span><strong>${eqMapCount}</strong></div>
+              <div class="hurricane-stat"><span>Nearby (within range)</span><strong>${eqCount}</strong></div>
               <div class="hurricane-stat ${earthquake.nearby_active ? "is-warning" : ""}"><span>Nearest</span><strong>${this._esc(eqPlace)}</strong></div>
               <div class="hurricane-stat"><span>Magnitude</span><strong>${eqMag}</strong></div>
               <div class="hurricane-stat"><span>Distance</span><strong>${eqDistance}</strong></div>
@@ -923,7 +913,7 @@
       const L = global.L;
       if (!L || !outlook) return;
       const tier = this._getDetailTier();
-      const showLabels = tier >= 2;
+      const showIcons = tier >= 1;
 
       const regionGeo = outlook.developmentRegion;
       if (regionGeo?.features?.length) {
@@ -951,11 +941,16 @@
               props.risk2day ? `2-day risk: ${props.risk2day}` : "",
               props.risk7day ? `7-day risk: ${props.risk7day}` : "",
             ].filter(Boolean).join("<br/>");
-            if (label) layer.bindPopup(`<strong>Potential development</strong><br/>${label}`);
+            const popup = label ? `<strong>Potential development</strong><br/>${label}` : "";
+            if (popup) layer.bindPopup(popup);
             const center = this._getFeatureCenterLatLng(feature);
             if (center) {
-              const mapLabel = this._formatOutlookLabel(props, "Development area");
-              this._addMapLabel(center[0], center[1], mapLabel, "hw-outlook-label", undefined, undefined, showLabels);
+              this._addHazardMarker(center[0], center[1], "disturbance", {
+                size: 26,
+                show: showIcons,
+                popup,
+                zIndexOffset: 320,
+              });
             }
           },
         }).addTo(this._layerGroup).eachLayer((layer) => {
@@ -977,14 +972,14 @@
         });
       }
 
-      this._drawOutlookPoints(outlook.twoDayLocation, "#ffd54f", "2-day disturbance", bounds, showLabels);
-      this._drawOutlookPoints(outlook.sevenDayLocation, "#ff9800", "7-day disturbance", bounds, showLabels);
+      this._drawOutlookPoints(outlook.twoDayLocation, "#ffd54f", "2-day disturbance", bounds, showIcons);
+      this._drawOutlookPoints(outlook.sevenDayLocation, "#ff9800", "7-day disturbance", bounds, showIcons);
     }
 
-    _drawOutlookPoints(geo, color, title, bounds, showLabels) {
+    _drawOutlookPoints(geo, color, title, bounds, showIcons) {
       const L = global.L;
       if (!L || !geo?.features?.length) return;
-      if (showLabels === undefined) showLabels = this._getDetailTier() >= 2;
+      if (showIcons === undefined) showIcons = this._getDetailTier() >= 1;
 
       geo.features.forEach((feature) => {
         const geom = feature.geometry || {};
@@ -993,13 +988,6 @@
         const lon = coords[0];
         const lat = coords[1];
         const props = feature.properties || {};
-        const marker = L.circleMarker([lat, lon], {
-          radius: 7,
-          color: "#fff",
-          weight: 1,
-          fillColor: color,
-          fillOpacity: 0.95,
-        }).addTo(this._layerGroup);
         const popup = [
           `<strong>${title}</strong>`,
           props.basin ? `Basin: ${this._esc(props.basin)}` : "",
@@ -1008,27 +996,35 @@
           props.risk2day ? `2-day risk: ${this._esc(props.risk2day)}` : "",
           props.risk7day ? `7-day risk: ${this._esc(props.risk7day)}` : "",
         ].filter(Boolean).join("<br/>");
-        marker.bindPopup(popup);
-        const mapLabel = this._formatOutlookLabel(props, title);
-        if (showLabels) {
-          marker.bindTooltip(mapLabel, {
-            permanent: true,
-            direction: "top",
-            className: "hw-outlook-label",
-            offset: [0, -8],
-          });
-        }
+        this._addHazardMarker(lat, lon, "disturbance", {
+          size: 24,
+          show: showIcons,
+          popup,
+          zIndexOffset: 310,
+        });
         bounds.push([lat, lon]);
       });
     }
 
     _drawStorm(storm, color, bounds) {
       const L = global.L;
-      const labelInfo = this._formatStormLabel(storm);
       const tier = this._getDetailTier();
-      const showFullLabel = tier >= 2;
       const isPrimary = storm.id && storm.id === this._data?.summary?.closestStormId;
-      const showLabel = showFullLabel || (tier === 1 && isPrimary);
+      const iconSize = isPrimary && tier >= 1 ? 36 : 32;
+      const stormPopup = `
+        <strong>${this._esc(storm.name)}</strong><br/>
+        Advisory: ${this._esc(storm.advisoryTime || "—")}<br/>
+        Max wind: ${storm.maxWindMph != null ? storm.maxWindMph + " mph" : "—"}<br/>
+        Pressure: ${storm.pressureMb != null ? storm.pressureMb + " mb" : "—"}<br/>
+        Movement: ${this._esc(storm.movement || "—")}<br/>
+        Category: ${storm.category != null ? storm.category : "—"}
+      `;
+      const stormIcon = L.divIcon({
+        className: "hw-hazard-icon-marker",
+        html: `<div class="hw-storm-icon-wrap${isPrimary ? " is-primary" : ""}" style="--storm-color:${color}"><img class="hw-storm-icon" src="/local/home_weather/icons/hurricane.svg" width="${iconSize}" height="${iconSize}" alt="" draggable="false"/></div>`,
+        iconSize: [iconSize, iconSize],
+        iconAnchor: [iconSize / 2, iconSize / 2],
+      });
 
       if (storm.cone?.coordinates) {
         const coneLayer = L.geoJSON(storm.cone, {
@@ -1061,19 +1057,6 @@
         const latlngs = storm.track.coordinates.map((c) => [c[1], c[0]]);
         L.polyline(latlngs, { color, weight: 4, opacity: 0.9 }).addTo(this._layerGroup);
         latlngs.forEach((ll) => bounds.push(ll));
-        if (latlngs.length > 0 && showFullLabel) {
-          const [trackLat, trackLon] = latlngs[latlngs.length - 1];
-          L.marker([trackLat, trackLon], {
-            icon: L.divIcon({
-              className: "hw-map-label-anchor",
-              html: `<div class="hw-storm-track-label" style="border-left:3px solid ${color}">${this._esc(labelInfo.name)}</div>`,
-              iconSize: [0, 0],
-              iconAnchor: [0, 0],
-            }),
-            interactive: false,
-            zIndexOffset: 350,
-          }).addTo(this._layerGroup);
-        }
       }
 
       if (storm.pastTrack?.coordinates?.length) {
@@ -1132,39 +1115,16 @@
 
       const pos = storm.currentPosition;
       if (pos?.lat != null && pos?.lon != null) {
-        const metaHtml = labelInfo.meta
-          ? `<span class="hw-storm-meta">${this._esc(labelInfo.meta)}</span>`
-          : "";
-        const nameBlock = showLabel
-          ? `<div class="hw-storm-name">${this._esc(labelInfo.name)}${metaHtml}</div>`
-          : "";
-        const stormIcon = L.divIcon({
-          className: "hw-storm-marker",
-          html: `
-            <div class="hw-storm-marker-wrap" style="--storm-color:${color}">
-              ${nameBlock}
-              <img class="hw-storm-icon" src="/local/home_weather/icons/hurricane.svg" width="32" height="32" alt="" />
-            </div>
-          `,
-          iconSize: showLabel ? [32, 48] : [32, 32],
-          iconAnchor: showLabel ? [16, 40] : [16, 16],
-        });
-        const popup = `
-          <strong>${this._esc(storm.name)}</strong><br/>
-          Advisory: ${this._esc(storm.advisoryTime || "—")}<br/>
-          Max wind: ${storm.maxWindMph != null ? storm.maxWindMph + " mph" : "—"}<br/>
-          Pressure: ${storm.pressureMb != null ? storm.pressureMb + " mb" : "—"}<br/>
-          Movement: ${this._esc(storm.movement || "—")}<br/>
-          Category: ${storm.category != null ? storm.category : "—"}
-        `;
         L.marker([pos.lat, pos.lon], { icon: stormIcon, zIndexOffset: 500 })
-          .bindPopup(popup)
+          .bindPopup(stormPopup)
           .addTo(this._layerGroup);
         bounds.push([pos.lat, pos.lon]);
       } else if (storm.cone) {
         const center = this._getFeatureCenterLatLng({ type: "Feature", geometry: storm.cone, properties: {} });
         if (center) {
-          this._addMapLabel(center[0], center[1], labelInfo.name, "hw-storm-track-label", undefined, undefined, showLabel);
+          L.marker(center, { icon: stormIcon, zIndexOffset: 500 })
+            .bindPopup(stormPopup)
+            .addTo(this._layerGroup);
           bounds.push(center);
         }
       }
@@ -1174,8 +1134,6 @@
       const L = global.L;
       const geojson = this._tornadoData?.geojson;
       if (!L || !geojson?.features?.length || !this._layerGroup) return;
-      const tier = this._getDetailTier();
-      const showLabels = tier >= 2;
 
       L.geoJSON(geojson, {
         style: {
@@ -1197,10 +1155,14 @@
           `;
           layer.bindPopup(popup);
           const center = this._getFeatureCenterLatLng(feature);
-          if (center && showLabels) {
-            this._addMapLabel(center[0], center[1], "Tornado Warning", "hw-tornado-label");
+          if (center) {
+            this._addHazardMarker(center[0], center[1], "tornado", {
+              size: 28,
+              popup,
+              zIndexOffset: 460,
+            });
+            bounds.push(center);
           }
-          if (center) bounds.push(center);
           try {
             const layerBounds = layer.getBounds?.();
             if (layerBounds?.isValid?.()) {
@@ -1255,14 +1217,14 @@
         const lon = coords[0];
         const lat = coords[1];
         const style = this._earthquakeMarkerStyle(props.mag, props.tsunami);
-        const marker = L.circleMarker([lat, lon], {
-          radius: style.radius,
-          color: "#ffffff",
-          weight: 2,
-          fillColor: style.color,
-          fillOpacity: 0.92,
-          className: `hw-earthquake-marker${style.tsunami ? " is-tsunami" : ""}`,
-        });
+        const isPrimary = props.id && props.id === primaryId;
+        const isNearby = props.nearby === true || isPrimary;
+        const iconSize = Math.round(22 + style.radius * 1.4);
+        const iconClasses = [
+          isPrimary ? "is-primary" : "",
+          style.tsunami ? "is-tsunami" : "",
+          isNearby ? "is-nearby" : "",
+        ].filter(Boolean).join(" ");
 
         const popup = `
           <strong>M${props.mag != null ? props.mag : "?"} Earthquake</strong><br/>
@@ -1273,19 +1235,16 @@
           ${props.tsunami === 1 ? "Tsunami possible<br/>" : ""}
           ${props.url ? `<a href="${this._esc(props.url)}" target="_blank" rel="noopener noreferrer">USGS details</a>` : ""}
         `;
-        marker.bindPopup(popup);
 
-        const isPrimary = props.id && props.id === primaryId;
-        const showLabel = tier >= 2 || (tier === 1 && isPrimary);
-        if (showLabel) {
-          const label = `M${props.mag != null ? props.mag : "?"}`;
-          marker.bindTooltip(label, {
-            permanent: true,
-            direction: "top",
-            className: "hw-earthquake-label",
-            offset: [0, -style.radius],
-          });
-        }
+        const marker = L.marker([lat, lon], {
+          icon: this._createHazardIcon("earthquake", {
+            size: iconSize,
+            className: iconClasses,
+          }),
+          zIndexOffset: isPrimary ? 480 : 380,
+        });
+        marker.bindPopup(popup);
+        targetGroup.addLayer(marker);
 
         if (style.tsunami && tier >= 2) {
           L.circle([lat, lon], {
@@ -1298,7 +1257,6 @@
           }).addTo(this._layerGroup);
         }
 
-        targetGroup.addLayer(marker);
         bounds.push([lat, lon]);
       });
     }

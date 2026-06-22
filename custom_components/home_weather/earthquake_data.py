@@ -1,6 +1,7 @@
 """Fetch and parse USGS earthquake GeoJSON feeds."""
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Any
@@ -31,12 +32,17 @@ def get_earthquake_config(config: dict[str, Any] | None) -> dict[str, Any]:
         "enabled": True,
         "min_magnitude": 2.5,
         "radius_miles": 500,
-        "feed_type": "2.5_day",
+        "feed_type": "all_hour",
         "tsunami_alert_enabled": True,
+        "map_show_worldwide": True,
+        "map_min_magnitude": 4.5,
+        "map_feed_type": "4.5_week",
     }
     merged = {**defaults, **((config or {}).get("earthquakes") or {})}
     if merged["feed_type"] not in USGS_FEED_TYPES:
-        merged["feed_type"] = "2.5_day"
+        merged["feed_type"] = "all_hour"
+    if merged["map_feed_type"] not in USGS_FEED_TYPES:
+        merged["map_feed_type"] = "4.5_week"
     return merged
 
 
@@ -149,16 +155,46 @@ def passes_earthquake_filters(
     return True
 
 
+def passes_map_filters(
+    event: dict[str, Any],
+    eq_config: dict[str, Any],
+) -> bool:
+    """Return True when an event should appear on the worldwide map."""
+    magnitude = event.get("magnitude")
+    min_mag = float(eq_config.get("map_min_magnitude", 4.5))
+    if magnitude is None or magnitude < min_mag:
+        return False
+
+    if not eq_config.get("tsunami_alert_enabled", True) and event.get("tsunami") == 1:
+        return False
+
+    return True
+
+
 def parse_earthquake_features(
     features: list[dict[str, Any]],
     home: dict[str, float],
     eq_config: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    """Parse and filter USGS earthquake features."""
+    """Parse and filter USGS earthquake features for nearby alerts/monitoring."""
     events: list[dict[str, Any]] = []
     for feature in features:
         parsed = parse_earthquake_feature(feature, home)
         if parsed and passes_earthquake_filters(parsed, eq_config):
+            events.append(parsed)
+    return sort_earthquakes_by_newest(events)
+
+
+def parse_earthquake_features_for_map(
+    features: list[dict[str, Any]],
+    home: dict[str, float],
+    eq_config: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Parse USGS features for worldwide map display (magnitude only, no radius)."""
+    events: list[dict[str, Any]] = []
+    for feature in features:
+        parsed = parse_earthquake_feature(feature, home)
+        if parsed and passes_map_filters(parsed, eq_config):
             events.append(parsed)
     return sort_earthquakes_by_newest(events)
 
@@ -185,22 +221,28 @@ def pick_nearest_earthquake(events: list[dict[str, Any]]) -> dict[str, Any] | No
     )
 
 
-def build_earthquake_geojson(events: list[dict[str, Any]]) -> dict[str, Any]:
+def build_earthquake_geojson(
+    events: list[dict[str, Any]],
+    *,
+    nearby_ids: set[str] | None = None,
+) -> dict[str, Any]:
     """Build map-ready FeatureCollection from normalized events."""
+    nearby = nearby_ids or set()
     features: list[dict[str, Any]] = []
     for event in events:
         lat = event.get("latitude")
         lon = event.get("longitude")
         if lat is None or lon is None:
             continue
+        eq_id = str(event.get("id") or "")
         depth = event.get("depth_km")
         coordinates = [lon, lat, depth if depth is not None else 0.0]
         features.append(
             {
                 "type": "Feature",
-                "id": event.get("id"),
+                "id": eq_id,
                 "properties": {
-                    "id": event.get("id"),
+                    "id": eq_id,
                     "mag": event.get("magnitude"),
                     "place": event.get("place"),
                     "time": event.get("time"),
@@ -211,6 +253,7 @@ def build_earthquake_geojson(events: list[dict[str, Any]]) -> dict[str, Any]:
                     "type": event.get("type"),
                     "distance_miles": event.get("distance_miles"),
                     "depth_km": event.get("depth_km"),
+                    "nearby": eq_id in nearby,
                 },
                 "geometry": {
                     "type": "Point",
@@ -223,19 +266,24 @@ def build_earthquake_geojson(events: list[dict[str, Any]]) -> dict[str, Any]:
 
 def build_coordinator_payload(
     events: list[dict[str, Any]],
+    map_events: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Build coordinator payload from qualifying earthquakes."""
+    """Build coordinator payload from nearby and worldwide map earthquakes."""
     nearest = pick_nearest_earthquake(events)
+    nearby_ids = {str(e["id"]) for e in events if e.get("id")}
+    display_events = map_events if map_events is not None else events
     return {
         "events": events,
+        "map_events": display_events,
         "active_count": len(events),
+        "map_count": len(display_events),
         "nearby_active": len(events) > 0,
         "nearest_distance_miles": nearest.get("distance_miles") if nearest else None,
         "nearest_magnitude": nearest.get("magnitude") if nearest else None,
         "nearest_depth_km": nearest.get("depth_km") if nearest else None,
         "nearest_place": nearest.get("place") if nearest else None,
         "primary_event": nearest,
-        "geojson": build_earthquake_geojson(events),
+        "geojson": build_earthquake_geojson(display_events, nearby_ids=nearby_ids),
         "last_updated": dt_util.utcnow().isoformat(),
     }
 
@@ -244,7 +292,9 @@ def empty_coordinator_payload() -> dict[str, Any]:
     """Return empty payload when monitoring is disabled."""
     return {
         "events": [],
+        "map_events": [],
         "active_count": 0,
+        "map_count": 0,
         "nearby_active": False,
         "nearest_distance_miles": None,
         "nearest_magnitude": None,
@@ -310,32 +360,55 @@ def detect_earthquake_events(
     return events_out
 
 
+async def _fetch_usgs_feed(session: Any, feed_type: str) -> list[dict[str, Any]]:
+    """Fetch a USGS summary GeoJSON feed and return feature list."""
+    url = build_feed_url(feed_type)
+    async with session.get(url, timeout=30) as resp:
+        if resp.status != 200:
+            _LOGGER.warning("USGS earthquake feed returned %s for %s", resp.status, url)
+            return []
+        data = await resp.json()
+    features = data.get("features") if isinstance(data, dict) else []
+    if not isinstance(features, list):
+        return []
+    return features
+
+
 async def async_fetch_earthquakes(
     hass: HomeAssistant,
     config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Fetch and normalize USGS earthquake data."""
+    """Fetch and normalize USGS earthquake data.
+
+    Nearby alerts use the configured real-time feed with a home-radius filter.
+    The hazard map uses a separate worldwide feed filtered by map magnitude only.
+    """
     eq_config = get_earthquake_config(config)
     if not eq_config.get("enabled", True):
         return empty_coordinator_payload()
 
     home = get_home_coordinates(hass, config)
-    url = build_feed_url(eq_config["feed_type"])
     session = async_get_clientsession(hass)
+    alert_feed = eq_config["feed_type"]
+    map_show_worldwide = bool(eq_config.get("map_show_worldwide", True))
+    map_feed = eq_config.get("map_feed_type", alert_feed)
 
     try:
-        async with session.get(url, timeout=30) as resp:
-            if resp.status != 200:
-                _LOGGER.warning("USGS earthquake feed returned %s for %s", resp.status, url)
-                return empty_coordinator_payload()
-            data = await resp.json()
+        if map_show_worldwide and map_feed != alert_feed:
+            alert_features, map_features = await asyncio.gather(
+                _fetch_usgs_feed(session, alert_feed),
+                _fetch_usgs_feed(session, map_feed),
+            )
+        else:
+            alert_features = await _fetch_usgs_feed(session, alert_feed)
+            map_features = alert_features if map_show_worldwide else []
     except Exception as err:
         _LOGGER.warning("USGS earthquake fetch failed: %s", err)
         return empty_coordinator_payload()
 
-    features = data.get("features") if isinstance(data, dict) else []
-    if not isinstance(features, list):
-        features = []
-
-    events = parse_earthquake_features(features, home, eq_config)
-    return build_coordinator_payload(events)
+    events = parse_earthquake_features(alert_features, home, eq_config)
+    if map_show_worldwide:
+        map_events = parse_earthquake_features_for_map(map_features, home, eq_config)
+    else:
+        map_events = events
+    return build_coordinator_payload(events, map_events)

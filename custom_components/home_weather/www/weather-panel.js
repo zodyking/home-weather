@@ -4461,8 +4461,11 @@ class HomeWeatherPanel extends HTMLElement {
       enabled: true,
       min_magnitude: 2.5,
       radius_miles: 500,
-      feed_type: "2.5_day",
+      feed_type: "all_hour",
       tsunami_alert_enabled: true,
+      map_show_worldwide: true,
+      map_min_magnitude: 4.5,
+      map_feed_type: "4.5_week",
     };
     const earthquakes = { ...defaultEarthquakes, ...(this._settings.earthquakes || {}) };
     if (!sunAlerts.sunrise_tts) sunAlerts.sunrise_tts = defaultSunAlerts.sunrise_tts;
@@ -5093,25 +5096,42 @@ class HomeWeatherPanel extends HTMLElement {
             </div>
           `)}
 
-          ${renderNestedSection("earthquake-settings", "Earthquake Monitoring", "USGS feed thresholds and radius", `
+          ${renderNestedSection("earthquake-settings", "Earthquake Monitoring", "Real-time USGS alerts near home; worldwide map display", `
+            <p class="form-hint">Nearby alerts and TTS use the real-time USGS feed with a home-radius filter. The hazard map shows worldwide seismic activity from a separate USGS feed.</p>
             <div class="form-row-inline">
               <div class="form-group">
-                <label>Min magnitude</label>
+                <label>Nearby min magnitude</label>
                 <input type="number" id="earthquake-min-magnitude" min="0" max="10" step="0.1" value="${earthquakes.min_magnitude}"/>
               </div>
               <div class="form-group">
-                <label>Radius (miles)</label>
+                <label>Nearby radius (miles)</label>
                 <input type="number" id="earthquake-radius-miles" min="1" max="5000" step="1" value="${earthquakes.radius_miles}"/>
               </div>
             </div>
             <div class="form-group">
-              <label>Feed type</label>
+              <label>Nearby alert feed (USGS real-time)</label>
               <select id="earthquake-feed-type">
                 <option value="all_hour" ${earthquakes.feed_type === "all_hour" ? "selected" : ""}>All earthquakes — past hour</option>
                 <option value="all_day" ${earthquakes.feed_type === "all_day" ? "selected" : ""}>All earthquakes — past day</option>
                 <option value="2.5_day" ${earthquakes.feed_type === "2.5_day" ? "selected" : ""}>M2.5+ — past day</option>
                 <option value="4.5_week" ${earthquakes.feed_type === "4.5_week" ? "selected" : ""}>M4.5+ — past week</option>
               </select>
+            </div>
+            ${renderToggle("earthquake-map-worldwide", earthquakes.map_show_worldwide !== false, "Show worldwide seismic activity on map")}
+            <div class="form-row-inline">
+              <div class="form-group">
+                <label>Map min magnitude</label>
+                <input type="number" id="earthquake-map-min-magnitude" min="0" max="10" step="0.1" value="${earthquakes.map_min_magnitude ?? 4.5}"/>
+              </div>
+              <div class="form-group">
+                <label>Map feed</label>
+                <select id="earthquake-map-feed-type">
+                  <option value="all_hour" ${earthquakes.map_feed_type === "all_hour" ? "selected" : ""}>All earthquakes — past hour</option>
+                  <option value="all_day" ${earthquakes.map_feed_type === "all_day" ? "selected" : ""}>All earthquakes — past day</option>
+                  <option value="2.5_day" ${earthquakes.map_feed_type === "2.5_day" ? "selected" : ""}>M2.5+ — past day</option>
+                  <option value="4.5_week" ${(earthquakes.map_feed_type || "4.5_week") === "4.5_week" ? "selected" : ""}>M4.5+ — past week</option>
+                </select>
+              </div>
             </div>
             <div class="inline-toggle">
               <span class="inline-toggle-label">Tsunami alerts</span>
@@ -5352,13 +5372,17 @@ class HomeWeatherPanel extends HTMLElement {
       enabled: true,
       min_magnitude: 2.5,
       radius_miles: 500,
-      feed_type: "2.5_day",
+      feed_type: "all_hour",
       tsunami_alert_enabled: true,
+      map_show_worldwide: true,
+      map_min_magnitude: 4.5,
+      map_feed_type: "4.5_week",
     };
     if (!s) return defaults;
     const getVal = (id, def) => (s.getElementById(id)?.value ?? def);
     const getChecked = (id) => !!s.getElementById(id)?.checked;
     const feedType = getVal("earthquake-feed-type", defaults.feed_type);
+    const mapFeedType = getVal("earthquake-map-feed-type", defaults.map_feed_type);
     const validFeeds = ["all_hour", "all_day", "2.5_day", "4.5_week"];
     return {
       enabled: getChecked("earthquake-enabled"),
@@ -5366,6 +5390,9 @@ class HomeWeatherPanel extends HTMLElement {
       radius_miles: Math.min(5000, Math.max(1, parseInt(getVal("earthquake-radius-miles", String(defaults.radius_miles)), 10) || defaults.radius_miles)),
       feed_type: validFeeds.includes(feedType) ? feedType : defaults.feed_type,
       tsunami_alert_enabled: getChecked("earthquake-tsunami-enabled"),
+      map_show_worldwide: getChecked("earthquake-map-worldwide"),
+      map_min_magnitude: Math.min(10, Math.max(0, parseFloat(getVal("earthquake-map-min-magnitude", String(defaults.map_min_magnitude))) || defaults.map_min_magnitude)),
+      map_feed_type: validFeeds.includes(mapFeedType) ? mapFeedType : defaults.map_feed_type,
     };
   }
 }

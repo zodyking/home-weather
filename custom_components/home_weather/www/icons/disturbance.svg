@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" aria-hidden="true">
+  <path fill="none" stroke="#ffb74d" stroke-linecap="round" stroke-miterlimit="10" stroke-width="28" d="M320 176a96 96 0 11-96-96 96 96 0 0196 96ZM192 336l-4 8A224 224 0 00144 368m176 64 4-8A224 224 0 00368 344">
+    <animateTransform additive="sum" attributeName="transform" dur="8s" repeatCount="indefinite" type="rotate" values="360 256 256; 0 256 256"/>
+  </path>
+  <circle cx="256" cy="256" r="20" fill="#ff9800"/>
+</svg>
