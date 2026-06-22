@@ -2223,16 +2223,16 @@ class HomeWeatherPanel extends HTMLElement {
         .radar-toolbar__modes { flex-shrink: 0; }
         .radar-toolbar__metrics { display: none; flex: 1 1 auto; justify-content: flex-end; min-width: 0; }
         .radar-toolbar--chart .radar-toolbar__metrics { display: flex; }
-        .radar-card .radar-body { flex: 1 0 auto; min-height: 150px; display: flex; flex-direction: column; position: relative; }
+        .radar-card .radar-body { flex: 1 0 auto; min-height: clamp(280px, 40vw, 400px); display: flex; flex-direction: column; position: relative; }
         .radar-card .radar-view { display: none; flex: 1; min-height: 0; flex-direction: column; }
         .radar-card .radar-view.active { display: flex; }
         .windy-map-container {
           flex: 1;
-          min-height: clamp(150px, 22vw, 200px);
+          min-height: clamp(280px, 40vw, 400px);
           min-width: 0;
           position: relative;
           aspect-ratio: 16 / 9;
-          max-height: 220px;
+          max-height: min(520px, 56vh);
           border-radius: var(--radius-md);
           overflow: hidden;
           border: 1px solid var(--card-border);
@@ -2240,7 +2240,7 @@ class HomeWeatherPanel extends HTMLElement {
         }
         .windy-map-container iframe { width: 100%; height: 100%; border: none; display: block; }
         .windy-skeleton { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: var(--fs-small); }
-        .chart-container { flex: 1; min-height: clamp(150px, 22vw, 220px); max-height: 220px; min-width: 0; width: 100%; }
+        .chart-container { flex: 1; min-height: clamp(280px, 40vw, 400px); max-height: min(520px, 56vh); min-width: 0; width: 100%; }
         @media (max-width: 480px) {
           .radar-toolbar { flex-direction: column; align-items: stretch; }
           .radar-toolbar__modes { align-self: flex-start; }

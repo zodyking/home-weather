@@ -24,9 +24,28 @@ ARCGIS_MAPSERVER = (
     "https://mapservices.weather.noaa.gov/tropical/rest/services/"
     "tropical/NHC_tropical_weather/MapServer"
 )
+ARCGIS_SUMMARY_MAPSERVER = (
+    "https://mapservices.weather.noaa.gov/tropical/rest/services/"
+    "tropical/NHC_tropical_weather_summary/MapServer"
+)
 NHC_ACTIVE_KML = "https://www.nhc.noaa.gov/gis/kml/nhc_active.kml"
 
 WALLET_PATTERN = re.compile(r"^(AT|EP|CP)[1-5]$")
+SUMMARY_OUTLOOK_LAYERS = {
+    "twoDayLocation": 1,
+    "sevenDayLocation": 2,
+    "developmentRegion": 3,
+    "developmentMotion": 33,
+}
+SUMMARY_STORM_LAYERS = {
+    "Forecast Points": 5,
+    "Forecast Track": 6,
+    "Forecast Cone": 7,
+    "Watch-Warning": 8,
+    "Past Points": 10,
+    "Past Track": 11,
+    "Forecast Wind Radii": 15,
+}
 CACHE_TTL = timedelta(minutes=15)
 
 KML_NS = {"kml": "http://www.opengis.net/kml/2.2"}
@@ -110,14 +129,16 @@ async def async_get_hurricane_data(
     source = "arcgis"
 
     try:
-        storms = await _fetch_from_arcgis(session)
+        storms, outlook = await _fetch_from_arcgis(session)
     except Exception as err:
         _LOGGER.warning("ArcGIS hurricane fetch failed: %s", err)
         storms = None
+        outlook = {}
 
     if storms is None:
         try:
             storms = await _fetch_from_kml(session)
+            outlook = {}
             source = "kml"
         except Exception as err:
             _LOGGER.warning("KML hurricane fetch failed: %s", err)
@@ -138,6 +159,7 @@ async def async_get_hurricane_data(
     fetched_at = datetime.now(timezone.utc).isoformat()
     payload = {
         "storms": storms,
+        "outlook": outlook,
         "source": source,
         "summary": {
             "activeCount": len(storms),
@@ -211,6 +233,7 @@ def _attach_home_summary(
 def _empty_payload(warning: str | None = None, stale: bool = False) -> dict[str, Any]:
     return {
         "storms": [],
+        "outlook": {},
         "home": {"lat": 0.0, "lon": 0.0, "label": "Home"},
         "summary": {
             "activeCount": 0,
@@ -228,7 +251,7 @@ def _empty_payload(warning: str | None = None, stale: bool = False) -> dict[str,
     }
 
 
-async def _fetch_from_arcgis(session: Any) -> list[dict[str, Any]]:
+async def _fetch_from_arcgis(session: Any) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     async with session.get(f"{ARCGIS_MAPSERVER}?f=json", timeout=30) as resp:
         resp.raise_for_status()
         metadata = await resp.json()
@@ -241,19 +264,44 @@ async def _fetch_from_arcgis(session: Any) -> list[dict[str, Any]]:
         points_layer = layer_map.get("Forecast Points")
         if points_layer is None:
             continue
-        points_geo = await _query_layer_geojson(session, points_layer)
+        points_geo = await _query_layer_geojson(session, points_layer, ARCGIS_MAPSERVER)
         if not points_geo.get("features"):
             continue
 
-        track_geo = await _query_layer_geojson(session, layer_map.get("Forecast Track"))
-        cone_geo = await _query_layer_geojson(session, layer_map.get("Forecast Cone"))
-        radii_geo = await _query_layer_geojson(session, layer_map.get("Forecast Wind Radii"))
+        track_geo = await _query_layer_geojson(
+            session, layer_map.get("Forecast Track"), ARCGIS_MAPSERVER
+        )
+        cone_geo = await _query_layer_geojson(
+            session, layer_map.get("Forecast Cone"), ARCGIS_MAPSERVER
+        )
+        radii_geo = await _query_layer_geojson(
+            session, layer_map.get("Forecast Wind Radii"), ARCGIS_MAPSERVER
+        )
+        watch_geo = await _query_layer_geojson(
+            session, layer_map.get("Watch-Warning"), ARCGIS_MAPSERVER
+        )
+        past_track_geo = await _query_layer_geojson(
+            session, layer_map.get("Past Track"), ARCGIS_MAPSERVER
+        )
+        past_points_geo = await _query_layer_geojson(
+            session, layer_map.get("Past Points"), ARCGIS_MAPSERVER
+        )
 
         storm = _normalize_arcgis_storm(wallet, points_geo, track_geo, cone_geo, radii_geo)
         if storm:
+            storm["watchWarning"] = _geometry_from_features(
+                watch_geo.get("features") or [], "LineString"
+            )
+            storm["pastTrack"] = _geometry_from_features(
+                past_track_geo.get("features") or [], "LineString"
+            )
+            storm["pastPoints"] = _normalize_past_points(past_points_geo.get("features") or [])
             storms.append(storm)
 
-    return storms
+    summary_storms = await _fetch_storms_from_summary(session)
+    outlook = await _fetch_outlook_from_summary(session)
+    storms = _merge_storm_lists(storms, summary_storms)
+    return storms, outlook
 
 
 def _discover_storm_wallets(layers: list[dict[str, Any]]) -> dict[str, dict[str, int]]:
@@ -291,6 +339,9 @@ def _collect_wallet_layers(
                 "Forecast Track",
                 "Forecast Cone",
                 "Forecast Wind Radii",
+                "Watch-Warning",
+                "Past Points",
+                "Past Track",
             ):
                 wallets[wallet][suffix] = layer_id
         nested = layer.get("subLayerIds") or []
@@ -298,14 +349,146 @@ def _collect_wallet_layers(
             _collect_wallet_layers(wallet, nested, by_id, wallets)
 
 
-async def _query_layer_geojson(session: Any, layer_id: int | None) -> dict[str, Any]:
+async def _query_layer_geojson(
+    session: Any,
+    layer_id: int | None,
+    mapserver: str = ARCGIS_MAPSERVER,
+) -> dict[str, Any]:
     if layer_id is None:
         return {"type": "FeatureCollection", "features": []}
-    url = f"{ARCGIS_MAPSERVER}/{layer_id}/query"
+    url = f"{mapserver}/{layer_id}/query"
     params = {"where": "1=1", "outFields": "*", "f": "geojson", "returnGeometry": "true"}
     async with session.get(url, params=params, timeout=30) as resp:
         resp.raise_for_status()
         return await resp.json()
+
+
+async def _fetch_outlook_from_summary(session: Any) -> dict[str, Any]:
+    """Fetch NHC tropical weather outlook layers (disturbances and development areas)."""
+    outlook: dict[str, Any] = {}
+    for key, layer_id in SUMMARY_OUTLOOK_LAYERS.items():
+        geo = await _query_layer_geojson(session, layer_id, ARCGIS_SUMMARY_MAPSERVER)
+        outlook[key] = geo if geo.get("features") else None
+    return outlook
+
+
+def _storm_group_key(props: dict[str, Any]) -> str:
+    source = props.get("idp_source") or props.get("stormname") or props.get("basin")
+    if source:
+        return str(source).strip()
+    return "unknown"
+
+
+def _group_features_by_storm_key(
+    features: list[dict[str, Any]],
+) -> dict[str, list[dict[str, Any]]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for feature in features:
+        props = feature.get("properties") or {}
+        key = _storm_group_key(props)
+        grouped.setdefault(key, []).append(feature)
+    return grouped
+
+
+def _merge_storm_lists(
+    primary: list[dict[str, Any]], secondary: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    seen = {storm.get("id") for storm in primary if storm.get("id")}
+    merged = list(primary)
+    for storm in secondary:
+        storm_id = storm.get("id")
+        if storm_id and storm_id in seen:
+            continue
+        merged.append(storm)
+        if storm_id:
+            seen.add(storm_id)
+    return merged
+
+
+async def _fetch_storms_from_summary(session: Any) -> list[dict[str, Any]]:
+    """Build storm objects from the NHC summary MapServer flat forecast layers."""
+    layer_data: dict[str, dict[str, Any]] = {}
+    for suffix, layer_id in SUMMARY_STORM_LAYERS.items():
+        layer_data[suffix] = await _query_layer_geojson(
+            session, layer_id, ARCGIS_SUMMARY_MAPSERVER
+        )
+
+    point_groups = _group_features_by_storm_key(
+        layer_data["Forecast Points"].get("features") or []
+    )
+    if not point_groups:
+        return []
+
+    track_groups = _group_features_by_storm_key(
+        layer_data["Forecast Track"].get("features") or []
+    )
+    cone_groups = _group_features_by_storm_key(
+        layer_data["Forecast Cone"].get("features") or []
+    )
+    radii_groups = _group_features_by_storm_key(
+        layer_data["Forecast Wind Radii"].get("features") or []
+    )
+    watch_groups = _group_features_by_storm_key(
+        layer_data["Watch-Warning"].get("features") or []
+    )
+    past_track_groups = _group_features_by_storm_key(
+        layer_data["Past Track"].get("features") or []
+    )
+    past_point_groups = _group_features_by_storm_key(
+        layer_data["Past Points"].get("features") or []
+    )
+
+    storms: list[dict[str, Any]] = []
+    for key, point_features in point_groups.items():
+        wallet = key[:3] if len(key) >= 3 else key
+        points_geo = {"type": "FeatureCollection", "features": point_features}
+        track_geo = {
+            "type": "FeatureCollection",
+            "features": track_groups.get(key, []),
+        }
+        cone_geo = {
+            "type": "FeatureCollection",
+            "features": cone_groups.get(key, []),
+        }
+        radii_geo = {
+            "type": "FeatureCollection",
+            "features": radii_groups.get(key, []),
+        }
+        storm = _normalize_arcgis_storm(wallet, points_geo, track_geo, cone_geo, radii_geo)
+        if not storm:
+            continue
+        storm["watchWarning"] = _geometry_from_features(
+            watch_groups.get(key, []), "LineString"
+        )
+        storm["pastTrack"] = _geometry_from_features(
+            past_track_groups.get(key, []), "LineString"
+        )
+        storm["pastPoints"] = _normalize_past_points(past_point_groups.get(key, []))
+        storms.append(storm)
+    return storms
+
+
+def _normalize_past_points(features: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    points: list[dict[str, Any]] = []
+    for feature in features:
+        props = feature.get("properties") or {}
+        geom = feature.get("geometry") or {}
+        coords = geom.get("coordinates")
+        lat = props.get("lat")
+        lon = props.get("lon")
+        if coords and len(coords) >= 2:
+            lon, lat = float(coords[0]), float(coords[1])
+        if lat is None or lon is None:
+            continue
+        points.append(
+            {
+                "lat": float(lat),
+                "lon": float(lon),
+                "maxWindMph": knots_to_mph(props.get("maxwind")),
+                "validTime": props.get("validtime") or props.get("fldatelbl"),
+            }
+        )
+    return points
 
 
 def _normalize_arcgis_storm(

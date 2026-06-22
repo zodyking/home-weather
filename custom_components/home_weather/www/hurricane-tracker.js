@@ -6,6 +6,11 @@
 
   const STORM_COLORS = ["#e53935", "#fb8c00", "#8e24aa", "#1e88e5", "#43a047"];
   const REFRESH_MS = 15 * 60 * 1000;
+  // Contiguous United States bounds (default map view).
+  const USA_BOUNDS = Object.freeze([
+    [24.396308, -124.848974],
+    [49.384358, -66.885444],
+  ]);
 
   class HurricaneTracker {
     constructor(options) {
@@ -51,8 +56,24 @@
       style.id = "hurricane-tracker-styles";
       style.textContent = `
         .hurricane-layout { display: flex; gap: 16px; padding: clamp(12px, 2vw, 18px); max-width: 1200px; margin: 0 auto; width: 100%; box-sizing: border-box; }
-        .hurricane-map-wrap { flex: 1 1 60%; min-width: 0; }
+        .hurricane-map-wrap { flex: 1 1 60%; min-width: 0; position: relative; }
         .hurricane-map { width: 100%; min-height: 420px; height: 52vh; border-radius: var(--radius-lg, 12px); overflow: hidden; border: 1px solid var(--card-border, rgba(255,255,255,0.12)); background: var(--card-background-color, #1c1c1c); }
+        .hurricane-map-empty-banner {
+          position: absolute;
+          top: 12px;
+          left: 12px;
+          right: 12px;
+          z-index: 500;
+          padding: 10px 14px;
+          border-radius: 8px;
+          font-size: 13px;
+          line-height: 1.45;
+          color: var(--secondary-text-color, #9b9b9b);
+          background: rgba(17, 17, 17, 0.82);
+          border: 1px solid rgba(255,255,255,0.12);
+          pointer-events: none;
+        }
+        .hw-outlook-label { background: rgba(0,0,0,0.72); color: #ffb74d; border: none; border-radius: 4px; padding: 2px 6px; font-size: 10px; font-weight: 600; }
         .hurricane-status { flex: 0 0 280px; background: var(--card-background-color, #1c1c1c); border: 1px solid var(--card-border, rgba(255,255,255,0.12)); border-radius: var(--radius-lg, 12px); padding: 16px; display: flex; flex-direction: column; gap: 12px; }
         .hurricane-status.is-threat-high { border-color: rgba(244,67,54,0.55); box-shadow: 0 0 0 1px rgba(244,67,54,0.25); }
         .hurricane-status.is-threat-watch { border-color: rgba(255,152,0,0.45); }
@@ -140,12 +161,10 @@
         });
         this._data = payload;
         this._renderUI();
-        this._renderMap();
       } catch (err) {
         this._error = err?.message || String(err);
         if (this._data) {
           this._renderUI();
-          this._renderMap();
         } else {
           this._renderError();
         }
@@ -191,6 +210,12 @@
 
     _renderUI() {
       if (!this._root || !this._data) return;
+      if (this._map) {
+        this._map.remove();
+        this._map = null;
+        this._mapInitialized = false;
+        this._layerGroup = null;
+      }
       const summary = this._data.summary || {};
       const storms = this._data.storms || [];
       const threatClass =
@@ -231,16 +256,20 @@
           <button class="btn btn-secondary" data-hurricane-refresh style="margin-top:4px">Refresh</button>
         </aside>`;
 
-      const mapSection =
-        storms.length === 0
-          ? `<div class="hurricane-empty"><p>No active tropical cyclones.</p><p style="font-size:13px;opacity:0.8">Data from NOAA/NHC updates every 6 hours (every 3 hours near landfall).</p></div>`
-          : `<div id="hurricane-map" class="hurricane-map"></div>`;
+      const mapSection = `
+        <div class="hurricane-map-wrap">
+          <div id="hurricane-map" class="hurricane-map"></div>
+          ${storms.length === 0
+            ? `<div class="hurricane-map-empty-banner"><strong>No active tropical cyclones.</strong> Showing NHC outlook and development areas. Data updates every 6 hours (every 3 hours near landfall).</div>`
+            : ""}
+        </div>`;
 
       this._root.innerHTML = `
         <section class="hurricane-layout">
-          <div class="hurricane-map-wrap">${mapSection}</div>
+          ${mapSection}
           ${statusPanel}
         </section>`;
+      this._renderMap();
     }
 
     _fmtMiles(value) {
@@ -248,29 +277,42 @@
       return `${Math.round(Number(value))} mi`;
     }
 
+    _getUsaBounds() {
+      const L = global.L;
+      if (!L) return null;
+      return L.latLngBounds(USA_BOUNDS);
+    }
+
+    _ensureMap() {
+      const mapEl = this._root?.querySelector("#hurricane-map");
+      if (!mapEl || !global.L || this._mapInitialized) return mapEl;
+
+      this._map = global.L.map(mapEl, {
+        zoomControl: true,
+        attributionControl: true,
+      });
+      global.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      }).addTo(this._map);
+      this._layerGroup = global.L.layerGroup().addTo(this._map);
+      this._mapInitialized = true;
+      this._map.fitBounds(this._getUsaBounds(), { padding: [24, 24] });
+      return mapEl;
+    }
+
     _renderMap() {
       const storms = this._data?.storms || [];
+      const outlook = this._data?.outlook || {};
       const home = this._data?.home;
-      const mapEl = this._root?.querySelector("#hurricane-map");
-      if (!mapEl || !global.L || storms.length === 0) return;
-
-      if (!this._mapInitialized) {
-        this._map = global.L.map(mapEl, {
-          zoomControl: true,
-          attributionControl: true,
-        });
-        global.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-          maxZoom: 19,
-          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-        }).addTo(this._map);
-        this._layerGroup = global.L.layerGroup().addTo(this._map);
-        this._mapInitialized = true;
-      }
+      if (!this._ensureMap() || !this._map || !this._layerGroup) return;
 
       this._layerGroup.clearLayers();
       this._homeMarker = null;
 
       const bounds = [];
+
+      this._drawOutlook(outlook, bounds);
 
       storms.forEach((storm, idx) => {
         const color = STORM_COLORS[idx % STORM_COLORS.length];
@@ -291,13 +333,106 @@
         bounds.push([home.lat, home.lon]);
       }
 
-      if (bounds.length > 0) {
-        this._map.fitBounds(bounds, { padding: [40, 40], maxZoom: 8 });
+      this._fitMapView(bounds);
+      setTimeout(() => this._map?.invalidateSize(), 100);
+    }
+
+    _fitMapView(stormBounds) {
+      const usa = this._getUsaBounds();
+      if (!this._map || !usa) return;
+
+      if (stormBounds.length > 0) {
+        const combined = global.L.latLngBounds(stormBounds).extend(usa);
+        this._map.fitBounds(combined, { padding: [32, 32] });
       } else {
-        this._map.setView([25, -80], 4);
+        this._map.fitBounds(usa, { padding: [24, 24] });
+      }
+    }
+
+    _drawOutlook(outlook, bounds) {
+      const L = global.L;
+      if (!L || !outlook) return;
+
+      const regionGeo = outlook.developmentRegion;
+      if (regionGeo?.features?.length) {
+        L.geoJSON(regionGeo, {
+          style: (feature) => {
+            const prob = String(feature?.properties?.prob7day || feature?.properties?.prob2day || "");
+            let fill = "#ffb74d";
+            if (prob.includes("70") || prob.includes("80") || prob.includes("90")) fill = "#ef5350";
+            else if (prob.includes("40") || prob.includes("50") || prob.includes("60")) fill = "#ffa726";
+            return {
+              color: fill,
+              weight: 1,
+              fillColor: fill,
+              fillOpacity: 0.18,
+              opacity: 0.75,
+              dashArray: "6 4",
+            };
+          },
+          onEachFeature: (feature, layer) => {
+            const props = feature.properties || {};
+            const label = [
+              props.basin ? `Basin: ${props.basin}` : "",
+              props.prob2day ? `2-day: ${props.prob2day}` : "",
+              props.prob7day ? `7-day: ${props.prob7day}` : "",
+              props.risk2day ? `2-day risk: ${props.risk2day}` : "",
+              props.risk7day ? `7-day risk: ${props.risk7day}` : "",
+            ].filter(Boolean).join("<br/>");
+            if (label) layer.bindPopup(`<strong>Potential development</strong><br/>${label}`);
+          },
+        }).addTo(this._layerGroup).eachLayer((layer) => {
+          if (layer.getBounds) bounds.push(layer.getBounds());
+        });
       }
 
-      setTimeout(() => this._map?.invalidateSize(), 100);
+      const motionGeo = outlook.developmentMotion;
+      if (motionGeo?.features?.length) {
+        L.geoJSON(motionGeo, {
+          style: {
+            color: "#ffb74d",
+            weight: 2,
+            opacity: 0.7,
+            dashArray: "8 6",
+          },
+        }).addTo(this._layerGroup).eachLayer((layer) => {
+          if (layer.getBounds) bounds.push(layer.getBounds());
+        });
+      }
+
+      this._drawOutlookPoints(outlook.twoDayLocation, "#ffd54f", "2-day disturbance", bounds);
+      this._drawOutlookPoints(outlook.sevenDayLocation, "#ff9800", "7-day disturbance", bounds);
+    }
+
+    _drawOutlookPoints(geo, color, title, bounds) {
+      const L = global.L;
+      if (!L || !geo?.features?.length) return;
+
+      geo.features.forEach((feature) => {
+        const geom = feature.geometry || {};
+        const coords = geom.coordinates;
+        if (!coords || coords.length < 2) return;
+        const lon = coords[0];
+        const lat = coords[1];
+        const props = feature.properties || {};
+        const marker = L.circleMarker([lat, lon], {
+          radius: 7,
+          color: "#fff",
+          weight: 1,
+          fillColor: color,
+          fillOpacity: 0.95,
+        }).addTo(this._layerGroup);
+        const popup = [
+          `<strong>${title}</strong>`,
+          props.basin ? `Basin: ${this._esc(props.basin)}` : "",
+          props.prob2day ? `2-day: ${this._esc(props.prob2day)}` : "",
+          props.prob7day ? `7-day: ${this._esc(props.prob7day)}` : "",
+          props.risk2day ? `2-day risk: ${this._esc(props.risk2day)}` : "",
+          props.risk7day ? `7-day risk: ${this._esc(props.risk7day)}` : "",
+        ].filter(Boolean).join("<br/>");
+        marker.bindPopup(popup);
+        bounds.push([lat, lon]);
+      });
     }
 
     _drawStorm(storm, color, bounds) {
@@ -335,6 +470,39 @@
         L.polyline(latlngs, { color, weight: 4, opacity: 0.9 }).addTo(this._layerGroup);
         latlngs.forEach((ll) => bounds.push(ll));
       }
+
+      if (storm.pastTrack?.coordinates?.length) {
+        const pastLatLngs = storm.pastTrack.coordinates.map((c) => [c[1], c[0]]);
+        L.polyline(pastLatLngs, {
+          color: "#90a4ae",
+          weight: 3,
+          opacity: 0.75,
+          dashArray: "5 6",
+        }).addTo(this._layerGroup);
+        pastLatLngs.forEach((ll) => bounds.push(ll));
+      }
+
+      if (storm.watchWarning?.coordinates?.length) {
+        const watchLatLngs = storm.watchWarning.coordinates.map((c) => [c[1], c[0]]);
+        L.polyline(watchLatLngs, {
+          color: "#f44336",
+          weight: 3,
+          opacity: 0.85,
+        }).addTo(this._layerGroup);
+        watchLatLngs.forEach((ll) => bounds.push(ll));
+      }
+
+      (storm.pastPoints || []).forEach((pt) => {
+        if (pt.lat == null || pt.lon == null) return;
+        L.circleMarker([pt.lat, pt.lon], {
+          radius: 4,
+          color: "#cfd8dc",
+          weight: 1,
+          fillColor: "#78909c",
+          fillOpacity: 0.85,
+        }).addTo(this._layerGroup);
+        bounds.push([pt.lat, pt.lon]);
+      });
 
       (storm.forecastPoints || []).forEach((pt) => {
         if (pt.lat == null || pt.lon == null) return;

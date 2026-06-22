@@ -7,6 +7,8 @@ from pathlib import Path
 
 from custom_components.home_weather.hurricane_data import (
     HurricaneDataCache,
+    _group_features_by_storm_key,
+    _merge_storm_lists,
     _normalize_arcgis_storm,
     _parse_kml_coordinates,
 )
@@ -62,9 +64,31 @@ def test_parse_kml_coordinates_lon_lat():
 
 def test_hurricane_cache_ttl():
     cache = HurricaneDataCache()
-    payload = {"storms": [], "summary": {"activeCount": 0}}
+    payload = {"storms": [], "outlook": {}, "summary": {"activeCount": 0}}
     cache.set(payload)
     assert cache.get_if_fresh() is not None
     cache._fetched_at = datetime.now(timezone.utc) - timedelta(minutes=16)
     assert cache.get_if_fresh() is None
     assert cache.get_stale() is not None
+
+
+def test_merge_storm_lists_dedupes_by_id():
+    primary = [{"id": "AL012026", "name": "Alpha"}]
+    secondary = [
+        {"id": "AL012026", "name": "Alpha duplicate"},
+        {"id": "EP022026", "name": "Beta"},
+    ]
+    merged = _merge_storm_lists(primary, secondary)
+    assert len(merged) == 2
+    assert merged[1]["name"] == "Beta"
+
+
+def test_group_features_by_storm_key():
+    features = [
+        {"properties": {"idp_source": "AL012026", "stormname": "Alpha"}},
+        {"properties": {"idp_source": "AL012026", "stormname": "Alpha"}},
+        {"properties": {"idp_source": "EP022026", "stormname": "Beta"}},
+    ]
+    grouped = _group_features_by_storm_key(features)
+    assert len(grouped["AL012026"]) == 2
+    assert len(grouped["EP022026"]) == 1
