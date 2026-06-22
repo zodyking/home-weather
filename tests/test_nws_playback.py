@@ -45,9 +45,10 @@ def test_nws_local_playback_wav_uri_and_mime(tmp_path):
     sound = www_dir / "weather-warning.wav"
     sound.write_bytes(b"x")
 
-    media_id, media_type = nws_local_playback(sound)
+    hass = _mock_hass(tmp_path)
+    media_id, media_type = nws_local_playback(hass, sound)
     assert media_id == "/local/home_weather/sounds/weather-warning.wav"
-    assert media_type == "audio/wav"
+    assert media_type == "music"
 
 
 def test_nws_local_playback_preserves_spaces(tmp_path):
@@ -56,7 +57,8 @@ def test_nws_local_playback_preserves_spaces(tmp_path):
     sound = www_dir / "weather warning 1.wav"
     sound.write_bytes(b"x")
 
-    media_id, _ = nws_local_playback(sound)
+    hass = _mock_hass(tmp_path)
+    media_id, _ = nws_local_playback(hass, sound)
     assert media_id == "/local/home_weather/sounds/weather warning 1.wav"
 
 

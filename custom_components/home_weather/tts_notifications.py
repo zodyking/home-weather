@@ -16,6 +16,9 @@ from pathlib import Path
 from typing import Any
 
 from homeassistant.core import HomeAssistant
+from homeassistant.components.media_player.browse_media import (
+    async_process_play_media_url,
+)
 from homeassistant.util import dt as dt_util
 
 from .condition_labels import (
@@ -1024,13 +1027,15 @@ def format_active_nws_alerts_for_tts(
     return f"{trimmed}." if trimmed else msg[:max_length]
 
 
-def nws_local_playback(media_path: Path) -> tuple[str, str]:
-    """Return /local/ playback URI and content type for an NWS siren file."""
-    import mimetypes
-
+def nws_local_playback(hass: HomeAssistant, media_path: Path) -> tuple[str, str]:
+    """Return absolute playback URL and media type for an NWS siren file."""
     media_id = build_nws_local_media_id(media_path.name)
-    mime_type, _ = mimetypes.guess_type(str(media_path))
-    return media_id, mime_type or "music"
+    try:
+        play_url = async_process_play_media_url(hass, media_id)
+    except Exception as err:  # NoURLAvailableError, etc.
+        _LOGGER.warning("Falling back to relative siren URL: %s", err)
+        play_url = media_id
+    return play_url, "music"
 
 
 async def play_nws_siren(
@@ -1061,7 +1066,7 @@ async def play_nws_siren(
         )
         return
 
-    media_id, media_type = nws_local_playback(media_path)
+    media_id, media_type = nws_local_playback(hass, media_path)
     sound_vol = max(0, min(1, float(nws.get("sound_volume", 0.8))))
 
     for mp in media_players_config:
@@ -1381,7 +1386,7 @@ async def play_hazard_siren(
         )
         return
 
-    media_id, media_type = nws_local_playback(media_path)
+    media_id, media_type = nws_local_playback(hass, media_path)
     sound_vol = max(0, min(1, float(section.get("sound_volume", 0.8))))
 
     for mp in media_players_config:
