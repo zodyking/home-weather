@@ -1,0 +1,544 @@
+"""Fetch and normalize NOAA/NHC hurricane GIS data."""
+from __future__ import annotations
+
+import logging
+import re
+import xml.etree.ElementTree as ET
+from datetime import datetime, timedelta, timezone
+from typing import Any
+
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
+
+from .hurricane_geo import (
+    format_movement,
+    get_nearest_forecast_point,
+    get_storm_threat_status,
+    knots_to_mph,
+    pick_highest_threat,
+)
+
+_LOGGER = logging.getLogger(__name__)
+
+ARCGIS_MAPSERVER = (
+    "https://mapservices.weather.noaa.gov/tropical/rest/services/"
+    "tropical/NHC_tropical_weather/MapServer"
+)
+NHC_ACTIVE_KML = "https://www.nhc.noaa.gov/gis/kml/nhc_active.kml"
+
+WALLET_PATTERN = re.compile(r"^(AT|EP|CP)[1-5]$")
+CACHE_TTL = timedelta(minutes=15)
+
+KML_NS = {"kml": "http://www.opengis.net/kml/2.2"}
+
+
+class HurricaneDataCache:
+    """In-memory cache for hurricane data with stale fallback."""
+
+    def __init__(self) -> None:
+        self._payload: dict[str, Any] | None = None
+        self._fetched_at: datetime | None = None
+
+    def get_if_fresh(self) -> dict[str, Any] | None:
+        if self._payload is None or self._fetched_at is None:
+            return None
+        if datetime.now(timezone.utc) - self._fetched_at > CACHE_TTL:
+            return None
+        return self._payload
+
+    def get_stale(self) -> dict[str, Any] | None:
+        return self._payload
+
+    def set(self, payload: dict[str, Any]) -> None:
+        self._payload = payload
+        self._fetched_at = datetime.now(timezone.utc)
+
+
+_CACHE = HurricaneDataCache()
+
+
+def get_home_coordinates(hass: HomeAssistant, config: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Resolve home coordinates using the same priority as the panel."""
+    config = config or {}
+    weather_entity = config.get("weather_entity")
+    if weather_entity:
+        state = hass.states.get(weather_entity)
+        if state:
+            lat = state.attributes.get("latitude")
+            lon = state.attributes.get("longitude")
+            if lat is not None and lon is not None:
+                try:
+                    return {
+                        "lat": float(lat),
+                        "lon": float(lon),
+                        "label": "Home",
+                    }
+                except (TypeError, ValueError):
+                    pass
+
+    lat = hass.config.latitude
+    lon = hass.config.longitude
+    zone = hass.states.get("zone.home")
+    if zone:
+        zlat = zone.attributes.get("latitude")
+        zlon = zone.attributes.get("longitude")
+        if zlat is not None and zlon is not None:
+            try:
+                lat = float(zlat)
+                lon = float(zlon)
+            except (TypeError, ValueError):
+                pass
+
+    return {"lat": float(lat), "lon": float(lon), "label": "Home"}
+
+
+async def async_get_hurricane_data(
+    hass: HomeAssistant,
+    config: dict[str, Any] | None = None,
+    *,
+    force_refresh: bool = False,
+) -> dict[str, Any]:
+    """Return normalized hurricane data with home-relative summary."""
+    if not force_refresh:
+        cached = _CACHE.get_if_fresh()
+        if cached is not None:
+            return _attach_home_summary(hass, cached, config)
+
+    session = async_get_clientsession(hass)
+    warning: str | None = None
+    stale = False
+    source = "arcgis"
+
+    try:
+        storms = await _fetch_from_arcgis(session)
+    except Exception as err:
+        _LOGGER.warning("ArcGIS hurricane fetch failed: %s", err)
+        storms = None
+
+    if storms is None:
+        try:
+            storms = await _fetch_from_kml(session)
+            source = "kml"
+        except Exception as err:
+            _LOGGER.warning("KML hurricane fetch failed: %s", err)
+            stale_payload = _CACHE.get_stale()
+            if stale_payload is not None:
+                stale = True
+                warning = "NOAA/NHC data temporarily unavailable. Showing last known data."
+                result = dict(stale_payload)
+                result["summary"] = dict(result.get("summary") or {})
+                result["summary"]["stale"] = True
+                result["summary"]["warning"] = warning
+                return _attach_home_summary(hass, result, config)
+            return _empty_payload(
+                warning="Unable to fetch hurricane data from NOAA/NHC.",
+                stale=False,
+            )
+
+    fetched_at = datetime.now(timezone.utc).isoformat()
+    payload = {
+        "storms": storms,
+        "source": source,
+        "summary": {
+            "activeCount": len(storms),
+            "stale": stale,
+            "warning": warning,
+            "fetchedAt": fetched_at,
+        },
+    }
+    _CACHE.set(payload)
+    return _attach_home_summary(hass, payload, config)
+
+
+def _attach_home_summary(
+    hass: HomeAssistant,
+    payload: dict[str, Any],
+    config: dict[str, Any] | None,
+) -> dict[str, Any]:
+    home = get_home_coordinates(hass, config)
+    storms = payload.get("storms") or []
+    summary = dict(payload.get("summary") or {})
+
+    closest_storm: dict[str, Any] | None = None
+    closest_dist = float("inf")
+    threat_levels: list[str] = []
+    global_nearest_forecast: dict[str, Any] | None = None
+    global_nearest_dist = float("inf")
+
+    for storm in storms:
+        threat = get_storm_threat_status(home, storm)
+        storm["threat"] = threat
+        threat_levels.append(threat["threatLevel"])
+
+        center_dist = threat.get("distanceToCenterMiles")
+        if center_dist is not None and center_dist < closest_dist:
+            closest_dist = center_dist
+            closest_storm = storm
+
+        nearest = get_nearest_forecast_point(home, storm.get("forecastPoints") or [])
+        if nearest and nearest["distanceMiles"] < global_nearest_dist:
+            global_nearest_dist = nearest["distanceMiles"]
+            global_nearest_forecast = {
+                "stormId": storm.get("id"),
+                "stormName": storm.get("name"),
+                "hour": nearest.get("hour"),
+                "distanceMiles": nearest["distanceMiles"],
+            }
+
+    inside_cone = any(storm.get("threat", {}).get("insideCone") for storm in storms)
+    summary.update(
+        {
+            "activeCount": len(storms),
+            "closestStormId": closest_storm.get("id") if closest_storm else None,
+            "closestStormName": closest_storm.get("name") if closest_storm else None,
+            "distanceToCenterMiles": closest_storm.get("threat", {}).get("distanceToCenterMiles")
+            if closest_storm
+            else None,
+            "distanceToNearestForecastMiles": global_nearest_forecast["distanceMiles"]
+            if global_nearest_forecast
+            else None,
+            "insideCone": inside_cone,
+            "threatLevel": pick_highest_threat(threat_levels),
+            "estimatedClosestApproachHour": global_nearest_forecast["hour"]
+            if global_nearest_forecast
+            else None,
+        }
+    )
+
+    return {**payload, "home": home, "summary": summary}
+
+
+def _empty_payload(warning: str | None = None, stale: bool = False) -> dict[str, Any]:
+    return {
+        "storms": [],
+        "home": {"lat": 0.0, "lon": 0.0, "label": "Home"},
+        "summary": {
+            "activeCount": 0,
+            "closestStormId": None,
+            "closestStormName": None,
+            "distanceToCenterMiles": None,
+            "distanceToNearestForecastMiles": None,
+            "insideCone": False,
+            "threatLevel": "none",
+            "estimatedClosestApproachHour": None,
+            "stale": stale,
+            "warning": warning,
+            "fetchedAt": datetime.now(timezone.utc).isoformat(),
+        },
+    }
+
+
+async def _fetch_from_arcgis(session: Any) -> list[dict[str, Any]]:
+    async with session.get(f"{ARCGIS_MAPSERVER}?f=json", timeout=30) as resp:
+        resp.raise_for_status()
+        metadata = await resp.json()
+
+    layers = metadata.get("layers") or []
+    wallets = _discover_storm_wallets(layers)
+    storms: list[dict[str, Any]] = []
+
+    for wallet, layer_map in wallets.items():
+        points_layer = layer_map.get("Forecast Points")
+        if points_layer is None:
+            continue
+        points_geo = await _query_layer_geojson(session, points_layer)
+        if not points_geo.get("features"):
+            continue
+
+        track_geo = await _query_layer_geojson(session, layer_map.get("Forecast Track"))
+        cone_geo = await _query_layer_geojson(session, layer_map.get("Forecast Cone"))
+        radii_geo = await _query_layer_geojson(session, layer_map.get("Forecast Wind Radii"))
+
+        storm = _normalize_arcgis_storm(wallet, points_geo, track_geo, cone_geo, radii_geo)
+        if storm:
+            storms.append(storm)
+
+    return storms
+
+
+def _discover_storm_wallets(layers: list[dict[str, Any]]) -> dict[str, dict[str, int]]:
+    """Map storm wallet codes to sub-layer ids by name suffix."""
+    by_id = {layer["id"]: layer for layer in layers if "id" in layer and "name" in layer}
+    wallets: dict[str, dict[str, int]] = {}
+
+    for layer in layers:
+        name = layer.get("name") or ""
+        if not WALLET_PATTERN.match(name):
+            continue
+        wallet = name
+        wallets.setdefault(wallet, {})
+        _collect_wallet_layers(wallet, layer.get("subLayerIds") or [], by_id, wallets)
+
+    return wallets
+
+
+def _collect_wallet_layers(
+    wallet: str,
+    sub_ids: list[int],
+    by_id: dict[int, dict[str, Any]],
+    wallets: dict[str, dict[str, int]],
+) -> None:
+    for layer_id in sub_ids:
+        layer = by_id.get(layer_id)
+        if not layer:
+            continue
+        layer_name = layer.get("name") or ""
+        prefix = f"{wallet} "
+        if layer_name.startswith(prefix):
+            suffix = layer_name[len(prefix):]
+            if suffix in (
+                "Forecast Points",
+                "Forecast Track",
+                "Forecast Cone",
+                "Forecast Wind Radii",
+            ):
+                wallets[wallet][suffix] = layer_id
+        nested = layer.get("subLayerIds") or []
+        if nested:
+            _collect_wallet_layers(wallet, nested, by_id, wallets)
+
+
+async def _query_layer_geojson(session: Any, layer_id: int | None) -> dict[str, Any]:
+    if layer_id is None:
+        return {"type": "FeatureCollection", "features": []}
+    url = f"{ARCGIS_MAPSERVER}/{layer_id}/query"
+    params = {"where": "1=1", "outFields": "*", "f": "geojson", "returnGeometry": "true"}
+    async with session.get(url, params=params, timeout=30) as resp:
+        resp.raise_for_status()
+        return await resp.json()
+
+
+def _normalize_arcgis_storm(
+    wallet: str,
+    points_geo: dict[str, Any],
+    track_geo: dict[str, Any],
+    cone_geo: dict[str, Any],
+    radii_geo: dict[str, Any],
+) -> dict[str, Any] | None:
+    features = points_geo.get("features") or []
+    if not features:
+        return None
+
+    attrs = features[0].get("properties") or {}
+    storm_id = _build_storm_id(attrs, wallet)
+    name = attrs.get("stormname") or wallet
+    basin = attrs.get("basin") or wallet[:2]
+
+    forecast_points: list[dict[str, Any]] = []
+    for feature in features:
+        props = feature.get("properties") or {}
+        geom = feature.get("geometry") or {}
+        coords = geom.get("coordinates")
+        lat = props.get("lat")
+        lon = props.get("lon")
+        if coords and len(coords) >= 2:
+            lon, lat = float(coords[0]), float(coords[1])
+        hour = props.get("tau")
+        if hour is None:
+            hour = props.get("fcstprd")
+        forecast_points.append(
+            {
+                "hour": int(float(hour)) if hour is not None else None,
+                "lat": float(lat) if lat is not None else None,
+                "lon": float(lon) if lon is not None else None,
+                "maxWindMph": knots_to_mph(props.get("maxwind")),
+                "pressureMb": _to_int(props.get("mslp")),
+                "validTime": props.get("validtime") or props.get("fldatelbl"),
+            }
+        )
+
+    forecast_points.sort(
+        key=lambda p: (p["hour"] is None, p["hour"] if p["hour"] is not None else 9999)
+    )
+    current = _pick_current_point(forecast_points)
+
+    track = _geometry_from_features(track_geo.get("features") or [], "LineString")
+    if track is None and len(forecast_points) >= 2:
+        track = {
+            "type": "LineString",
+            "coordinates": [
+                [p["lon"], p["lat"]]
+                for p in forecast_points
+                if p.get("lon") is not None and p.get("lat") is not None
+            ],
+        }
+
+    cone = _geometry_from_features(cone_geo.get("features") or [], "Polygon")
+    wind_radii = _geometry_from_features(radii_geo.get("features") or [], "Polygon", multi=True)
+
+    current_attrs = _find_attrs_for_point(features, current)
+    movement = format_movement(
+        current_attrs.get("tcdir") if current_attrs else attrs.get("tcdir"),
+        current_attrs.get("tcspd") if current_attrs else attrs.get("tcspd"),
+    )
+
+    return {
+        "id": storm_id,
+        "name": name,
+        "basin": basin,
+        "wallet": wallet,
+        "advisoryTime": attrs.get("advdate") or attrs.get("idp_filedate"),
+        "currentPosition": current,
+        "maxWindMph": knots_to_mph(
+            (current_attrs or attrs).get("maxwind")
+        ),
+        "pressureMb": _to_int((current_attrs or attrs).get("mslp")),
+        "movement": movement,
+        "category": _to_int((current_attrs or attrs).get("ssnum")),
+        "track": track,
+        "forecastPoints": forecast_points,
+        "cone": cone,
+        "windRadii": wind_radii,
+    }
+
+
+def _build_storm_id(attrs: dict[str, Any], wallet: str) -> str:
+    source = attrs.get("idp_source") or wallet
+    basin = attrs.get("basin") or source[:2]
+    stormnum = attrs.get("stormnum")
+    if stormnum is not None:
+        try:
+            num = int(float(stormnum))
+            year = datetime.now(timezone.utc).year
+            return f"{basin}{num:02d}{year}"
+        except (TypeError, ValueError):
+            pass
+    return str(source)
+
+
+def _pick_current_point(forecast_points: list[dict[str, Any]]) -> dict[str, float] | None:
+    if not forecast_points:
+        return None
+    zero_points = [p for p in forecast_points if p.get("hour") == 0]
+    chosen = zero_points[0] if zero_points else forecast_points[0]
+    if chosen.get("lat") is None or chosen.get("lon") is None:
+        return None
+    return {"lat": float(chosen["lat"]), "lon": float(chosen["lon"])}
+
+
+def _find_attrs_for_point(
+    features: list[dict[str, Any]], current: dict[str, float] | None
+) -> dict[str, Any] | None:
+    if not current:
+        return None
+    for feature in features:
+        props = feature.get("properties") or {}
+        lat = props.get("lat")
+        lon = props.get("lon")
+        geom = feature.get("geometry") or {}
+        coords = geom.get("coordinates")
+        if coords and len(coords) >= 2:
+            lon, lat = coords[0], coords[1]
+        if lat is None or lon is None:
+            continue
+        if abs(float(lat) - current["lat"]) < 0.01 and abs(float(lon) - current["lon"]) < 0.01:
+            return props
+        if props.get("tau") == 0 or props.get("fcstprd") == 0:
+            return props
+    return None
+
+
+def _geometry_from_features(
+    features: list[dict[str, Any]],
+    expected_type: str,
+    *,
+    multi: bool = False,
+) -> dict[str, Any] | None:
+    if not features:
+        return None
+    if multi and len(features) > 1:
+        polys = []
+        for feature in features:
+            geom = feature.get("geometry")
+            if geom and geom.get("type") == "Polygon":
+                polys.append(geom.get("coordinates"))
+        if polys:
+            return {"type": "MultiPolygon", "coordinates": polys}
+    geom = features[0].get("geometry")
+    if geom and geom.get("type") == expected_type:
+        return geom
+    return None
+
+
+def _to_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return None
+
+
+async def _fetch_from_kml(session: Any) -> list[dict[str, Any]]:
+    async with session.get(NHC_ACTIVE_KML, timeout=30) as resp:
+        resp.raise_for_status()
+        text = await resp.text()
+
+    root = ET.fromstring(text)
+    placemarks = root.findall(".//kml:Placemark", KML_NS)
+    storms_by_name: dict[str, dict[str, Any]] = {}
+
+    for placemark in placemarks:
+        name_el = placemark.find("kml:name", KML_NS)
+        name = (name_el.text or "").strip() if name_el is not None else "Unknown"
+        storm_key = name.split("-")[0].strip() or name
+        storm = storms_by_name.setdefault(
+            storm_key,
+            {
+                "id": storm_key.replace(" ", ""),
+                "name": storm_key,
+                "basin": storm_key[:2] if len(storm_key) >= 2 else "AL",
+                "forecastPoints": [],
+                "track": None,
+                "cone": None,
+                "windRadii": None,
+                "currentPosition": None,
+                "maxWindMph": None,
+                "pressureMb": None,
+                "movement": None,
+                "category": None,
+                "advisoryTime": None,
+            },
+        )
+
+        line = placemark.find(".//kml:LineString/kml:coordinates", KML_NS)
+        if line is not None and line.text:
+            coords = _parse_kml_coordinates(line.text, line=True)
+            if "track" in name.lower() or "forecast" in name.lower():
+                storm["track"] = {"type": "LineString", "coordinates": coords}
+            continue
+
+        polygon = placemark.find(".//kml:Polygon/kml:outerBoundaryIs/kml:LinearRing/kml:coordinates", KML_NS)
+        if polygon is not None and polygon.text:
+            ring = _parse_kml_coordinates(polygon.text, line=False)
+            if "cone" in name.lower():
+                storm["cone"] = {"type": "Polygon", "coordinates": [ring]}
+            elif "wind" in name.lower() or "radii" in name.lower():
+                storm["windRadii"] = {"type": "Polygon", "coordinates": [ring]}
+            continue
+
+        point = placemark.find(".//kml:Point/kml:coordinates", KML_NS)
+        if point is not None and point.text:
+            coords = _parse_kml_coordinates(point.text, line=False)
+            if coords:
+                lon, lat = coords[0]
+                pt = {"hour": None, "lat": lat, "lon": lon, "maxWindMph": None, "pressureMb": None, "validTime": None}
+                storm["forecastPoints"].append(pt)
+                if storm["currentPosition"] is None:
+                    storm["currentPosition"] = {"lat": lat, "lon": lon}
+
+    return [s for s in storms_by_name.values() if s.get("forecastPoints") or s.get("track")]
+
+
+def _parse_kml_coordinates(text: str, *, line: bool) -> list[list[float]]:
+    """Parse KML coordinate text (lon,lat,elev) into GeoJSON [lon,lat] lists."""
+    coords: list[list[float]] = []
+    for token in text.replace("\n", " ").split():
+        parts = token.split(",")
+        if len(parts) < 2:
+            continue
+        lon, lat = float(parts[0]), float(parts[1])
+        coords.append([lon, lat])
+    if not line and coords:
+        return coords
+    return coords

@@ -1,0 +1,47 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-75.1, 26.4]
+      },
+      "properties": {
+        "stormname": "Example Storm",
+        "basin": "AL",
+        "stormnum": 1,
+        "idp_source": "AL012026",
+        "advdate": "2026-08-20T15:00:00Z",
+        "maxwind": 74,
+        "mslp": 975,
+        "tcdir": 315,
+        "tcspd": 10,
+        "ssnum": 1,
+        "tau": 12,
+        "validtime": "2026-08-21T03:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-74.2, 25.3]
+      },
+      "properties": {
+        "stormname": "Example Storm",
+        "basin": "AL",
+        "stormnum": 1,
+        "idp_source": "AL012026",
+        "advdate": "2026-08-20T15:00:00Z",
+        "maxwind": 74,
+        "mslp": 980,
+        "tcdir": 315,
+        "tcspd": 12,
+        "ssnum": 1,
+        "tau": 0,
+        "validtime": "2026-08-20T15:00:00Z"
+      }
+    }
+  ]
+}

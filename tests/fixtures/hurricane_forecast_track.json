@@ -1,0 +1,19 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [-74.2, 25.3],
+          [-75.1, 26.4],
+          [-76.5, 27.8]
+        ]
+      },
+      "properties": {
+        "stormname": "Example Storm"
+      }
+    }
+  ]
+}

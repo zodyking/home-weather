@@ -568,6 +568,29 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
         sounds = await hass.async_add_executor_job(list_nws_sounds_merged, hass)
         connection.send_result(msg["id"], {"sounds": sounds})
 
+    @websocket_api.websocket_command({"type": "home_weather/get_hurricanes"})
+    @websocket_api.async_response
+    async def handle_get_hurricanes(
+        hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+    ) -> None:
+        """Return active hurricane GIS data normalized for the tracker map."""
+        from .hurricane_data import async_get_hurricane_data
+
+        entry_data = _get_entry_data(hass)
+        config = None
+        if entry_data and entry_data.get("storage"):
+            config = await entry_data["storage"].async_get()
+
+        force_refresh = bool(msg.get("force_refresh"))
+        try:
+            payload = await async_get_hurricane_data(
+                hass, config, force_refresh=force_refresh
+            )
+            connection.send_result(msg["id"], payload)
+        except Exception as err:
+            _LOGGER.exception("Failed to fetch hurricane data")
+            connection.send_error(msg["id"], "hurricane_fetch_failed", str(err))
+
     websocket_api.async_register_command(hass, handle_get_config)
     websocket_api.async_register_command(hass, handle_set_config)
     websocket_api.async_register_command(hass, handle_get_weather)
@@ -586,4 +609,5 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, handle_get_webhook_info)
     websocket_api.async_register_command(hass, handle_get_version)
     websocket_api.async_register_command(hass, handle_list_www_sounds)
+    websocket_api.async_register_command(hass, handle_get_hurricanes)
 

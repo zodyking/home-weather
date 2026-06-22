@@ -26,6 +26,8 @@ class HomeWeatherPanel extends HTMLElement {
     this._wwwSounds = [];  // Audio files in www/sounds/ for NWS alert picker
     this._alertsData = null;
     this._alertsLoading = false;
+    this._hurricaneTracker = null;
+    this._hurricaneTrackerPromise = null;
     this._version = null;
     this._updateStatus = "latest";  // "latest" | "available" | "checking"
     this._updateCheckInterval = null;
@@ -2343,10 +2345,17 @@ class HomeWeatherPanel extends HTMLElement {
         .entity-autocomplete-input:focus { outline: none; border-color: var(--panel-accent); box-shadow: 0 0 0 2px var(--panel-accent-dim); }
         .entity-autocomplete-input::placeholder { color: var(--secondary-text-color); opacity: 0.7; }
       </style>
-      ${this._currentView === "forecast" || this._currentView === "alerts"
+      ${this._currentView === "forecast" || this._currentView === "alerts" || this._currentView === "hurricanes"
         ? this._currentView === "alerts"
           ? `<div class="settings-view ${this._isNarrow ? "narrow" : ""}">
             ${this._renderPanelHeader("NWS Alerts", "")}
+            <div class="settings-body">
+            ${this._renderContent()}
+            </div>
+          </div>`
+          : this._currentView === "hurricanes"
+            ? `<div class="settings-view ${this._isNarrow ? "narrow" : ""}">
+            ${this._renderPanelHeader("Hurricane Tracker", "")}
             <div class="settings-body">
             ${this._renderContent()}
             </div>
@@ -2364,6 +2373,9 @@ class HomeWeatherPanel extends HTMLElement {
                   <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>
                   <span style="font-size:12px;font-weight:500;">Alerts</span>
                   ${this._renderAlertsBadge()}
+                </button>
+                <button class="icon-btn" id="hurricanes-btn" aria-label="Hurricane Tracker" title="Hurricane Tracker">
+                  <img src="/local/home_weather/icons/hurricane.svg" width="20" height="20" alt="" style="display:block;" />
                 </button>
                 <button class="icon-btn" id="gear-btn" aria-label="Settings">
                   <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.488.488 0 00-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 00-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94 0 .31.02.64.07.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
@@ -2395,14 +2407,21 @@ class HomeWeatherPanel extends HTMLElement {
     });
     const gearBtn = s.getElementById("gear-btn");
     const alertsBtn = s.getElementById("alerts-btn");
+    const hurricanesBtn = s.getElementById("hurricanes-btn");
     const backBtn = s.getElementById("back-btn");
     if (alertsBtn) alertsBtn.addEventListener("click", () => {
+      this._destroyHurricaneTracker();
       this._currentView = "alerts";
       this._alertsData = null;
       this._alertsLoading = false;
       this._render();
     });
+    if (hurricanesBtn) hurricanesBtn.addEventListener("click", () => {
+      this._currentView = "hurricanes";
+      this._render();
+    });
     if (gearBtn) gearBtn.addEventListener("click", async () => {
+      this._destroyHurricaneTracker();
       this._currentView = "settings";
       this._expandedSections = new Set();
       await this._loadWwwSounds();
@@ -2411,6 +2430,7 @@ class HomeWeatherPanel extends HTMLElement {
     });
     if (backBtn) backBtn.addEventListener("click", () => {
       this._syncSettingsFromForm();
+      this._destroyHurricaneTracker();
       this._currentView = "forecast";
       this._render();
     });
@@ -2478,6 +2498,8 @@ class HomeWeatherPanel extends HTMLElement {
           if (card) card.classList.toggle("expanded");
         });
       });
+    } else if (this._currentView === "hurricanes") {
+      this._initHurricaneTracker();
     }
   }
 
@@ -2948,7 +2970,52 @@ class HomeWeatherPanel extends HTMLElement {
       return this._renderForecast();
     }
     if (this._currentView === "alerts") return this._renderAlerts();
+    if (this._currentView === "hurricanes") return this._renderHurricanes();
     return this._renderSettings();
+  }
+
+  _renderHurricanes() {
+    return `<section class="hurricanes-page"><div id="hurricane-tracker-root"></div></section>`;
+  }
+
+  _loadHurricaneTrackerScript() {
+    if (window.HurricaneTracker) return Promise.resolve();
+    if (this._hurricaneTrackerPromise) return this._hurricaneTrackerPromise;
+    const version = this._version || Date.now();
+    this._hurricaneTrackerPromise = new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = `/local/home_weather/hurricane-tracker.js?v=${version}`;
+      script.onload = () => resolve();
+      script.onerror = () => reject(new Error("Failed to load hurricane tracker"));
+      document.head.appendChild(script);
+    });
+    return this._hurricaneTrackerPromise;
+  }
+
+  _destroyHurricaneTracker() {
+    if (this._hurricaneTracker) {
+      this._hurricaneTracker.destroy();
+      this._hurricaneTracker = null;
+    }
+  }
+
+  async _initHurricaneTracker() {
+    const s = this.shadowRoot;
+    if (!s || this._currentView !== "hurricanes") return;
+    const root = s.getElementById("hurricane-tracker-root");
+    if (!root) return;
+    try {
+      await this._loadHurricaneTrackerScript();
+      if (this._currentView !== "hurricanes") return;
+      this._destroyHurricaneTracker();
+      this._hurricaneTracker = new window.HurricaneTracker({
+        hass: this._hass,
+        shadowRoot: s,
+      });
+      await this._hurricaneTracker.init(root);
+    } catch (err) {
+      root.innerHTML = `<div class="error" style="padding:24px;text-align:center;">Failed to load hurricane tracker: ${String(err.message || err)}</div>`;
+    }
   }
 
   _renderSkeleton() {
