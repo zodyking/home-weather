@@ -95,7 +95,7 @@ DEFAULT_CONFIG: Final = {
         "tsunami_alert_enabled": True,
         "map_show_worldwide": True,
         "map_min_magnitude": 4.5,
-        "map_feed_type": "4.5_week",
+        "map_feed_type": "all_day",
     },
 }
 

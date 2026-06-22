@@ -11,7 +11,7 @@ from .const import NWS_SOUNDS_SUBPATH
 
 _LOGGER = logging.getLogger(__name__)
 
-_WAV_SUFFIX = ".wav"
+_SOUND_SUFFIXES = (".mp3", ".wav")
 
 
 def get_bundle_sounds_dir() -> Path:
@@ -54,59 +54,90 @@ def normalize_nws_sound_filename(sound_file: str) -> str:
     return Path(lowered).name
 
 
-def _iter_wav_files(sounds_dir: Path) -> list[str]:
+def _is_sound_file(path: Path) -> bool:
+    return path.is_file() and path.suffix.lower() in _SOUND_SUFFIXES
+
+
+def _iter_sound_files(sounds_dir: Path) -> list[str]:
     if not sounds_dir.is_dir():
         return []
-    return [
-        f.name
-        for f in sounds_dir.iterdir()
-        if f.is_file() and f.suffix.lower() == _WAV_SUFFIX
-    ]
+    return [f.name for f in sounds_dir.iterdir() if _is_sound_file(f)]
+
+
+def _collect_stem_matches(stem: str, *dirs: Path) -> list[Path]:
+    """Collect all sound files matching stem across directories."""
+    stem_lower = stem.lower()
+    matches: list[Path] = []
+    for sounds_dir in dirs:
+        if not sounds_dir.is_dir():
+            continue
+        for name in _iter_sound_files(sounds_dir):
+            if Path(name).stem.lower() == stem_lower:
+                matches.append(sounds_dir / name)
+    return matches
+
+
+def _pick_preferred_sound(matches: list[Path]) -> Path | None:
+    """Pick best sound path, preferring .mp3 over .wav."""
+    if not matches:
+        return None
+
+    def suffix_rank(path: Path) -> int:
+        try:
+            return _SOUND_SUFFIXES.index(path.suffix.lower())
+        except ValueError:
+            return len(_SOUND_SUFFIXES)
+
+    return min(matches, key=suffix_rank)
+
+
+def _find_sound_by_stem(sounds_dir: Path, stem: str) -> Path | None:
+    """Return best match for stem in one directory, preferring .mp3 over .wav."""
+    return _pick_preferred_sound(_collect_stem_matches(stem, sounds_dir))
 
 
 def list_nws_wav_files(sounds_dir: Path) -> list[str]:
-    """List .wav files in a single sounds directory."""
-    return sorted(_iter_wav_files(sounds_dir), key=str.lower)
+    """List playable sound files (.mp3 and .wav) in a single sounds directory."""
+    return sorted(_iter_sound_files(sounds_dir), key=str.lower)
 
 
 def list_nws_sounds_merged(hass: HomeAssistant) -> list[str]:
-    """List .wav files present in config/www/home_weather/sounds/."""
+    """List sound files present in config/www/home_weather/sounds/."""
     return list_nws_wav_files(get_nws_sounds_dir(hass))
 
 
 def resolve_nws_sound_path(hass: HomeAssistant, sound_file: str) -> Path | None:
-    """Resolve a sound filename to disk path (www dir, then bundle)."""
+    """Resolve a sound filename to disk path (www dir, then bundle). Prefers .mp3."""
     filename = normalize_nws_sound_filename(sound_file)
     if not filename:
         return None
 
     www_dir = get_nws_sounds_dir(hass)
-    stem = Path(filename).stem.lower()
-    for name in _iter_wav_files(www_dir):
-        if Path(name).stem.lower() == stem:
-            return www_dir / name
+    bundle_dir = get_bundle_sounds_dir()
+    stem = Path(filename).stem
+    match = _pick_preferred_sound(_collect_stem_matches(stem, www_dir, bundle_dir))
+    if match:
+        return match
 
-    bundle_path = get_bundle_sounds_dir() / filename
-    if bundle_path.is_file():
-        return bundle_path
-    bundle_wav = get_bundle_sounds_dir() / f"{stem}{_WAV_SUFFIX}"
-    if bundle_wav.is_file():
-        return bundle_wav
+    direct = bundle_dir / filename
+    if direct.is_file():
+        return direct
     return None
 
 
 def resolve_nws_playable_sound(hass: HomeAssistant, sound_file: str) -> Path | None:
-    """Return a .wav file ready for /local/ playback under config/www."""
+    """Return a sound file ready for /local/ playback under config/www. Prefers .mp3."""
     ensure_nws_sounds_dir(hass)
     filename = normalize_nws_sound_filename(sound_file)
     if not filename:
         return None
 
     www_dir = get_nws_sounds_dir(hass)
-    stem = Path(filename).stem.lower()
-    for name in _iter_wav_files(www_dir):
-        if Path(name).stem.lower() == stem:
-            return www_dir / name
+    bundle_dir = get_bundle_sounds_dir()
+    stem = Path(filename).stem
+    match = _pick_preferred_sound(_collect_stem_matches(stem, www_dir, bundle_dir))
+    if match and match.parent.resolve() == www_dir.resolve():
+        return match
 
     source = resolve_nws_sound_path(hass, filename)
     if not source or not source.is_file():
@@ -124,7 +155,7 @@ def resolve_nws_playable_sound(hass: HomeAssistant, sound_file: str) -> Path | N
 
 
 def build_nws_local_media_id(filename: str) -> str:
-    """Return /local/ media_content_id for an NWS siren .wav file."""
+    """Return /local/ media_content_id for an NWS siren file."""
     return f"/local/{NWS_SOUNDS_SUBPATH}/{filename}"
 
 
@@ -148,7 +179,7 @@ def _seed_bundle_sounds(target: Path) -> None:
     if not bundle.is_dir():
         return
     for src in sorted(bundle.iterdir(), key=lambda p: p.name.lower()):
-        if src.is_file() and src.suffix.lower() == _WAV_SUFFIX:
+        if _is_sound_file(src):
             _copy_sound_if_missing(src, target / src.name)
 
 
@@ -156,12 +187,12 @@ def _migrate_legacy_media_sounds(hass: HomeAssistant, target: Path) -> None:
     legacy_media = _get_legacy_media_dir(hass)
     if not legacy_media.is_dir():
         return
-    for name in _iter_wav_files(legacy_media):
+    for name in _iter_sound_files(legacy_media):
         _copy_sound_if_missing(legacy_media / name, target / name)
 
 
 def ensure_nws_sounds_dir(hass: HomeAssistant) -> Path:
-    """Create config/www sounds dir and copy bundled default .wav files."""
+    """Create config/www sounds dir and copy bundled default sound files."""
     target = get_nws_sounds_dir(hass)
     target.mkdir(parents=True, exist_ok=True)
     _migrate_legacy_media_sounds(hass, target)

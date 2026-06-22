@@ -36,7 +36,7 @@ def get_earthquake_config(config: dict[str, Any] | None) -> dict[str, Any]:
         "tsunami_alert_enabled": True,
         "map_show_worldwide": True,
         "map_min_magnitude": 4.5,
-        "map_feed_type": "4.5_week",
+        "map_feed_type": "all_day",
     }
     merged = {**defaults, **((config or {}).get("earthquakes") or {})}
     if merged["feed_type"] not in USGS_FEED_TYPES:
@@ -171,6 +171,19 @@ def passes_map_filters(
     return True
 
 
+def _start_of_today_ms() -> int:
+    """Return local-midnight today as USGS epoch milliseconds."""
+    now = dt_util.now()
+    start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    return int(start.timestamp() * 1000)
+
+
+def is_event_today(event: dict[str, Any], start_ms: int) -> bool:
+    """Return True when event time is on or after local midnight today."""
+    event_time = event.get("time")
+    return event_time is not None and event_time >= start_ms
+
+
 def parse_earthquake_features(
     features: list[dict[str, Any]],
     home: dict[str, float],
@@ -191,10 +204,15 @@ def parse_earthquake_features_for_map(
     eq_config: dict[str, Any],
 ) -> list[dict[str, Any]]:
     """Parse USGS features for worldwide map display (magnitude only, no radius)."""
+    start_ms = _start_of_today_ms()
     events: list[dict[str, Any]] = []
     for feature in features:
         parsed = parse_earthquake_feature(feature, home)
-        if parsed and passes_map_filters(parsed, eq_config):
+        if (
+            parsed
+            and passes_map_filters(parsed, eq_config)
+            and is_event_today(parsed, start_ms)
+        ):
             events.append(parsed)
     return sort_earthquakes_by_newest(events)
 
@@ -286,12 +304,12 @@ def build_coordinator_payload(
     map_events: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Build coordinator payload from nearby and worldwide map earthquakes."""
-    nearest = pick_nearest_earthquake(events)
     nearby_ids = {str(e["id"]) for e in events if e.get("id")}
     if map_events is None:
         display_events = events
     else:
         display_events = merge_map_display_events(events, map_events)
+    nearest = pick_nearest_earthquake(events) or pick_nearest_earthquake(display_events)
     return {
         "events": events,
         "map_events": display_events,

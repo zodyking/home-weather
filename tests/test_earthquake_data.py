@@ -86,8 +86,15 @@ DEFAULT_EQ_CONFIG = {
     "tsunami_alert_enabled": True,
     "map_show_worldwide": True,
     "map_min_magnitude": 4.5,
-    "map_feed_type": "4.5_week",
+    "map_feed_type": "all_day",
 }
+
+
+def _patch_map_today_filter(monkeypatch):
+    monkeypatch.setattr(
+        "custom_components.home_weather.earthquake_data._start_of_today_ms",
+        lambda: 0,
+    )
 
 
 def test_valid_earthquake_parsed():
@@ -161,7 +168,8 @@ def test_missing_geometry_handled_safely():
     assert events[0]["id"] == "us7000abc1"
 
 
-def test_build_coordinator_payload_nearest_first():
+def test_build_coordinator_payload_nearest_first(monkeypatch):
+    _patch_map_today_filter(monkeypatch)
     events = parse_earthquake_features([NEAR_EQ], HOME, DEFAULT_EQ_CONFIG)
     map_events = parse_earthquake_features_for_map([FAR_EQ, LOW_MAG_EQ], HOME, DEFAULT_EQ_CONFIG)
     payload = build_coordinator_payload(events, map_events)
@@ -176,7 +184,8 @@ def test_build_coordinator_payload_nearest_first():
     assert nearby_flags["us7000abc3"] is False
 
 
-def test_build_coordinator_payload_merges_nearby_live_events():
+def test_build_coordinator_payload_merges_nearby_live_events(monkeypatch):
+    _patch_map_today_filter(monkeypatch)
     events = parse_earthquake_features([NEAR_EQ], HOME, DEFAULT_EQ_CONFIG)
     map_events = parse_earthquake_features_for_map([FAR_EQ], HOME, DEFAULT_EQ_CONFIG)
     payload = build_coordinator_payload(events, map_events)
@@ -186,7 +195,8 @@ def test_build_coordinator_payload_merges_nearby_live_events():
     assert ids == {"us7000abc1", "us7000abc3"}
 
 
-def test_map_filters_ignore_radius():
+def test_map_filters_ignore_radius(monkeypatch):
+    _patch_map_today_filter(monkeypatch)
     event = parse_earthquake_feature(FAR_EQ, HOME)
     assert event is not None
     assert not passes_earthquake_filters(event, DEFAULT_EQ_CONFIG)
@@ -195,3 +205,32 @@ def test_map_filters_ignore_radius():
     map_events = parse_earthquake_features_for_map([FAR_EQ, LOW_MAG_EQ, NEAR_EQ], HOME, DEFAULT_EQ_CONFIG)
     assert len(map_events) == 1
     assert map_events[0]["id"] == "us7000abc3"
+
+
+def test_map_events_exclude_before_today(monkeypatch):
+    event = parse_earthquake_feature(FAR_EQ, HOME)
+    assert event is not None
+    monkeypatch.setattr(
+        "custom_components.home_weather.earthquake_data._start_of_today_ms",
+        lambda: event["time"] + 1,
+    )
+    assert parse_earthquake_features_for_map([FAR_EQ], HOME, DEFAULT_EQ_CONFIG) == []
+
+    monkeypatch.setattr(
+        "custom_components.home_weather.earthquake_data._start_of_today_ms",
+        lambda: event["time"] - 1,
+    )
+    map_events = parse_earthquake_features_for_map([FAR_EQ], HOME, DEFAULT_EQ_CONFIG)
+    assert len(map_events) == 1
+    assert map_events[0]["id"] == "us7000abc3"
+
+
+def test_build_coordinator_payload_falls_back_to_map_nearest(monkeypatch):
+    _patch_map_today_filter(monkeypatch)
+    events = parse_earthquake_features([], HOME, DEFAULT_EQ_CONFIG)
+    map_events = parse_earthquake_features_for_map([FAR_EQ], HOME, DEFAULT_EQ_CONFIG)
+    payload = build_coordinator_payload(events, map_events)
+    assert payload["active_count"] == 0
+    assert payload["nearby_active"] is False
+    assert payload["primary_event"]["id"] == "us7000abc3"
+    assert payload["nearest_place"] == "Off coast of Alaska"

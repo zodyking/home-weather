@@ -1284,7 +1284,6 @@
           }).addTo(this._layerGroup);
         }
 
-        bounds.push([lat, lon]);
       });
     }
   }

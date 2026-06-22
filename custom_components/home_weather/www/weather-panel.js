@@ -4548,7 +4548,7 @@ class HomeWeatherPanel extends HTMLElement {
       tsunami_alert_enabled: true,
       map_show_worldwide: true,
       map_min_magnitude: 4.5,
-      map_feed_type: "4.5_week",
+      map_feed_type: "all_day",
     };
     const earthquakes = { ...defaultEarthquakes, ...(this._settings.earthquakes || {}) };
     if (!sunAlerts.sunrise_tts) sunAlerts.sunrise_tts = defaultSunAlerts.sunrise_tts;
@@ -5212,7 +5212,7 @@ class HomeWeatherPanel extends HTMLElement {
                   <option value="all_hour" ${earthquakes.map_feed_type === "all_hour" ? "selected" : ""}>All earthquakes — past hour</option>
                   <option value="all_day" ${earthquakes.map_feed_type === "all_day" ? "selected" : ""}>All earthquakes — past day</option>
                   <option value="2.5_day" ${earthquakes.map_feed_type === "2.5_day" ? "selected" : ""}>M2.5+ — past day</option>
-                  <option value="4.5_week" ${(earthquakes.map_feed_type || "4.5_week") === "4.5_week" ? "selected" : ""}>M4.5+ — past week</option>
+                  <option value="4.5_week" ${(earthquakes.map_feed_type || "all_day") === "4.5_week" ? "selected" : ""}>M4.5+ — past week</option>
                 </select>
               </div>
             </div>
@@ -5459,7 +5459,7 @@ class HomeWeatherPanel extends HTMLElement {
       tsunami_alert_enabled: true,
       map_show_worldwide: true,
       map_min_magnitude: 4.5,
-      map_feed_type: "4.5_week",
+      map_feed_type: "all_day",
     };
     if (!s) return defaults;
     const getVal = (id, def) => (s.getElementById(id)?.value ?? def);

@@ -98,7 +98,7 @@ def test_list_nws_wav_files_ignores_non_wav(tmp_path):
     (tmp_path / "siren.wav").write_bytes(b"x")
     (tmp_path / "other.ogg").write_bytes(b"x")
     files = list_nws_wav_files(tmp_path)
-    assert files == ["siren.wav"]
+    assert files == ["alert.mp3", "siren.wav"]
 
 
 def test_resolve_nws_sound_path_prefers_www_dir(tmp_path, monkeypatch):
@@ -157,16 +157,17 @@ def test_list_nws_sounds_merged_lists_www_wav_only(tmp_path, monkeypatch):
     )
 
     files = list_nws_sounds_merged(hass)
-    assert files == ["three.wav", "two.wav"]
+    assert files == ["legacy.mp3", "three.wav", "two.wav"]
     assert get_nws_sounds_dir(hass) == www_dir
 
 
-def test_resolve_nws_playable_sound_prefers_wav_over_mp3_config(tmp_path, monkeypatch):
+def test_resolve_nws_playable_sound_prefers_mp3_over_wav_config(tmp_path, monkeypatch):
     bundle = tmp_path / "bundle"
     www_dir = tmp_path / "www" / "home_weather" / "sounds"
     bundle.mkdir(parents=True)
     www_dir.mkdir(parents=True)
     (www_dir / "weather warning 1.wav").write_bytes(b"x")
+    (www_dir / "weather warning 1.mp3").write_bytes(b"m")
 
     hass = _mock_hass(tmp_path)
     monkeypatch.setattr(
@@ -174,8 +175,26 @@ def test_resolve_nws_playable_sound_prefers_wav_over_mp3_config(tmp_path, monkey
         lambda: bundle,
     )
 
-    resolved = resolve_nws_playable_sound(hass, "weather warning 1.mp3")
-    assert resolved == www_dir / "weather warning 1.wav"
+    resolved = resolve_nws_playable_sound(hass, "weather warning 1.wav")
+    assert resolved == www_dir / "weather warning 1.mp3"
+
+
+def test_resolve_nws_playable_sound_prefers_bundle_mp3_over_www_wav(tmp_path, monkeypatch):
+    bundle = tmp_path / "bundle"
+    www_dir = tmp_path / "www" / "home_weather" / "sounds"
+    bundle.mkdir(parents=True)
+    www_dir.mkdir(parents=True)
+    (www_dir / "weather warning 1.wav").write_bytes(b"x")
+    (bundle / "weather warning 1.mp3").write_bytes(b"m")
+
+    hass = _mock_hass(tmp_path)
+    monkeypatch.setattr(
+        "custom_components.home_weather.sounds_setup.get_bundle_sounds_dir",
+        lambda: bundle,
+    )
+
+    resolved = resolve_nws_playable_sound(hass, "weather warning 1.wav")
+    assert resolved == www_dir / "weather warning 1.mp3"
 
 
 def test_ensure_nws_sounds_dir_seeds_bundle_to_www(tmp_path, monkeypatch):
