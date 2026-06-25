@@ -583,7 +583,8 @@
             right: 12px;
           }
           .hw-map-controls-stack {
-            --hw-map-btn: 32px;
+            --hw-map-btn: 36px;
+            --hw-map-stack-width: 144px;
           }
           .hw-legend {
             max-width: none;
@@ -802,19 +803,19 @@
         }
         /* Unified top-left map controls stack: toolbar row + legend */
         .hw-map-controls-stack {
-          --hw-map-btn: 34px;
+          --hw-map-btn: 42px;
+          --hw-map-stack-width: 168px;
           display: flex;
           flex-direction: column;
           gap: 6px;
-          width: calc(var(--hw-map-btn) * 4 + 3px);
+          width: var(--hw-map-stack-width);
           background: transparent;
           border: none;
           box-shadow: none;
         }
         .hw-map-toolbar {
-          display: flex;
-          flex-direction: row;
-          align-items: stretch;
+          display: grid;
+          grid-template-columns: repeat(4, 1fr);
           width: 100%;
           background: rgba(28, 28, 28, 0.92);
           border: 1px solid rgba(255,255,255,0.12);
@@ -822,80 +823,89 @@
           overflow: visible;
           box-shadow: 0 4px 16px rgba(0,0,0,0.35);
         }
-        .hw-map-toolbar .leaflet-bar {
-          border: none;
-          box-shadow: none;
-          border-radius: 0;
-          background: transparent !important;
-        }
-        .hw-map-toolbar .leaflet-control-layers {
+        .hw-map-tool-cell {
           position: relative;
-          margin: 0;
-          background: transparent;
-          border: none;
-          box-shadow: none;
-          flex: 0 0 var(--hw-map-btn);
-        }
-        .hw-map-toolbar .leaflet-control-layers-toggle {
-          width: var(--hw-map-btn);
-          height: var(--hw-map-btn);
-          min-width: var(--hw-map-btn);
+          display: flex;
+          align-items: stretch;
+          min-width: 0;
           min-height: var(--hw-map-btn);
-          background-color: rgba(28, 28, 28, 0.92) !important;
-          background-size: 16px 16px;
-          background-position: center;
-          border: none;
-          border-right: 1px solid rgba(255,255,255,0.12);
-          border-radius: 0;
-          box-sizing: border-box;
         }
-        .hw-map-toolbar .leaflet-control-layers-expanded {
+        .hw-map-tool-cell + .hw-map-tool-cell {
+          border-left: 1px solid rgba(255,255,255,0.12);
+        }
+        .hw-map-tool-btn {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 100%;
+          height: var(--hw-map-btn);
+          min-height: var(--hw-map-btn);
+          padding: 0;
+          margin: 0;
+          border: none;
+          border-radius: 0;
+          background: rgba(28, 28, 28, 0.92);
+          color: #e1e1e1;
+          font-size: 18px;
+          font-weight: 600;
+          line-height: 1;
+          cursor: pointer;
+          box-sizing: border-box;
+          font-family: inherit;
+        }
+        .hw-map-tool-btn:hover {
+          background: rgba(40, 40, 40, 0.96);
+          color: #fff;
+        }
+        .hw-map-tool-btn:focus-visible {
+          outline: 2px solid #29b6f6;
+          outline-offset: -2px;
+          z-index: 1;
+        }
+        .hw-map-tool-btn.active {
+          background: #0288d1;
+          color: #fff;
+        }
+        .hw-basemap-cell { z-index: 2; }
+        .hw-basemap-menu {
           position: absolute;
           top: calc(100% + 6px);
           left: 0;
           z-index: 1000;
           min-width: 148px;
-          margin: 0;
+          padding: 4px;
           background: rgba(17, 20, 28, 0.96);
           border: 1px solid rgba(255,255,255,0.14);
           border-radius: 8px;
+          box-shadow: 0 6px 22px rgba(0,0,0,0.45);
+          backdrop-filter: blur(10px);
         }
-        .hw-map-toolbar .leaflet-control-zoom {
+        .hw-basemap-menu[hidden] { display: none; }
+        .hw-basemap-option {
           display: flex;
-          flex-direction: row;
-          flex: 0 0 calc(var(--hw-map-btn) * 2);
-          margin: 0;
-          background: transparent !important;
-        }
-        .hw-map-toolbar .leaflet-control-zoom a {
-          width: var(--hw-map-btn);
-          height: var(--hw-map-btn);
-          min-width: var(--hw-map-btn);
-          min-height: var(--hw-map-btn);
-          line-height: var(--hw-map-btn);
-          font-size: 16px;
-          font-weight: 600;
-          border-bottom: none !important;
-          border-right: 1px solid rgba(255,255,255,0.12);
-          border-radius: 0;
-          box-sizing: border-box;
-          background: rgba(28, 28, 28, 0.92) !important;
-          color: #e1e1e1 !important;
-        }
-        .hw-map-toolbar .leaflet-control-zoom a:hover {
-          background: rgba(40, 40, 40, 0.96) !important;
-          color: #fff !important;
-        }
-        .hw-map-toolbar .leaflet-control-zoom a:last-child {
-          border-right: 1px solid rgba(255,255,255,0.12);
-        }
-        .hw-map-toolbar .hw-measure-ctrl {
-          display: flex;
-          flex: 0 0 var(--hw-map-btn);
+          align-items: center;
+          gap: 8px;
+          width: 100%;
+          padding: 8px 10px;
           border: none;
-          box-shadow: none;
-          border-radius: 0;
-          background: transparent !important;
+          border-radius: 6px;
+          background: transparent;
+          color: #cfd8dc;
+          font-size: 12px;
+          font-family: inherit;
+          text-align: left;
+          cursor: pointer;
+        }
+        .hw-basemap-option:hover {
+          background: rgba(255,255,255,0.08);
+          color: #fff;
+        }
+        .hw-basemap-check {
+          width: 14px;
+          flex-shrink: 0;
+          color: #29b6f6;
+          font-size: 11px;
+          font-weight: 700;
         }
         .hw-map-controls-stack .hw-measure-readout-row {
           display: none;
@@ -1071,41 +1081,10 @@
           text-transform: uppercase;
           color: #78909c;
         }
-        .hw-legend-row { display: flex; align-items: center; gap: 8px; font-size: 11px; }
+        .hw-legend-row { display: flex; align-items: center; gap: 6px; font-size: 10px; line-height: 1.25; }
         .hw-legend-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
         .hw-legend-swatch { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; border: 1px solid rgba(255,255,255,0.3); }
         .hw-legend img { width: 14px; height: 14px; flex-shrink: 0; }
-        .hw-measure-ctrl { display: flex; align-items: stretch; }
-        .hw-measure-ctrl .hw-measure-btn {
-          display: flex !important;
-          align-items: center;
-          justify-content: center;
-          width: var(--hw-map-btn, 34px);
-          height: var(--hw-map-btn, 34px);
-          min-width: var(--hw-map-btn, 34px);
-          min-height: var(--hw-map-btn, 34px);
-          line-height: 1;
-          background: rgba(28, 28, 28, 0.92) !important;
-          color: #e1e1e1 !important;
-          border-radius: 0;
-          box-sizing: border-box;
-        }
-        .hw-measure-ctrl .hw-measure-btn:hover { background: rgba(40, 40, 40, 0.96) !important; color: #fff !important; }
-        .hw-measure-ctrl.active .hw-measure-btn { background: #0288d1 !important; color: #fff !important; }
-        .hw-map-toolbar .hw-measure-readout { display: none !important; }
-        .hw-measure-readout {
-          display: none;
-          align-items: center;
-          padding: 0 10px;
-          font-size: 11px;
-          font-weight: 600;
-          color: #e1e1e1;
-          background: rgba(17, 20, 28, 0.92);
-          border-left: 1px solid rgba(255,255,255,0.12);
-          white-space: nowrap;
-          font-variant-numeric: tabular-nums;
-        }
-        .hw-measure-ctrl.active .hw-measure-readout { display: flex; }
         .leaflet-container.hw-measuring { cursor: crosshair; }
         .hw-measure-tip {
           background: rgba(2, 136, 209, 0.92);
@@ -1229,7 +1208,8 @@
             right: 10px;
           }
           .hw-map-controls-stack {
-            --hw-map-btn: 30px;
+            --hw-map-btn: 36px;
+            --hw-map-stack-width: 144px;
           }
           .hw-legend {
             max-width: none;
@@ -1723,13 +1703,9 @@
       this._baseLayers = baseLayers;
       baseLayers.Dark.addTo(this._map);
 
-      /* Scale + coords at bottom-left; theme/zoom/ruler toolbar at top-left */
+      /* Scale + coords at bottom-left; custom toolbar stack at top-left */
       this._safe(() => L.control.scale({ position: "bottomleft", metric: true, imperial: true, maxWidth: 160 }).addTo(this._map));
-      this._safe(() => L.control.layers(baseLayers, null, { position: "topleft", collapsed: true }).addTo(this._map));
-      L.control.zoom({ position: "topleft" }).addTo(this._map);
-      this._safe(() => this._addMeasureControl());
-      this._safe(() => this._addLegendControl());
-      this._safe(() => this._consolidateMapControlsStack());
+      this._safe(() => this._buildMapControlsStack());
       this._safe(() => this._addCoordinateControl());
 
       this._layerGroup = L.layerGroup().addTo(this._map);
@@ -1838,7 +1814,7 @@
           </div>
           <div class="hw-legend-group">
             <div class="hw-legend-group-title">Other layers</div>
-            <div class="hw-legend-row"><span class="hw-legend-swatch" style="background:rgba(224,64,251,0.3);border-color:#e040fb"></span>Tornado warning</div>
+            <div class="hw-legend-row"><img src="/local/home_weather/icons/tornado.svg" alt=""/>Tornado warning</div>
             <div class="hw-legend-row"><img src="/local/home_weather/icons/disturbance.svg" alt=""/>NHC disturbance</div>
             <div class="hw-legend-row"><span class="hw-legend-swatch" style="background:rgba(255,167,38,0.25);border-color:#ffa726;border-style:dashed"></span>Development area</div>
             <div class="hw-legend-row"><img src="/local/home_weather/icons/lightning-bolt.svg" alt=""/>Live strike (Blitzortung)</div>
@@ -1859,27 +1835,17 @@
       return div;
     }
 
-    _addLegendControl() {
-      if (!global.L || !this._map) return;
-      this._legendEl = this._buildLegendElement(true);
-    }
-
-    _consolidateMapControlsStack() {
+    _buildMapControlsStack() {
       const L = global.L;
       if (!L || !this._map) return;
       const corner = this._map._controlCorners?.topleft;
       if (!corner || corner.querySelector(".hw-map-controls-stack")) return;
 
-      const layers = corner.querySelector(".leaflet-control-layers");
-      const zoom = corner.querySelector(".leaflet-control-zoom");
-      const measure = corner.querySelector(".hw-measure-ctrl");
-      if (!layers && !zoom && !measure) return;
+      corner.querySelectorAll(".leaflet-control-layers, .leaflet-control-zoom, .hw-measure-ctrl").forEach((el) => {
+        el.closest(".leaflet-control")?.remove();
+      });
 
-      const topRight = this._map._controlCorners?.topright;
-      const oldLegendWrap = topRight?.querySelector(".hw-legend")?.closest(".leaflet-control");
-      if (oldLegendWrap?.parentNode) {
-        oldLegendWrap.parentNode.removeChild(oldLegendWrap);
-      }
+      this._activeBasemap = this._activeBasemap || "Dark";
 
       const stack = L.DomUtil.create("div", "hw-map-controls-stack leaflet-control");
       const toolbar = L.DomUtil.create("div", "hw-map-toolbar");
@@ -1888,48 +1854,132 @@
       this._mapControlsStack = stack;
       this._measureReadoutRow = readoutRow;
 
-      [layers, zoom, measure].forEach((el) => {
-        if (!el?.parentNode) return;
-        el.parentNode.removeChild(el);
-        toolbar.appendChild(el);
-      });
+      const basemapCell = L.DomUtil.create("div", "hw-map-tool-cell hw-basemap-cell", toolbar);
+      const basemapBtn = L.DomUtil.create("button", "hw-map-tool-btn hw-basemap-btn", basemapCell);
+      basemapBtn.type = "button";
+      basemapBtn.title = "Change basemap";
+      basemapBtn.setAttribute("aria-label", "Change basemap");
+      basemapBtn.setAttribute("aria-haspopup", "menu");
+      basemapBtn.setAttribute("aria-expanded", "false");
+      basemapBtn.innerHTML = `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M12 2 2 7l10 5 10-5L12 2zm0 7.5L4.5 6.5V16l7.5 4.3V9.5zm2 8.8 7.5-4.3V8.5L14 12.3v5.8z"/></svg>`;
+      const basemapMenu = L.DomUtil.create("div", "hw-basemap-menu", basemapCell);
+      basemapMenu.setAttribute("role", "menu");
+      basemapMenu.hidden = true;
+      this._basemapMenu = basemapMenu;
+      this._basemapBtn = basemapBtn;
 
-      const legend = this._legendEl || this._buildLegendElement(true);
+      const layerNames = Object.keys(this._baseLayers || {});
+      layerNames.forEach((name) => {
+        const item = L.DomUtil.create("button", "hw-basemap-option", basemapMenu);
+        item.type = "button";
+        item.setAttribute("role", "menuitem");
+        item.dataset.layer = name;
+        item.innerHTML = `<span class="hw-basemap-check"></span><span>${name}</span>`;
+        L.DomEvent.on(item, "click", (e) => {
+          L.DomEvent.stop(e);
+          this._setBasemap(name);
+          this._closeBasemapMenu();
+        });
+      });
+      this._updateBasemapMenuChecks();
+
+      L.DomEvent.on(basemapBtn, "click", (e) => {
+        L.DomEvent.stop(e);
+        if (basemapMenu.hidden) this._openBasemapMenu();
+        else this._closeBasemapMenu();
+      });
+      L.DomEvent.disableClickPropagation(basemapCell);
+
+      const zoomInCell = L.DomUtil.create("div", "hw-map-tool-cell", toolbar);
+      const zoomInBtn = L.DomUtil.create("button", "hw-map-tool-btn hw-zoom-btn", zoomInCell);
+      zoomInBtn.type = "button";
+      zoomInBtn.title = "Zoom in";
+      zoomInBtn.setAttribute("aria-label", "Zoom in");
+      zoomInBtn.textContent = "+";
+      L.DomEvent.on(zoomInBtn, "click", (e) => { L.DomEvent.stop(e); this._map.zoomIn(); });
+
+      const zoomOutCell = L.DomUtil.create("div", "hw-map-tool-cell", toolbar);
+      const zoomOutBtn = L.DomUtil.create("button", "hw-map-tool-btn hw-zoom-btn", zoomOutCell);
+      zoomOutBtn.type = "button";
+      zoomOutBtn.title = "Zoom out";
+      zoomOutBtn.setAttribute("aria-label", "Zoom out");
+      zoomOutBtn.textContent = "−";
+      L.DomEvent.on(zoomOutBtn, "click", (e) => { L.DomEvent.stop(e); this._map.zoomOut(); });
+
+      const measureCell = L.DomUtil.create("div", "hw-map-tool-cell", toolbar);
+      const measureBtn = L.DomUtil.create("button", "hw-map-tool-btn hw-measure-btn", measureCell);
+      measureBtn.type = "button";
+      measureBtn.title = "Measure distance";
+      measureBtn.setAttribute("aria-label", "Measure distance");
+      measureBtn.innerHTML = `<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M21 6H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h18a1 1 0 0 0 1-1V7a1 1 0 0 0-1-1zm-1 6h-2V9h-1.5v3h-1.5v-2h-1.5v2h-1.5V9H10v3H8.5v-2H7v2H5.5V9H4v3H3V8h17v4z"/></svg>`;
+      this._measureBtn = measureBtn;
+      L.DomEvent.on(measureBtn, "click", (e) => { L.DomEvent.stop(e); this._toggleMeasure(); });
+
+      const legend = this._buildLegendElement(true);
       this._legendEl = legend;
 
       stack.appendChild(toolbar);
       stack.appendChild(readoutRow);
       stack.appendChild(legend);
-      L.DomEvent.disableClickPropagation(stack);
       corner.insertBefore(stack, corner.firstChild);
+
+      this._bindBasemapMenuDismiss();
     }
 
-    _addMeasureControl() {
-      const L = global.L;
-      if (!L || !this._map) return;
-      const ctrl = L.control({ position: "topleft" });
-      ctrl.onAdd = () => {
-        const container = L.DomUtil.create("div", "hw-measure-ctrl leaflet-bar");
-        const btn = L.DomUtil.create("a", "hw-measure-btn", container);
-        btn.href = "#";
-        btn.title = "Measure distance";
-        btn.setAttribute("role", "button");
-        btn.setAttribute("aria-label", "Measure distance");
-        btn.innerHTML = `<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M21 6H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h18a1 1 0 0 0 1-1V7a1 1 0 0 0-1-1zm-1 6h-2V9h-1.5v3h-1.5v-2h-1.5v2h-1.5V9H10v3H8.5v-2H7v2H5.5V9H4v3H3V8h17v4z"/></svg>`;
-        const readout = L.DomUtil.create("span", "hw-measure-readout", container);
-        readout.textContent = "";
-        this._measureBtn = container;
-        this._measureReadout = readout;
-        L.DomEvent.on(btn, "click", (e) => { L.DomEvent.stop(e); this._toggleMeasure(); });
-        L.DomEvent.disableClickPropagation(container);
-        return container;
+    _updateBasemapMenuChecks() {
+      if (!this._basemapMenu) return;
+      this._basemapMenu.querySelectorAll(".hw-basemap-option").forEach((item) => {
+        const check = item.querySelector(".hw-basemap-check");
+        if (check) check.textContent = item.dataset.layer === this._activeBasemap ? "✓" : "";
+      });
+    }
+
+    _setBasemap(name) {
+      const layers = this._baseLayers;
+      if (!layers?.[name] || !this._map) return;
+      Object.entries(layers).forEach(([key, layer]) => {
+        if (key === name) {
+          if (!this._map.hasLayer(layer)) layer.addTo(this._map);
+        } else if (this._map.hasLayer(layer)) {
+          this._map.removeLayer(layer);
+        }
+      });
+      this._activeBasemap = name;
+      this._updateBasemapMenuChecks();
+    }
+
+    _openBasemapMenu() {
+      if (!this._basemapMenu || !this._basemapBtn) return;
+      this._basemapMenu.hidden = false;
+      this._basemapBtn.setAttribute("aria-expanded", "true");
+      this._basemapBtn.classList.add("active");
+    }
+
+    _closeBasemapMenu() {
+      if (!this._basemapMenu || !this._basemapBtn) return;
+      this._basemapMenu.hidden = true;
+      this._basemapBtn.setAttribute("aria-expanded", "false");
+      this._basemapBtn.classList.remove("active");
+    }
+
+    _bindBasemapMenuDismiss() {
+      if (this._basemapDismissBound) return;
+      this._basemapDismissBound = true;
+      const onDocClick = (ev) => {
+        if (!this._basemapMenu || this._basemapMenu.hidden) return;
+        const cell = this._basemapMenu.closest(".hw-basemap-cell");
+        if (cell?.contains(ev.target)) return;
+        this._closeBasemapMenu();
       };
-      ctrl.addTo(this._map);
+      const onKeyDown = (ev) => {
+        if (ev.key === "Escape") this._closeBasemapMenu();
+      };
+      document.addEventListener("click", onDocClick);
+      document.addEventListener("keydown", onKeyDown);
     }
 
     _setMeasureReadout(text) {
       const value = text || "";
-      if (this._measureReadout) this._measureReadout.textContent = value;
       if (this._measureReadoutRow) this._measureReadoutRow.textContent = value;
       if (this._mapControlsStack) {
         this._mapControlsStack.classList.toggle("measure-active", Boolean(value));

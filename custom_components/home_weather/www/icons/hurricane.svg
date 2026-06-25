@@ -1,1 +1,19 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><defs><linearGradient id="a" x1="175.8" x2="336.2" y1="117" y2="395" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#d4d7dd"/><stop offset=".5" stop-color="#d4d7dd"/><stop offset="1" stop-color="#bec1c6"/></linearGradient></defs><path fill="none" stroke="url(#a)" stroke-linecap="round" stroke-miterlimit="10" stroke-width="24" d="M344 256a88 88 0 11-88-88 88 88 0 0188 88ZM200 116.9l-3.8 7.7A269.7 269.7 0 00169 267h0m143.1 128 3.8-7.7A269.7 269.7 0 00343.2 245h0"><animateTransform additive="sum" attributeName="transform" dur="6s" repeatCount="indefinite" type="rotate" values="1440 256 256; 0 256 256"/></path></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" aria-hidden="true">
+  <defs>
+    <linearGradient id="hw-hur-grad" x1="128" y1="128" x2="384" y2="384" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#90caf9"/>
+      <stop offset="0.5" stop-color="#42a5f5"/>
+      <stop offset="1" stop-color="#1565c0"/>
+    </linearGradient>
+  </defs>
+  <g fill="none" stroke="url(#hw-hur-grad)" stroke-width="20" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M344 256a88 88 0 1 1-88-88 88 88 0 0 1 88 88Z"/>
+    <path d="M200 140c64 24 96 72 72 116-20 38-68 56-108 44"/>
+    <path d="M312 372c-64-24-96-72-72-116 20-38 68-56 108-44"/>
+    <path d="M140 256c24-64 72-96 116-72 38 20 56 68 44 108"/>
+    <path d="M372 256c-24 64-72 96-116 72-38-20-56-68-44-108"/>
+    <animateTransform attributeName="transform" dur="10s" repeatCount="indefinite" type="rotate" values="0 256 256;360 256 256"/>
+  </g>
+  <circle cx="256" cy="256" r="40" fill="#e3f2fd" stroke="#42a5f5" stroke-width="10"/>
+  <circle cx="256" cy="256" r="16" fill="#1565c0"/>
+</svg>
