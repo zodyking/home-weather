@@ -7,6 +7,26 @@
   const STORM_COLORS = ["#e53935", "#fb8c00", "#8e24aa", "#1e88e5", "#43a047"];
   const REFRESH_MS = 15 * 60 * 1000;
   const DARK_TILE_URL = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
+  const LIGHT_TILE_URL = "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png";
+  const SAT_TILE_URL = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
+  const OCEAN_TILE_URL = "https://server.arcgisonline.com/ArcGIS/rest/services/Ocean/World_Ocean_Base/MapServer/tile/{z}/{y}/{x}";
+  const CARTO_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>';
+  const ESRI_ATTR = 'Tiles &copy; <a href="https://www.esri.com/">Esri</a>';
+  // Saffir-Simpson scale colors keyed by category (0 = TD/TS).
+  const CATEGORY_COLORS = Object.freeze({
+    0: "#5ebaff", // tropical depression / storm
+    1: "#ffffb2",
+    2: "#ffe775",
+    3: "#ffc140",
+    4: "#ff8f20",
+    5: "#ff5050",
+  });
+  const EQ_SCALE = Object.freeze([
+    { label: "M 5+", color: "#ef5350" },
+    { label: "M 4 – 5", color: "#ff7043" },
+    { label: "M 3 – 4", color: "#ffa726" },
+    { label: "M < 3", color: "#ffb74d" },
+  ]);
   // Contiguous United States bounds (default map view).
   const USA_BOUNDS = Object.freeze([
     [24.396308, -124.848974],
@@ -34,13 +54,46 @@
       this._lastDetailTier = null;
       this._zoomDebounceTimer = null;
       this._zoomHandlerBound = false;
-      this._mapLayers = { tropical: true, tornado: true, earthquakes: true };
+      this._mapLayers = { hurricane: true, tornado: true, earthquakes: true, lightning: true };
       this._mapSort = "newest";
+      this._lightningSettings = {
+        show_on_map: true,
+        max_age_minutes: 60,
+        max_strikes: 500,
+        ...(options.lightningSettings || {}),
+      };
+      this._blitzortungClient = null;
+      this._lightningLayerGroup = null;
+      this._lightningStrikes = [];
+      this._lightningStatus = "off";
+      this._lightningCleanupTimer = null;
+      this._lightningUnsubStrike = null;
+      this._lightningUnsubStatus = null;
+      this._measureActive = false;
+      this._measurePoints = [];
+      this._measureLayer = null;
+      this._coordsEl = null;
+      this._baseLayers = null;
     }
 
     setMapLayers(layers) {
+      const prevLightning = this._mapLayers.lightning;
       this._mapLayers = { ...this._mapLayers, ...layers };
+      if (layers.lightning !== undefined && layers.lightning !== prevLightning) {
+        this._syncLightningLayer();
+      }
       if (this._map && this._layerGroup) this._renderMap();
+    }
+
+    setLightningSettings(settings) {
+      this._lightningSettings = {
+        show_on_map: true,
+        max_age_minutes: 60,
+        max_strikes: 500,
+        ...this._lightningSettings,
+        ...(settings || {}),
+      };
+      this._syncLightningLayer();
     }
 
     setMapSort(sort) {
@@ -83,6 +136,7 @@
         clearInterval(this._refreshTimer);
         this._refreshTimer = null;
       }
+      this._stopLightning(true);
       if (this._map) {
         this._map.remove();
         this._map = null;
@@ -90,7 +144,234 @@
         this._earthquakeClusterGroup = null;
         this._zoomHandlerBound = false;
         this._lastDetailTier = null;
+        this._resetMapControlState();
       }
+    }
+
+    _resetMapControlState() {
+      this._measureActive = false;
+      this._measurePoints = [];
+      this._measureLayer = null;
+      this._measureBtn = null;
+      this._measureReadout = null;
+      this._measureClickHandler = null;
+      this._measureDblHandler = null;
+      this._coordsEl = null;
+      this._baseLayers = null;
+      this._lightningLayerGroup = null;
+    }
+
+    _getLightningSettings() {
+      return {
+        show_on_map: true,
+        max_age_minutes: 60,
+        max_strikes: 500,
+        ...(this._lightningSettings || {}),
+      };
+    }
+
+    _lightningEnabled() {
+      const settings = this._getLightningSettings();
+      return this._mapLayers.lightning !== false && settings.show_on_map !== false;
+    }
+
+    _haversineMiles(lat1, lon1, lat2, lon2) {
+      const R = 3958.8;
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLon = (lon2 - lon1) * Math.PI / 180;
+      const a = Math.sin(dLat / 2) ** 2
+        + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
+    _distanceFromHomeMiles(lat, lon) {
+      const home = this._data?.home;
+      if (home?.lat == null || home?.lon == null || lat == null || lon == null) return null;
+      return this._haversineMiles(home.lat, home.lon, lat, lon);
+    }
+
+    _formatLightningStatus(status) {
+      const labels = {
+        live: "Live",
+        connecting: "Connecting…",
+        reconnecting: "Reconnecting…",
+        error: "Error",
+        off: "Off",
+      };
+      return labels[status] || "Off";
+    }
+
+    _getLightningStats() {
+      const now = Date.now();
+      const hourAgo = now - 60 * 60 * 1000;
+      const maxAgeMs = (this._getLightningSettings().max_age_minutes || 60) * 60 * 1000;
+      const active = this._lightningStrikes.filter((e) => now - e.strike.timeMs <= maxAgeMs);
+      const lastHour = active.filter((e) => e.strike.timeMs >= hourAgo);
+      let nearest = null;
+      active.forEach((e) => {
+        const d = this._distanceFromHomeMiles(e.strike.lat, e.strike.lon);
+        if (d != null && (nearest == null || d < nearest)) nearest = d;
+      });
+      return {
+        visibleCount: active.length,
+        hourCount: lastHour.length,
+        nearestMiles: nearest,
+        status: this._lightningStatus,
+      };
+    }
+
+    _updateLightningStatusDom() {
+      const stats = this._getLightningStats();
+      const root = this._root;
+      if (!root) return;
+      const countEl = root.querySelector("#hw-lightning-count");
+      const nearestEl = root.querySelector("#hw-lightning-nearest");
+      const statusEl = root.querySelector("#hw-lightning-status");
+      if (countEl) countEl.textContent = String(stats.hourCount);
+      if (nearestEl) nearestEl.textContent = stats.nearestMiles != null ? this._fmtMiles(stats.nearestMiles) : "—";
+      if (statusEl) {
+        statusEl.textContent = this._formatLightningStatus(stats.status);
+        statusEl.className = stats.status === "live" ? "is-live" : stats.status === "error" ? "is-danger" : "";
+      }
+      const badge = root.querySelector("#hw-lightning-badge");
+      if (badge) badge.textContent = String(stats.visibleCount);
+    }
+
+    _syncLightningLayer() {
+      if (!this._map) return;
+      const enabled = this._lightningEnabled();
+      if (enabled) {
+        if (this._lightningLayerGroup && !this._map.hasLayer(this._lightningLayerGroup)) {
+          this._lightningLayerGroup.addTo(this._map);
+        }
+        this._startLightning();
+      } else {
+        this._stopLightning(false);
+        if (this._lightningLayerGroup && this._map.hasLayer(this._lightningLayerGroup)) {
+          this._map.removeLayer(this._lightningLayerGroup);
+        }
+      }
+      this._updateLightningStatusDom();
+    }
+
+    _startLightning() {
+      if (!global.BlitzortungClient) return;
+      if (this._blitzortungClient) return;
+      const client = new global.BlitzortungClient();
+      this._blitzortungClient = client;
+      this._lightningUnsubStrike = client.onStrike((strike) => this._onLightningStrike(strike));
+      this._lightningUnsubStatus = client.onStatus((status) => {
+        this._lightningStatus = status;
+        this._updateLightningStatusDom();
+      });
+      client.connect();
+      if (!this._lightningCleanupTimer) {
+        this._lightningCleanupTimer = setInterval(() => this._cleanupLightningStrikes(), 30000);
+      }
+    }
+
+    _stopLightning(clearAll) {
+      if (this._lightningUnsubStrike) {
+        this._lightningUnsubStrike();
+        this._lightningUnsubStrike = null;
+      }
+      if (this._lightningUnsubStatus) {
+        this._lightningUnsubStatus();
+        this._lightningUnsubStatus = null;
+      }
+      if (this._blitzortungClient) {
+        this._blitzortungClient.close();
+        this._blitzortungClient = null;
+      }
+      if (this._lightningCleanupTimer) {
+        clearInterval(this._lightningCleanupTimer);
+        this._lightningCleanupTimer = null;
+      }
+      this._lightningStatus = "off";
+      if (clearAll) {
+        this._lightningStrikes.forEach((e) => {
+          if (e.marker && this._lightningLayerGroup) {
+            this._lightningLayerGroup.removeLayer(e.marker);
+          }
+        });
+        this._lightningStrikes = [];
+        this._lightningLayerGroup?.clearLayers();
+      }
+      this._updateLightningStatusDom();
+    }
+
+    _onLightningStrike(strike) {
+      if (!this._lightningEnabled() || !this._lightningLayerGroup || !global.L) return;
+      const settings = this._getLightningSettings();
+      const maxStrikes = Math.max(50, Number(settings.max_strikes) || 500);
+      if (this._lightningStrikes.some((e) => e.strike.id === strike.id)) return;
+
+      const marker = this._addLightningMarker(strike);
+      if (!marker) return;
+      this._lightningStrikes.push({ strike, marker });
+
+      while (this._lightningStrikes.length > maxStrikes) {
+        const oldest = this._lightningStrikes.shift();
+        if (oldest?.marker) this._lightningLayerGroup.removeLayer(oldest.marker);
+      }
+
+      setTimeout(() => {
+        const el = marker.getElement?.();
+        if (el) {
+          const wrap = el.querySelector(".hw-hazard-icon-wrap");
+          if (wrap) wrap.classList.remove("is-fresh");
+        }
+      }, 2500);
+
+      this._cleanupLightningStrikes();
+      this._updateLightningStatusDom();
+    }
+
+    _addLightningMarker(strike) {
+      const L = global.L;
+      if (!L || !this._lightningLayerGroup) return null;
+      const ageMs = Date.now() - strike.timeMs;
+      const maxAgeMs = (this._getLightningSettings().max_age_minutes || 60) * 60 * 1000;
+      const ageClass = ageMs > maxAgeMs * 0.5 ? "is-aging" : "is-fresh";
+      const dist = this._distanceFromHomeMiles(strike.lat, strike.lon);
+      const timeStr = strike.timeMs ? new Date(strike.timeMs).toLocaleString() : "—";
+      const popup = [
+        "<strong>Lightning strike</strong>",
+        `Time: ${this._esc(timeStr)}`,
+        `Location: ${strike.lat.toFixed(3)}°, ${strike.lon.toFixed(3)}°`,
+        dist != null ? `Distance from home: ${Math.round(dist)} mi` : "",
+        `Polarity: ${strike.polarity}`,
+        `<a href="https://www.blitzortung.org" target="_blank" rel="noopener noreferrer">Blitzortung.org</a>`,
+      ].filter(Boolean).join("<br/>");
+
+      const icon = this._createHazardIcon("lightning-bolt", {
+        size: 22,
+        className: `hw-lightning-marker ${ageClass}`,
+      });
+      const marker = L.marker([strike.lat, strike.lon], {
+        icon,
+        zIndexOffset: 420,
+      });
+      marker.bindPopup(popup);
+      marker.addTo(this._lightningLayerGroup);
+      return marker;
+    }
+
+    _cleanupLightningStrikes() {
+      const maxAgeMs = (this._getLightningSettings().max_age_minutes || 60) * 60 * 1000;
+      const cutoff = Date.now() - maxAgeMs;
+      const keep = [];
+      this._lightningStrikes.forEach((entry) => {
+        if (entry.strike.timeMs < cutoff) {
+          if (entry.marker && this._lightningLayerGroup) {
+            this._lightningLayerGroup.removeLayer(entry.marker);
+          }
+        } else {
+          keep.push(entry);
+        }
+      });
+      this._lightningStrikes = keep;
+      this._updateLightningStatusDom();
     }
 
     _injectStyles() {
@@ -403,6 +684,149 @@
         }
         .hw-storm-icon {
           filter: none;
+          position: relative;
+          z-index: 1;
+        }
+        .hw-cat-ring {
+          position: absolute;
+          top: 50%;
+          left: 50%;
+          transform: translate(-50%, -50%);
+          border-radius: 50%;
+          border: 2px solid #5ebaff;
+          box-sizing: border-box;
+          pointer-events: none;
+          opacity: 0.95;
+        }
+        .hw-hazard-icon-wrap.hw-lightning-marker.is-fresh {
+          filter: drop-shadow(0 0 12px rgba(255, 193, 7, 0.95)) drop-shadow(0 2px 8px rgba(0,0,0,0.5));
+          animation: hw-lightning-pop 0.45s ease-out;
+        }
+        .hw-hazard-icon-wrap.hw-lightning-marker.is-aging {
+          opacity: 0.45;
+          filter: drop-shadow(0 1px 4px rgba(0,0,0,0.35));
+        }
+        @keyframes hw-lightning-pop {
+          0% { transform: scale(0.4); opacity: 0.2; }
+          70% { transform: scale(1.15); opacity: 1; }
+          100% { transform: scale(1); opacity: 1; }
+        }
+        .hurricane-stat strong.is-live { color: #ffc107; }
+        /* Scientific map controls */
+        .hw-coords {
+          background: rgba(17, 20, 28, 0.82);
+          color: #cfd8dc;
+          font-size: 11px;
+          line-height: 1.4;
+          padding: 3px 8px;
+          margin: 0 0 6px 6px !important;
+          border-radius: 6px;
+          border: 1px solid rgba(255,255,255,0.12);
+          backdrop-filter: blur(6px);
+          font-variant-numeric: tabular-nums;
+          pointer-events: none;
+          white-space: nowrap;
+        }
+        .hw-legend {
+          background: rgba(17, 20, 28, 0.92);
+          border: 1px solid rgba(255,255,255,0.14);
+          border-radius: 10px;
+          color: #cfd8dc;
+          overflow: hidden;
+          max-width: 210px;
+          backdrop-filter: blur(10px);
+          box-shadow: 0 6px 22px rgba(0,0,0,0.4);
+        }
+        .hw-legend-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+          padding: 7px 10px;
+          cursor: pointer;
+          font-size: 11px;
+          font-weight: 700;
+          letter-spacing: 0.1em;
+          text-transform: uppercase;
+          color: #b0bec5;
+          user-select: none;
+        }
+        .hw-legend-caret { transition: transform 0.15s ease; }
+        .hw-legend.collapsed .hw-legend-caret { transform: rotate(-90deg); }
+        .hw-legend.collapsed .hw-legend-body { display: none; }
+        .hw-legend-body {
+          padding: 4px 10px 10px;
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+        .hw-legend-group { display: flex; flex-direction: column; gap: 4px; }
+        .hw-legend-group-title {
+          font-size: 9px;
+          font-weight: 700;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: #78909c;
+        }
+        .hw-legend-row { display: flex; align-items: center; gap: 8px; font-size: 11px; }
+        .hw-legend-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+        .hw-legend-swatch { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; border: 1px solid rgba(255,255,255,0.3); }
+        .hw-legend img { width: 14px; height: 14px; flex-shrink: 0; }
+        .hw-measure-ctrl { display: flex; align-items: stretch; }
+        .hw-measure-ctrl .hw-measure-btn {
+          display: flex !important;
+          align-items: center;
+          justify-content: center;
+          width: 34px;
+          height: 34px;
+          line-height: 34px;
+          background: rgba(28, 28, 28, 0.92);
+          color: #e1e1e1;
+        }
+        .hw-measure-ctrl .hw-measure-btn:hover { background: rgba(40, 40, 40, 0.96); color: #fff; }
+        .hw-measure-ctrl.active .hw-measure-btn { background: #0288d1; color: #fff; }
+        .hw-measure-readout {
+          display: none;
+          align-items: center;
+          padding: 0 10px;
+          font-size: 11px;
+          font-weight: 600;
+          color: #e1e1e1;
+          background: rgba(17, 20, 28, 0.92);
+          border-left: 1px solid rgba(255,255,255,0.12);
+          white-space: nowrap;
+          font-variant-numeric: tabular-nums;
+        }
+        .hw-measure-ctrl.active .hw-measure-readout { display: flex; }
+        .leaflet-container.hw-measuring { cursor: crosshair; }
+        .hw-measure-tip {
+          background: rgba(2, 136, 209, 0.92);
+          color: #fff;
+          border: none;
+          border-radius: 6px;
+          font-size: 11px;
+          font-weight: 700;
+          font-variant-numeric: tabular-nums;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+        }
+        .hw-measure-tip::before { display: none; }
+        .leaflet-control-layers {
+          background: rgba(17, 20, 28, 0.92);
+          color: #cfd8dc;
+          border: 1px solid rgba(255,255,255,0.14);
+          border-radius: 10px;
+          backdrop-filter: blur(10px);
+        }
+        .leaflet-control-layers-toggle {
+          background-color: rgba(28, 28, 28, 0.92);
+          border-radius: 8px;
+        }
+        .leaflet-control-layers-expanded { padding: 8px 10px; }
+        .leaflet-control-layers label { font-size: 12px; margin: 2px 0; }
+        .leaflet-control-scale-line {
+          background: rgba(17, 20, 28, 0.7);
+          color: #cfd8dc;
+          border-color: rgba(255,255,255,0.4);
         }
         .hw-home-marker.in-cone {
           filter: drop-shadow(0 0 6px rgba(244,67,54,0.9));
@@ -442,7 +866,7 @@
 
     _renderShell() {
       if (!this._root) return;
-      this._root.innerHTML = `<div class="hurricane-loading">Loading hurricane data…</div>`;
+      this._root.innerHTML = `<div class="hurricane-loading">Loading hazard map…</div>`;
     }
 
     async _ensureDeps() {
@@ -657,7 +1081,7 @@
       this._root.innerHTML = `
         <section class="hurricane-layout">
           <div class="hurricane-empty" style="width:100%;height:100%">
-            <p>Failed to load hurricane data.</p>
+            <p>Failed to load hazard data.</p>
             <p>${this._esc(this._error)}</p>
             <button class="btn btn-primary" data-hurricane-refresh>Retry</button>
           </div>
@@ -684,11 +1108,11 @@
         if (threat === "high") return { text: `${name} poses a high threat to your area`, className: "is-danger" };
         if (threat === "watch") return { text: `${name} is being monitored near your area`, className: "is-watch" };
         if (threat === "monitor") return { text: `${name} is in the Atlantic basin — keep watch`, className: "is-watch" };
-        return { text: `${stormCount} active tropical cyclone${stormCount === 1 ? "" : "s"}`, className: "" };
+        return { text: `${stormCount} active hurricane${stormCount === 1 ? "" : "s"}`, className: "" };
       }
       if (hasOutlook) {
         if (summary.insideDevelopmentRegion) {
-          return { text: "Your area is inside a tropical development region", className: "is-watch" };
+          return { text: "Your area is inside a development region", className: "is-watch" };
         }
         if (summary.disturbanceCount > 0) {
           return {
@@ -696,14 +1120,17 @@
             className: "is-watch",
           };
         }
-        return { text: "NHC is monitoring potential tropical development", className: "is-watch" };
+        return { text: "NHC is monitoring potential development", className: "is-watch" };
       }
-      return { text: "No active tropical cyclones or disturbances", className: "" };
+      return { text: "No active hurricanes or disturbances", className: "" };
     }
 
     _renderUI() {
       if (!this._root || !this._data) return;
+      let preservedStrikes = [];
       if (this._map) {
+        preservedStrikes = this._lightningStrikes.map((e) => e.strike);
+        this._stopLightning(true);
         this._map.remove();
         this._map = null;
         this._mapInitialized = false;
@@ -711,6 +1138,7 @@
         this._earthquakeClusterGroup = null;
         this._zoomHandlerBound = false;
         this._lastDetailTier = null;
+        this._resetMapControlState();
       }
       const summary = this._data.summary || {};
       const storms = this._data.storms || [];
@@ -749,6 +1177,7 @@
       const tropicalCount = (summary.disturbanceCount || 0) + storms.length;
       const tornadoCountLabel = tornadoCount;
       const eqCountLabel = eqMapCount;
+      const lightningStats = this._getLightningStats();
 
       const tropicalBody = `
             ${summary.hasOutlookActivity ? `
@@ -764,16 +1193,16 @@
             <div class="hurricane-stat"><span>Nearest forecast point</span><strong>${this._fmtMiles(summary.distanceToNearestForecastMiles)}</strong></div>
             <div class="hurricane-stat ${insideClass}"><span>Home inside cone</span><strong>${insideText}</strong></div>
             <div class="hurricane-stat"><span>Closest approach</span><strong>${summary.estimatedClosestApproachHour != null ? summary.estimatedClosestApproachHour + "H" : "—"}</strong></div>` : ""}
-            ${!summary.hasOutlookActivity && storms.length === 0 ? `<div class="hurricane-stat"><span>Status</span><strong>No active cyclones</strong></div>` : ""}`;
+            ${!summary.hasOutlookActivity && storms.length === 0 ? `<div class="hurricane-stat"><span>Status</span><strong>No active storms</strong></div>` : ""}`;
 
       const statusPanel = `
         <aside class="hurricane-status ${threatClass}">
           <h3>Hazard Status</h3>
           <p class="hurricane-status-headline ${headline.className}">${this._esc(headline.text)}</p>
           ${staleBanner}
-          <div class="hurricane-stat"><span>Overall tropical threat</span><strong>${this._esc(summary.threatLevel || "none")}</strong></div>
+          <div class="hurricane-stat"><span>Overall hurricane threat</span><strong>${this._esc(summary.threatLevel || "none")}</strong></div>
           <details class="hurricane-status-details" open>
-            <summary><span>Tropical</span><span class="h-count">${tropicalCount}</span><span class="h-chevron">▸</span></summary>
+            <summary><span>Hurricanes</span><span class="h-count">${tropicalCount}</span><span class="h-chevron">▸</span></summary>
             <div class="hurricane-status-details-body">${tropicalBody}</div>
           </details>
           <details class="hurricane-status-details" open>
@@ -797,6 +1226,15 @@
               <div class="hurricane-stat ${eqPrimary.tsunami === 1 ? "is-danger" : ""}"><span>Tsunami flag</span><strong>${eqTsunami}</strong></div>
             </div>
           </details>
+          <details class="hurricane-status-details" open>
+            <summary><span>Lightning</span><span class="h-count" id="hw-lightning-badge">${lightningStats.visibleCount}</span><span class="h-chevron">▸</span></summary>
+            <div class="hurricane-status-details-body">
+              <div class="hurricane-stat"><span>Strikes (last hour)</span><strong id="hw-lightning-count">${lightningStats.hourCount}</strong></div>
+              <div class="hurricane-stat"><span>Nearest strike</span><strong id="hw-lightning-nearest">${lightningStats.nearestMiles != null ? this._fmtMiles(lightningStats.nearestMiles) : "—"}</strong></div>
+              <div class="hurricane-stat"><span>Feed status</span><strong id="hw-lightning-status" class="${lightningStats.status === "live" ? "is-live" : lightningStats.status === "error" ? "is-danger" : ""}">${this._formatLightningStatus(lightningStats.status)}</strong></div>
+              <div class="hurricane-stat"><span>Data source</span><strong><a href="https://www.blitzortung.org" target="_blank" rel="noopener noreferrer" style="color:#90caf9">Blitzortung</a></strong></div>
+            </div>
+          </details>
         </aside>`;
 
       const layoutClass = this._embedded ? "hurricane-layout is-embedded" : "hurricane-layout";
@@ -808,6 +1246,10 @@
           </div>
         </section>`;
       this._renderMap();
+      if (preservedStrikes.length) {
+        preservedStrikes.forEach((strike) => this._onLightningStrike(strike));
+      }
+      this._syncLightningLayer();
     }
 
     _fmtMiles(value) {
@@ -824,19 +1266,30 @@
     _ensureMap() {
       const mapEl = this._root?.querySelector("#hurricane-map");
       if (!mapEl || !global.L || this._mapInitialized) return mapEl;
+      const L = global.L;
 
-      this._map = global.L.map(mapEl, {
+      this._map = L.map(mapEl, {
         zoomControl: false,
         attributionControl: true,
       });
-      global.L.tileLayer(DARK_TILE_URL, {
-        maxZoom: 19,
-        subdomains: "abcd",
-        attribution:
-          '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
-      }).addTo(this._map);
-      global.L.control.zoom({ position: "bottomleft" }).addTo(this._map);
-      this._layerGroup = global.L.layerGroup().addTo(this._map);
+
+      const baseLayers = {
+        Dark: L.tileLayer(DARK_TILE_URL, { maxZoom: 19, subdomains: "abcd", attribution: CARTO_ATTR }),
+        Light: L.tileLayer(LIGHT_TILE_URL, { maxZoom: 19, subdomains: "abcd", attribution: CARTO_ATTR }),
+        Satellite: L.tileLayer(SAT_TILE_URL, { maxZoom: 19, attribution: ESRI_ATTR }),
+        Ocean: L.tileLayer(OCEAN_TILE_URL, { maxZoom: 13, attribution: ESRI_ATTR }),
+      };
+      this._baseLayers = baseLayers;
+      baseLayers.Dark.addTo(this._map);
+
+      L.control.zoom({ position: "bottomleft" }).addTo(this._map);
+      this._safe(() => L.control.scale({ position: "bottomleft", metric: true, imperial: true, maxWidth: 160 }).addTo(this._map));
+      this._safe(() => L.control.layers(baseLayers, null, { position: "topleft", collapsed: true }).addTo(this._map));
+      this._safe(() => this._addMeasureControl());
+      this._safe(() => this._addLegendControl());
+      this._safe(() => this._addCoordinateControl());
+
+      this._layerGroup = L.layerGroup().addTo(this._map);
       if (global.L.markerClusterGroup) {
         this._earthquakeClusterGroup = global.L.markerClusterGroup({
           maxClusterRadius: 56,
@@ -851,10 +1304,203 @@
         });
         this._map.addLayer(this._earthquakeClusterGroup);
       }
+      this._lightningLayerGroup = L.layerGroup();
+      if (this._lightningEnabled()) {
+        this._lightningLayerGroup.addTo(this._map);
+      }
       this._mapInitialized = true;
       this._bindMapZoomHandler();
       this._map.fitBounds(this._getUsaBounds(), { padding: [24, 24] });
+      const attr = this._map.attributionControl;
+      if (attr?.setPrefix) {
+        attr.setPrefix('Lightning &copy; <a href="https://www.blitzortung.org">Blitzortung</a>');
+      }
       return mapEl;
+    }
+
+    _safe(fn) {
+      try {
+        return fn();
+      } catch (err) {
+        console.warn("[hazard-map] control init failed", err);
+        return null;
+      }
+    }
+
+    _categoryColor(category, windMph) {
+      let cat = Number(category);
+      if (!Number.isFinite(cat) || cat <= 0) {
+        const w = Number(windMph);
+        if (Number.isFinite(w)) {
+          if (w >= 157) cat = 5;
+          else if (w >= 130) cat = 4;
+          else if (w >= 111) cat = 3;
+          else if (w >= 96) cat = 2;
+          else if (w >= 74) cat = 1;
+          else cat = 0;
+        } else {
+          cat = 0;
+        }
+      }
+      cat = Math.max(0, Math.min(5, Math.round(cat)));
+      return CATEGORY_COLORS[cat] || CATEGORY_COLORS[0];
+    }
+
+    _addCoordinateControl() {
+      const L = global.L;
+      if (!L || !this._map) return;
+      const ctrl = L.control({ position: "bottomleft" });
+      ctrl.onAdd = () => {
+        const div = L.DomUtil.create("div", "hw-coords");
+        div.textContent = "—";
+        this._coordsEl = div;
+        return div;
+      };
+      ctrl.addTo(this._map);
+      const update = (lat, lon) => {
+        if (!this._coordsEl) return;
+        const z = this._map?.getZoom?.();
+        this._coordsEl.textContent = `${lat.toFixed(3)}°, ${lon.toFixed(3)}°  ·  z${z ?? "?"}`;
+      };
+      this._map.on("mousemove", (e) => update(e.latlng.lat, e.latlng.lng));
+      this._map.on("zoomend moveend", () => {
+        const c = this._map.getCenter();
+        update(c.lat, c.lng);
+      });
+    }
+
+    _addLegendControl() {
+      const L = global.L;
+      if (!L || !this._map) return;
+      const ctrl = L.control({ position: "topleft" });
+      const collapsed = (global.innerWidth || 1024) < 768;
+      ctrl.onAdd = () => {
+        const div = L.DomUtil.create("div", `hw-legend leaflet-control${collapsed ? " collapsed" : ""}`);
+        const catRows = [
+          { c: CATEGORY_COLORS[0], t: "TD / Tropical Storm" },
+          { c: CATEGORY_COLORS[1], t: "Category 1" },
+          { c: CATEGORY_COLORS[2], t: "Category 2" },
+          { c: CATEGORY_COLORS[3], t: "Category 3" },
+          { c: CATEGORY_COLORS[4], t: "Category 4" },
+          { c: CATEGORY_COLORS[5], t: "Category 5" },
+        ];
+        div.innerHTML = `
+          <div class="hw-legend-header" role="button" tabindex="0" aria-expanded="${!collapsed}">
+            <span>Legend</span><span class="hw-legend-caret">▾</span>
+          </div>
+          <div class="hw-legend-body">
+            <div class="hw-legend-group">
+              <div class="hw-legend-group-title">Hurricane category</div>
+              ${catRows.map((r) => `<div class="hw-legend-row"><span class="hw-legend-dot" style="background:${r.c}"></span>${r.t}</div>`).join("")}
+            </div>
+            <div class="hw-legend-group">
+              <div class="hw-legend-group-title">Earthquake magnitude</div>
+              ${EQ_SCALE.map((r) => `<div class="hw-legend-row"><span class="hw-legend-dot" style="background:${r.color}"></span>${r.label}</div>`).join("")}
+            </div>
+            <div class="hw-legend-group">
+              <div class="hw-legend-group-title">Other layers</div>
+              <div class="hw-legend-row"><span class="hw-legend-swatch" style="background:rgba(224,64,251,0.3);border-color:#e040fb"></span>Tornado warning</div>
+              <div class="hw-legend-row"><img src="/local/home_weather/icons/disturbance.svg" alt=""/>NHC disturbance</div>
+              <div class="hw-legend-row"><span class="hw-legend-swatch" style="background:rgba(255,167,38,0.25);border-color:#ffa726;border-style:dashed"></span>Development area</div>
+              <div class="hw-legend-row"><img src="/local/home_weather/icons/lightning-bolt.svg" alt=""/>Live strike (Blitzortung)</div>
+              <div class="hw-legend-row"><img src="/local/home_weather/icons/home.svg" alt=""/>Your home</div>
+            </div>
+          </div>`;
+        L.DomEvent.disableClickPropagation(div);
+        L.DomEvent.disableScrollPropagation(div);
+        const header = div.querySelector(".hw-legend-header");
+        const toggle = () => {
+          const isCollapsed = div.classList.toggle("collapsed");
+          header.setAttribute("aria-expanded", String(!isCollapsed));
+        };
+        header.addEventListener("click", toggle);
+        header.addEventListener("keydown", (ev) => {
+          if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); toggle(); }
+        });
+        return div;
+      };
+      ctrl.addTo(this._map);
+    }
+
+    _addMeasureControl() {
+      const L = global.L;
+      if (!L || !this._map) return;
+      const ctrl = L.control({ position: "topleft" });
+      ctrl.onAdd = () => {
+        const container = L.DomUtil.create("div", "hw-measure-ctrl leaflet-bar");
+        const btn = L.DomUtil.create("a", "hw-measure-btn", container);
+        btn.href = "#";
+        btn.title = "Measure distance";
+        btn.setAttribute("role", "button");
+        btn.setAttribute("aria-label", "Measure distance");
+        btn.innerHTML = `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M21 6H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h18a1 1 0 0 0 1-1V7a1 1 0 0 0-1-1zm-1 6h-2V9h-1.5v3h-1.5v-2h-1.5v2h-1.5V9H10v3H8.5v-2H7v2H5.5V9H4v3H3V8h17v4z"/></svg>`;
+        const readout = L.DomUtil.create("span", "hw-measure-readout", container);
+        readout.textContent = "";
+        this._measureBtn = container;
+        this._measureReadout = readout;
+        L.DomEvent.on(btn, "click", (e) => { L.DomEvent.stop(e); this._toggleMeasure(); });
+        L.DomEvent.disableClickPropagation(container);
+        return container;
+      };
+      ctrl.addTo(this._map);
+    }
+
+    _toggleMeasure() {
+      const L = global.L;
+      if (!L || !this._map) return;
+      this._measureActive = !this._measureActive;
+      if (this._measureActive) {
+        this._measurePoints = [];
+        if (!this._measureLayer) this._measureLayer = L.layerGroup().addTo(this._map);
+        this._map.doubleClickZoom.disable();
+        this._measureBtn?.classList.add("active");
+        L.DomUtil.addClass(this._map.getContainer(), "hw-measuring");
+        this._measureClickHandler = (e) => this._onMeasureClick(e);
+        this._measureDblHandler = () => { this._measureActive && this._toggleMeasure(); };
+        this._map.on("click", this._measureClickHandler);
+        this._map.on("dblclick", this._measureDblHandler);
+        if (this._measureReadout) this._measureReadout.textContent = "Click points…";
+      } else {
+        this._map.off("click", this._measureClickHandler);
+        this._map.off("dblclick", this._measureDblHandler);
+        this._map.doubleClickZoom.enable();
+        this._measureBtn?.classList.remove("active");
+        L.DomUtil.removeClass(this._map.getContainer(), "hw-measuring");
+        this._measureLayer?.clearLayers();
+        this._measurePoints = [];
+        if (this._measureReadout) this._measureReadout.textContent = "";
+      }
+    }
+
+    _onMeasureClick(e) {
+      this._measurePoints.push(e.latlng);
+      this._redrawMeasure();
+    }
+
+    _redrawMeasure() {
+      const L = global.L;
+      if (!L || !this._measureLayer) return;
+      this._measureLayer.clearLayers();
+      const pts = this._measurePoints;
+      if (pts.length === 0) return;
+      L.polyline(pts, { color: "#29b6f6", weight: 2, dashArray: "5 5", opacity: 0.95 }).addTo(this._measureLayer);
+      let meters = 0;
+      pts.forEach((p, i) => {
+        if (i > 0) meters += pts[i - 1].distanceTo(p);
+        L.circleMarker(p, { radius: 3, color: "#fff", weight: 1, fillColor: "#29b6f6", fillOpacity: 1 }).addTo(this._measureLayer);
+      });
+      const miles = meters / 1609.344;
+      const km = meters / 1000;
+      const text = miles >= 1
+        ? `${miles.toFixed(1)} mi · ${km.toFixed(1)} km`
+        : `${Math.round(meters * 3.28084)} ft · ${Math.round(meters)} m`;
+      if (this._measureReadout) this._measureReadout.textContent = pts.length < 2 ? "Click next point…" : text;
+      if (pts.length >= 2) {
+        L.marker(pts[pts.length - 1], { opacity: 0 })
+          .bindTooltip(text, { permanent: true, direction: "top", className: "hw-measure-tip", offset: [0, -4] })
+          .addTo(this._measureLayer)
+          .openTooltip();
+      }
     }
 
     _renderMap() {
@@ -868,9 +1514,9 @@
       this._homeMarker = null;
 
       const bounds = [];
-      const layers = this._mapLayers || { tropical: true, tornado: true, earthquakes: true };
+      const layers = this._mapLayers || { hurricane: true, tornado: true, earthquakes: true };
 
-      if (layers.tropical) {
+      if (layers.hurricane) {
         this._drawOutlook(outlook, bounds);
         storms.forEach((storm, idx) => {
           const color = STORM_COLORS[idx % STORM_COLORS.length];
@@ -1020,6 +1666,7 @@
       const tier = this._getDetailTier();
       const isPrimary = storm.id && storm.id === this._data?.summary?.closestStormId;
       const iconSize = isPrimary && tier >= 1 ? 36 : 32;
+      const catColor = this._categoryColor(storm.category, storm.maxWindMph);
       const stormPopup = `
         <strong>${this._esc(storm.name)}</strong><br/>
         Advisory: ${this._esc(storm.advisoryTime || "—")}<br/>
@@ -1030,7 +1677,7 @@
       `;
       const stormIcon = L.divIcon({
         className: "hw-hazard-icon-marker",
-        html: `<div class="hw-storm-icon-wrap${isPrimary ? " is-primary" : ""}" style="--storm-color:${color}"><img class="hw-storm-icon" src="/local/home_weather/icons/hurricane.svg" width="${iconSize}" height="${iconSize}" alt="" draggable="false"/></div>`,
+        html: `<div class="hw-storm-icon-wrap${isPrimary ? " is-primary" : ""}" style="--storm-color:${color}"><span class="hw-cat-ring" style="border-color:${catColor};box-shadow:0 0 8px ${catColor}cc;width:${iconSize}px;height:${iconSize}px;"></span><img class="hw-storm-icon" src="/local/home_weather/icons/hurricane.svg" width="${iconSize}" height="${iconSize}" alt="" draggable="false"/></div>`,
         iconSize: [iconSize, iconSize],
         iconAnchor: [iconSize / 2, iconSize / 2],
       });

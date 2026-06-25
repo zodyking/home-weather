@@ -309,18 +309,24 @@ def build_coordinator_payload(
         display_events = events
     else:
         display_events = merge_map_display_events(events, map_events)
-    nearest = pick_nearest_earthquake(events) or pick_nearest_earthquake(display_events)
+    nearest = pick_nearest_earthquake(events)
+    tsunami_in_geofield = any(e.get("tsunami") == 1 for e in events)
     return {
         "events": events,
+        "geofield_events": events,
         "map_events": display_events,
         "active_count": len(events),
+        "geofield_count": len(events),
         "map_count": len(display_events),
         "nearby_active": len(events) > 0,
+        "in_geofield": len(events) > 0,
+        "tsunami_in_geofield": tsunami_in_geofield,
         "nearest_distance_miles": nearest.get("distance_miles") if nearest else None,
         "nearest_magnitude": nearest.get("magnitude") if nearest else None,
         "nearest_depth_km": nearest.get("depth_km") if nearest else None,
         "nearest_place": nearest.get("place") if nearest else None,
         "primary_event": nearest,
+        "primary_geofield": nearest,
         "geojson": build_earthquake_geojson(display_events, nearby_ids=nearby_ids),
         "last_updated": dt_util.utcnow().isoformat(),
     }
@@ -330,15 +336,20 @@ def empty_coordinator_payload() -> dict[str, Any]:
     """Return empty payload when monitoring is disabled."""
     return {
         "events": [],
+        "geofield_events": [],
         "map_events": [],
         "active_count": 0,
+        "geofield_count": 0,
         "map_count": 0,
         "nearby_active": False,
+        "in_geofield": False,
+        "tsunami_in_geofield": False,
         "nearest_distance_miles": None,
         "nearest_magnitude": None,
         "nearest_depth_km": None,
         "nearest_place": None,
         "primary_event": None,
+        "primary_geofield": None,
         "geojson": dict(EMPTY_GEOJSON),
         "last_updated": dt_util.utcnow().isoformat(),
     }

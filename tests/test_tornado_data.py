@@ -19,6 +19,11 @@ from custom_components.home_weather.tornado_data import (
 
 HOME = {"lat": 35.1, "lon": -96.1}
 
+
+def _future_expires(hours: int = 2) -> str:
+    return (dt_util.now() + timedelta(hours=hours)).isoformat()
+
+
 TORNADO_FEATURE = {
     "type": "Feature",
     "properties": {
@@ -32,7 +37,7 @@ TORNADO_FEATURE = {
         "certainty": "Observed",
         "onset": "2026-06-22T18:00:00-05:00",
         "effective": "2026-06-22T18:00:00-05:00",
-        "expires": "2026-06-22T19:00:00-05:00",
+        "expires": _future_expires(),
         "senderName": "NWS Norman OK",
         "areaDesc": "Test County",
         "affectedZones": ["https://api.weather.gov/zones/county/OKC027"],
@@ -58,7 +63,7 @@ FAR_TORNADO_FEATURE = {
         "id": "urn:oid:2.2",
         "headline": "Distant Tornado Warning",
         "severity": "Severe",
-        "expires": "2026-06-22T20:00:00-05:00",
+        "expires": _future_expires(3),
     },
     "geometry": {
         "type": "Polygon",

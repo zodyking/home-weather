@@ -9,6 +9,7 @@ from typing import Any
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.util import dt as dt_util
 
 from .hurricane_geo import (
     THREAT_RANK,
@@ -861,3 +862,71 @@ def detect_tropical_tts_events(
             ))
 
     return events
+
+
+def get_hurricane_geofield_config(config: dict[str, Any] | None) -> dict[str, Any]:
+    """Return geofield thresholds from hurricane monitoring settings."""
+    tropical = (config or {}).get("tropical_alerts") or {}
+    return {
+        "max_distance_miles": float(tropical.get("max_distance_miles", 500)),
+        "min_threat_level": tropical.get("min_threat_level", "watch"),
+    }
+
+
+def storm_in_geofield(storm: dict[str, Any], geofield_config: dict[str, Any]) -> bool:
+    """Return True when a storm meets geofield distance and threat thresholds."""
+    threat = storm.get("threat") or {}
+    threat_level = threat.get("threatLevel", "none")
+    if not _meets_min_threat(threat_level, geofield_config.get("min_threat_level", "watch")):
+        return False
+    dist = threat.get("distanceToCenterMiles")
+    max_dist = float(geofield_config.get("max_distance_miles", 500))
+    return dist is not None and dist <= max_dist
+
+
+def build_hurricane_sensor_payload(
+    payload: dict[str, Any],
+    config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build sensor-oriented payload with geofield-scoped storm data."""
+    summary = dict(payload.get("summary") or {})
+    storms = payload.get("storms") or []
+    geofield_config = get_hurricane_geofield_config(config)
+    geofield_storms = [s for s in storms if storm_in_geofield(s, geofield_config)]
+
+    closest: dict[str, Any] | None = None
+    closest_dist = float("inf")
+    for storm in geofield_storms:
+        dist = (storm.get("threat") or {}).get("distanceToCenterMiles")
+        if dist is not None and dist < closest_dist:
+            closest_dist = dist
+            closest = storm
+
+    inside_cone = any(
+        (s.get("threat") or {}).get("insideCone") for s in geofield_storms
+    )
+    threat_elevated = _meets_min_threat(
+        summary.get("threatLevel", "none"),
+        geofield_config.get("min_threat_level", "watch"),
+    ) and bool(geofield_storms)
+
+    return {
+        **payload,
+        "geofield_storms": geofield_storms,
+        "geofield_count": len(geofield_storms),
+        "in_geofield": len(geofield_storms) > 0,
+        "primary_geofield": closest,
+        "inside_cone_geofield": inside_cone,
+        "threat_elevated_geofield": threat_elevated,
+        "sensor_summary": {
+            "threat_level": summary.get("threatLevel", "none"),
+            "closest_storm_name": closest.get("name") if closest else None,
+            "distance_miles": closest_dist if closest else None,
+            "closest_approach_hour": summary.get("estimatedClosestApproachHour"),
+            "formation_probability": summary.get("highestFormationProbability"),
+            "active_storm_count": len(storms),
+            "disturbance_count": summary.get("disturbanceCount") or 0,
+            "inside_cone": inside_cone,
+        },
+        "last_updated": dt_util.utcnow().isoformat(),
+    }

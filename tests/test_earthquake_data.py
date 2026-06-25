@@ -225,12 +225,13 @@ def test_map_events_exclude_before_today(monkeypatch):
     assert map_events[0]["id"] == "us7000abc3"
 
 
-def test_build_coordinator_payload_falls_back_to_map_nearest(monkeypatch):
+def test_build_coordinator_payload_no_worldwide_fallback(monkeypatch):
     _patch_map_today_filter(monkeypatch)
     events = parse_earthquake_features([], HOME, DEFAULT_EQ_CONFIG)
     map_events = parse_earthquake_features_for_map([FAR_EQ], HOME, DEFAULT_EQ_CONFIG)
     payload = build_coordinator_payload(events, map_events)
     assert payload["active_count"] == 0
     assert payload["nearby_active"] is False
-    assert payload["primary_event"]["id"] == "us7000abc3"
-    assert payload["nearest_place"] == "Off coast of Alaska"
+    assert payload["in_geofield"] is False
+    assert payload["primary_event"] is None
+    assert payload["nearest_place"] is None

@@ -97,6 +97,12 @@ DEFAULT_CONFIG: Final = {
         "map_min_magnitude": 4.5,
         "map_feed_type": "all_day",
     },
+    "lightning": {
+        "show_on_map": True,
+        "max_age_minutes": 60,
+        "max_strikes": 500,
+        "geofield_radius_miles": 100,
+    },
 }
 
 # Relative path under config/www for NWS alert siren files (served at /local/)

@@ -160,14 +160,50 @@ def build_geojson_feature_collection(alerts: list[dict[str, Any]]) -> dict[str, 
     return {"type": "FeatureCollection", "features": features}
 
 
+def get_tornado_geofield_config(config: dict[str, Any] | None) -> dict[str, Any]:
+    """Return geofield thresholds from tornado monitoring settings."""
+    tornado = (config or {}).get("tornado_alerts") or {}
+    return {
+        "only_affecting_home": tornado.get("only_affecting_home", True),
+        "max_distance_miles": float(tornado.get("max_distance_miles", 25)),
+    }
+
+
+def passes_tornado_geofield_filter(
+    alert: dict[str, Any],
+    geofield_config: dict[str, Any],
+) -> bool:
+    """Return True when alert is within the user's configured tornado geofield."""
+    if geofield_config.get("only_affecting_home", True):
+        return bool(alert.get("affecting_home"))
+    dist = alert.get("distance_miles")
+    max_dist = float(geofield_config.get("max_distance_miles", 25))
+    return dist is not None and dist <= max_dist
+
+
+def filter_alerts_for_geofield(
+    alerts: list[dict[str, Any]],
+    config: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Filter parsed alerts to those within the user's geofield."""
+    geofield_config = get_tornado_geofield_config(config)
+    filtered = [a for a in alerts if passes_tornado_geofield_filter(a, geofield_config)]
+    return sort_tornado_alerts_by_priority(filtered)
+
+
 def build_coordinator_payload(
     alerts: list[dict[str, Any]],
     config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build normalized coordinator data payload."""
-    primary = alerts[0] if alerts else None
-    affecting_home = any(a.get("affecting_home") for a in alerts)
-    distances = [a["distance_miles"] for a in alerts if a.get("distance_miles") is not None]
+    geofield_alerts = filter_alerts_for_geofield(alerts, config)
+    primary = geofield_alerts[0] if geofield_alerts else None
+    affecting_home = any(a.get("affecting_home") for a in geofield_alerts)
+    distances = [
+        a["distance_miles"]
+        for a in geofield_alerts
+        if a.get("distance_miles") is not None
+    ]
     nearest_distance = min(distances) if distances else None
     geojson = build_geojson_feature_collection(alerts)
 
@@ -184,12 +220,17 @@ def build_coordinator_payload(
             )
 
     return {
-        "alerts": alerts,
-        "active_count": len(alerts),
+        "all_alerts": alerts,
+        "geofield_alerts": geofield_alerts,
+        "alerts": geofield_alerts,
+        "active_count": len(geofield_alerts),
+        "map_count": len(alerts),
         "affecting_home": affecting_home,
-        "warning_active": is_binary_warning_on(alerts, config),
+        "in_geofield": len(geofield_alerts) > 0,
+        "warning_active": len(geofield_alerts) > 0,
         "nearest_distance_miles": nearest_distance,
         "primary_alert": primary,
+        "primary_geofield": primary,
         "geojson": geojson,
         "polygons": polygons,
         "last_updated": dt_util.utcnow().isoformat(),
@@ -299,4 +340,5 @@ async def async_fetch_tornado_alerts(
         return build_coordinator_payload([], config)
 
     alerts = parse_tornado_features(features, home)
-    return build_coordinator_payload(alerts, config)
+    all_alerts = sort_tornado_alerts_by_priority(alerts)
+    return build_coordinator_payload(all_alerts, config)

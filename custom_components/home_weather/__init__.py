@@ -26,6 +26,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     from .tts_triggers import TTSTriggerManager
     from .tornado_coordinator import TornadoCoordinator
     from .earthquake_coordinator import EarthquakeCoordinator
+    from .hurricane_coordinator import HurricaneCoordinator
+    from .lightning_coordinator import LightningCoordinator
 
     storage = HomeWeatherStorage(hass)
     await storage.async_load()
@@ -38,6 +40,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     earthquake_coordinator = EarthquakeCoordinator(hass, storage)
     await earthquake_coordinator.async_config_entry_first_refresh()
+
+    hurricane_coordinator = HurricaneCoordinator(hass, storage)
+    await hurricane_coordinator.async_config_entry_first_refresh()
+
+    lightning_coordinator = LightningCoordinator(hass, storage)
+    await lightning_coordinator.async_config_entry_first_refresh()
 
     # Set up TTS trigger manager
     def get_config():
@@ -62,6 +70,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "coordinator": coordinator,
         "tornado_coordinator": tornado_coordinator,
         "earthquake_coordinator": earthquake_coordinator,
+        "hurricane_coordinator": hurricane_coordinator,
+        "lightning_coordinator": lightning_coordinator,
         "trigger_manager": trigger_manager,
     }
 
@@ -98,6 +108,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 await trigger_manager.async_unload()
             except Exception as e:
                 _LOGGER.warning("Error unloading TTS triggers: %s", e)
+
+        lightning_coordinator = entry_data.get("lightning_coordinator")
+        if lightning_coordinator:
+            try:
+                await lightning_coordinator.async_shutdown()
+            except Exception as e:
+                _LOGGER.warning("Error shutting down lightning coordinator: %s", e)
         
         del hass.data[DOMAIN][entry.entry_id]
     return True

@@ -13,7 +13,7 @@ class HomeWeatherPanel extends HTMLElement {
     this._forecastView = "7day";
     this._mapsMode = "storms";
     this._mapsWindRadii = false;
-    this._mapsLayers = { tropical: true, tornado: true, earthquakes: true };
+    this._mapsLayers = { hurricane: true, tornado: true, earthquakes: true, lightning: true };
     this._mapsSort = "newest";
     this._chartMetric = "temp";
     this._selectedForecast = null; // { type: "hour"|"day", index: number }
@@ -247,6 +247,7 @@ class HomeWeatherPanel extends HTMLElement {
       if (!this._settings.tts) this._settings.tts = { enabled: false, language: "en", platform: null };
       if (!Array.isArray(this._settings.media_players)) this._settings.media_players = [];
       this._settings.media_players = this._normalizeMediaPlayers(this._settings.media_players);
+      this._mapsLayers.lightning = this._settings?.lightning?.show_on_map !== false;
       if (!this._config.weather_entity) {
         this._currentView = "settings";
       }
@@ -2379,9 +2380,26 @@ class HomeWeatherPanel extends HTMLElement {
           border-radius: 50%;
           flex-shrink: 0;
         }
+        .maps-layer-filters button .layer-ico {
+          width: 15px;
+          height: 15px;
+          flex-shrink: 0;
+          opacity: 0.55;
+          filter: grayscale(1);
+          transition: opacity 0.15s ease, filter 0.15s ease;
+        }
+        .maps-layer-filters button.active .layer-ico { opacity: 1; filter: none; }
         .maps-layer-filters button[data-map-layer="tropical"] .layer-dot { background: #ffb74d; }
+        .maps-layer-filters button[data-map-layer="hurricane"] .layer-dot { background: #ffb74d; }
         .maps-layer-filters button[data-map-layer="tornado"] .layer-dot { background: #e040fb; }
         .maps-layer-filters button[data-map-layer="earthquakes"] .layer-dot { background: #ef5350; }
+        .maps-layer-filters button[data-map-layer="lightning"] .layer-dot { background: #ffc107; }
+        .maps-layer-filters button[data-map-layer="lightning"].active {
+          background: rgba(255, 193, 7, 0.16);
+          border-color: rgba(255, 193, 7, 0.45);
+        }
+        .maps-toolbar-btn--labeled { gap: 6px; padding: 0 12px; }
+        .maps-toolbar-btn .maps-btn-ico { flex-shrink: 0; }
         .maps-hazard-sort {
           min-height: 32px;
           padding: 0 10px;
@@ -2968,6 +2986,28 @@ class HomeWeatherPanel extends HTMLElement {
         .settings-form .collapsible-content > .settings-toggle-row:last-child,
         .settings-form .collapsible-content > .media-player-playback-block:last-child { margin-bottom: 0; }
         .settings-form .range-slider { max-width: min(440px, 100%); }
+        /* Consistent, tidy control widths so fields don't stretch the whole card */
+        .settings-form .form-group > input,
+        .settings-form .form-group > select,
+        .settings-form .form-group > .entity-autocomplete-wrapper,
+        .settings-form .textarea-field { width: 100%; }
+        .settings-form .form-group > input[type="number"],
+        .settings-form .form-group > input[type="time"] { max-width: 150px; }
+        .settings-form .form-group > select { max-width: 320px; }
+        .settings-form .form-group > input[type="text"],
+        .settings-form .form-group > .entity-autocomplete-wrapper { max-width: 520px; }
+        .settings-form .textarea-field { max-width: 640px; }
+        .settings-form .time-input-group input[type="time"] { flex: 0 0 auto; width: 150px; }
+        /* Two-up rows: keep paired fields compact and left-aligned instead of full-bleed */
+        .settings-form .form-row-inline {
+          grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 320px));
+          justify-content: start;
+          max-width: 680px;
+        }
+        .settings-form .form-row-inline .form-group > select { max-width: 100%; }
+        .settings-form .form-row-inline .form-group > .range-slider { max-width: 100%; }
+        /* Match autocomplete input height to other controls */
+        .settings-form .entity-autocomplete-input { height: var(--form-input-height); padding: 10px 14px; box-sizing: border-box; }
         .webhook-status-row { display: flex; align-items: center; gap: 10px; }
         .webhook-status-dot { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; }
         .webhook-status-dot.idle { background: var(--panel-danger); }
@@ -3205,11 +3245,15 @@ class HomeWeatherPanel extends HTMLElement {
     if (topCategories.includes(sectionId)) return { type: "list", ids: topCategories };
     const alertsNested = [
       "general", "media-players", "time-based", "current-change", "upcoming-change",
-      "sun-alerts", "nws-alerts", "sensor-triggered", "webhook", "voice-satellite",
+      "sun-alerts", "nws-alerts", "tropical-alerts", "tornado-alerts", "earthquake-alerts",
+      "sensor-triggered", "webhook", "voice-satellite",
     ];
     if (alertsNested.includes(sectionId)) return { type: "list", ids: alertsNested };
     if (sectionId === "weather-source") return { type: "list", ids: ["weather-source"] };
-    const advancedNested = ["forecast-settings", "ai-rewrite"];
+    const advancedNested = [
+      "forecast-settings", "tropical-monitoring", "tornado-monitoring",
+      "earthquake-settings", "ai-rewrite",
+    ];
     if (advancedNested.includes(sectionId)) return { type: "list", ids: advancedNested };
     if (/^media-player-\d+$/.test(sectionId)) return { type: "mediaPlayer", sectionId };
     const subMatch = sectionId.match(/^(media-player-\d+-)/);
@@ -3664,24 +3708,29 @@ class HomeWeatherPanel extends HTMLElement {
         </div>`;
     }).join("");
 
+    const layerChips = [
+      { id: "hurricane", label: "Hurricanes", icon: "hurricane" },
+      { id: "tornado", label: "Tornado", icon: "tornado" },
+      { id: "earthquakes", label: "Earthquakes", icon: "earthquake" },
+      { id: "lightning", label: "Lightning", icon: "lightning-bolt" },
+    ];
+    const refreshIcon = `<svg class="maps-btn-ico" viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true"><path d="M17.65 6.35A8 8 0 1 0 19.73 14h-2.08A6 6 0 1 1 16.24 7.76L13 11h7V4l-2.35 2.35z"/></svg>`;
     const hazardsActions = this._mapsMode === "storms" ? `
       <div class="maps-toolbar-actions">
-        <div class="maps-layer-filters" role="group" aria-label="Map layers">
-          <button type="button" class="${this._mapsLayers.tropical ? "active" : ""}" data-map-layer="tropical" aria-pressed="${this._mapsLayers.tropical}"><span class="layer-dot"></span>Tropical</button>
-          <button type="button" class="${this._mapsLayers.tornado ? "active" : ""}" data-map-layer="tornado" aria-pressed="${this._mapsLayers.tornado}"><span class="layer-dot"></span>Tornado</button>
-          <button type="button" class="${this._mapsLayers.earthquakes ? "active" : ""}" data-map-layer="earthquakes" aria-pressed="${this._mapsLayers.earthquakes}"><span class="layer-dot"></span>Earthquakes</button>
+        <div class="maps-layer-filters" role="group" aria-label="Hazard layers">
+          ${layerChips.map((c) => `<button type="button" class="${this._mapsLayers[c.id] ? "active" : ""}" data-map-layer="${c.id}" aria-pressed="${this._mapsLayers[c.id]}"><img class="layer-ico" src="/local/home_weather/icons/${c.icon}.svg" width="15" height="15" alt="" draggable="false"/>${c.label}</button>`).join("")}
         </div>
         <span class="maps-toolbar-divider" aria-hidden="true"></span>
-        <label class="maps-toolbar-toggle">
+        <label class="maps-toolbar-toggle" title="Show hurricane wind-field radii">
           <input type="checkbox" id="maps-wind-radii-toggle" ${this._mapsWindRadii ? "checked" : ""}/>
           Wind radii
         </label>
-        <select class="maps-hazard-sort" id="maps-hazard-sort" title="Sort earthquake markers">
-          <option value="newest" ${this._mapsSort === "newest" ? "selected" : ""}>Newest</option>
-          <option value="magnitude" ${this._mapsSort === "magnitude" ? "selected" : ""}>Magnitude</option>
-          <option value="distance" ${this._mapsSort === "distance" ? "selected" : ""}>Distance</option>
+        <select class="maps-hazard-sort" id="maps-hazard-sort" title="Sort earthquake markers" aria-label="Sort earthquake markers">
+          <option value="newest" ${this._mapsSort === "newest" ? "selected" : ""}>Sort: Newest</option>
+          <option value="magnitude" ${this._mapsSort === "magnitude" ? "selected" : ""}>Sort: Magnitude</option>
+          <option value="distance" ${this._mapsSort === "distance" ? "selected" : ""}>Sort: Distance</option>
         </select>
-        <button type="button" class="maps-toolbar-btn" id="maps-hazards-refresh" title="Refresh hazard data">Refresh</button>
+        <button type="button" class="maps-toolbar-btn maps-toolbar-btn--labeled" id="maps-hazards-refresh" title="Refresh hazard data">${refreshIcon}<span>Refresh</span></button>
         <span class="maps-toolbar-meta" id="maps-hazards-updated">Updated —</span>
       </div>` : "";
 
@@ -3727,16 +3776,29 @@ class HomeWeatherPanel extends HTMLElement {
   }
 
   _loadHurricaneTrackerScript() {
-    if (window.HurricaneTracker) return Promise.resolve();
+    if (window.HurricaneTracker && window.BlitzortungClient) return Promise.resolve();
     if (this._hurricaneTrackerPromise) return this._hurricaneTrackerPromise;
     const version = this._version || Date.now();
-    this._hurricaneTrackerPromise = new Promise((resolve, reject) => {
+    const loadScript = (src, globalName) => new Promise((resolve, reject) => {
+      if (globalName && window[globalName]) {
+        resolve();
+        return;
+      }
+      const existing = document.querySelector(`script[src="${src}"]`);
+      if (existing) {
+        existing.addEventListener("load", () => resolve(), { once: true });
+        existing.addEventListener("error", () => reject(new Error(`Failed to load ${src}`)), { once: true });
+        if (globalName && window[globalName]) resolve();
+        return;
+      }
       const script = document.createElement("script");
-      script.src = `/local/home_weather/hurricane-tracker.js?v=${version}`;
+      script.src = src;
       script.onload = () => resolve();
-      script.onerror = () => reject(new Error("Failed to load hurricane tracker"));
+      script.onerror = () => reject(new Error(`Failed to load ${src}`));
       document.head.appendChild(script);
     });
+    this._hurricaneTrackerPromise = loadScript(`/local/home_weather/blitzortung-client.js?v=${version}`, "BlitzortungClient")
+      .then(() => loadScript(`/local/home_weather/hurricane-tracker.js?v=${version}`, "HurricaneTracker"));
     return this._hurricaneTrackerPromise;
   }
 
@@ -3756,10 +3818,12 @@ class HomeWeatherPanel extends HTMLElement {
       await this._loadHurricaneTrackerScript();
       if (this._currentView !== "hurricanes") return;
       this._destroyHurricaneTracker();
+      this._mapsLayers.lightning = this._settings?.lightning?.show_on_map !== false;
       this._hurricaneTracker = new window.HurricaneTracker({
         hass: this._hass,
         shadowRoot: s,
         embedded: true,
+        lightningSettings: this._settings.lightning || { show_on_map: true, max_age_minutes: 60, max_strikes: 500 },
       });
       await this._hurricaneTracker.init(root);
       this._hurricaneTracker.setShowWindRadii(this._mapsWindRadii);
@@ -3767,7 +3831,7 @@ class HomeWeatherPanel extends HTMLElement {
       this._hurricaneTracker.setMapSort(this._mapsSort);
       this._updateMapsHazardsMeta();
     } catch (err) {
-      root.innerHTML = `<div class="error" style="padding:24px;text-align:center;">Failed to load hurricane tracker: ${String(err.message || err)}</div>`;
+      root.innerHTML = `<div class="error" style="padding:24px;text-align:center;">Failed to load hazard map: ${String(err.message || err)}</div>`;
     }
   }
 
@@ -4551,6 +4615,8 @@ class HomeWeatherPanel extends HTMLElement {
       map_feed_type: "all_day",
     };
     const earthquakes = { ...defaultEarthquakes, ...(this._settings.earthquakes || {}) };
+    const defaultLightning = { show_on_map: true, max_age_minutes: 60, max_strikes: 500 };
+    const lightning = { ...defaultLightning, ...(this._settings.lightning || {}) };
     if (!sunAlerts.sunrise_tts) sunAlerts.sunrise_tts = defaultSunAlerts.sunrise_tts;
     if (!sunAlerts.sunset_tts) sunAlerts.sunset_tts = defaultSunAlerts.sunset_tts;
     if (!sunAlerts.sunrise_automation) sunAlerts.sunrise_automation = defaultSunAlerts.sunrise_automation;
@@ -4913,7 +4979,7 @@ class HomeWeatherPanel extends HTMLElement {
             </div>
           `, true, "nws-alerts-enabled", nwsAlerts.enabled)}
 
-          ${renderNestedSection("tropical-alerts", "Tropical Cyclone Alerts", "Cone, threat level, and outlook TTS", `
+          ${renderNestedSection("tropical-alerts", "Hurricane Alerts", "Siren + TTS for nearby hurricanes", `
             <div class="form-group" style="margin-top: var(--form-gap);">
               <label>Alert sound (plays before TTS)</label>
               <select id="tropical-alerts-sound-file">
@@ -4931,36 +4997,18 @@ class HomeWeatherPanel extends HTMLElement {
                 ${renderSlider("tropical-alerts-tts-volume", tropicalAlerts.tts_volume, 0, 1, 0.05, "%")}
               </div>
             </div>
-            <div class="form-row-inline">
-              <div class="form-group">
-                <label>Min threat level</label>
-                <select id="tropical-alerts-min-threat">
-                  <option value="none" ${tropicalAlerts.min_threat_level === "none" ? "selected" : ""}>None</option>
-                  <option value="monitor" ${tropicalAlerts.min_threat_level === "monitor" ? "selected" : ""}>Monitor</option>
-                  <option value="watch" ${tropicalAlerts.min_threat_level === "watch" ? "selected" : ""}>Watch</option>
-                  <option value="high" ${tropicalAlerts.min_threat_level === "high" ? "selected" : ""}>High</option>
-                </select>
-              </div>
-              <div class="form-group">
-                <label>Max storm distance (mi)</label>
-                <input type="number" id="tropical-alerts-max-distance" min="1" max="5000" value="${tropicalAlerts.max_distance_miles}"/>
-              </div>
-            </div>
+            <div class="subsection-title">Announcements</div>
             ${renderToggle("tropical-announce-cone", tropicalAlerts.announce_inside_cone !== false, "Announce when home enters forecast cone")}
             ${renderToggle("tropical-announce-escalation", tropicalAlerts.announce_threat_escalation !== false, "Announce threat level escalation")}
-            ${renderToggle("tropical-announce-new-storm", tropicalAlerts.announce_new_storm !== false, "Announce new nearby cyclone")}
+            ${renderToggle("tropical-announce-new-storm", tropicalAlerts.announce_new_storm !== false, "Announce new nearby hurricane")}
             ${renderToggle("tropical-announce-outlook", tropicalAlerts.announce_outlook_development !== false, "Announce outlook development")}
-            <div class="form-group">
-              <label>Outlook min formation probability (%)</label>
-              <input type="number" id="tropical-alerts-outlook-prob" min="0" max="100" value="${tropicalAlerts.outlook_min_probability}"/>
-            </div>
-            <p class="form-hint">Uses NHC cone and outlook data relative to your home. Polls every 5 minutes.</p>
+            <p class="form-hint">Detection thresholds (threat level, storm distance, outlook probability) live under <strong>Advanced → Hurricane Monitoring</strong>.</p>
             <div class="form-actions-row">
-              <button type="button" class="test-tts-btn" id="test-tropical-btn">Test tropical alert</button>
+              <button type="button" class="test-tts-btn" id="test-tropical-btn">Test hurricane alert</button>
             </div>
           `, true, "tropical-alerts-enabled", tropicalAlerts.enabled)}
 
-          ${renderNestedSection("tornado-alerts", "Tornado Warning Alerts", "Polygon-aware tornado TTS", `
+          ${renderNestedSection("tornado-alerts", "Tornado Warning Alerts", "Siren + TTS for tornado warnings", `
             <div class="form-group" style="margin-top: var(--form-gap);">
               <label>Alert sound (plays before TTS)</label>
               <select id="tornado-alerts-sound-file">
@@ -4978,13 +5026,9 @@ class HomeWeatherPanel extends HTMLElement {
                 ${renderSlider("tornado-alerts-tts-volume", tornadoAlerts.tts_volume, 0, 1, 0.05, "%")}
               </div>
             </div>
-            ${renderToggle("tornado-only-home", tornadoAlerts.only_affecting_home !== false, "Only when warning polygon includes home")}
-            <div class="form-group">
-              <label>Max distance when not home-only (mi)</label>
-              <input type="number" id="tornado-alerts-max-distance" min="1" max="500" value="${tornadoAlerts.max_distance_miles}"/>
-            </div>
+            <div class="subsection-title">Announcements</div>
             ${renderToggle("tornado-announce-cleared", tornadoAlerts.announce_cleared === true, "Announce when warning clears")}
-            <p class="form-hint">NWS alerts may also announce tornado warnings. Use home-only here to reduce duplicates.</p>
+            <p class="form-hint">Detection thresholds (home-only, distance) live under <strong>Advanced → Tornado Monitoring</strong>. NWS alerts may also announce tornado warnings.</p>
             <div class="form-actions-row">
               <button type="button" class="test-tts-btn" id="test-tornado-btn">Test tornado alert</button>
             </div>
@@ -5159,7 +5203,7 @@ class HomeWeatherPanel extends HTMLElement {
           `, true, "enable-voice-satellite", tts.enable_voice_satellite)}
         `)}
 
-        ${renderCategory("settings-advanced", "Advanced", "Thresholds, forecast tuning and AI rewriting.", `
+        ${renderCategory("settings-advanced", "Advanced", "Hazard monitoring, detection thresholds, forecast tuning and AI rewriting.", `
           ${renderNestedSection("forecast-settings", "Forecast Settings", "Thresholds and limits", `
             <div class="form-group">
               <label>Precipitation Threshold (%)</label>
@@ -5176,6 +5220,50 @@ class HomeWeatherPanel extends HTMLElement {
                 <label>Wind Gust Threshold (for mention)</label>
                 <input type="number" id="wind-gust-threshold" min="0" max="100" value="${tts.wind_gust_threshold}"/>
               </div>
+            </div>
+          `)}
+
+          ${renderNestedSection("tropical-monitoring", "Hurricane Monitoring", "Detection thresholds for hurricane alerts", `
+            <p class="form-hint">Tunes which storms trigger the Hurricane Alerts under Announcements &amp; Alerts. Uses NHC cone and outlook data relative to your home; polls every 5 minutes.</p>
+            <div class="form-row-inline">
+              <div class="form-group">
+                <label>Min threat level</label>
+                <select id="tropical-alerts-min-threat">
+                  <option value="none" ${tropicalAlerts.min_threat_level === "none" ? "selected" : ""}>None</option>
+                  <option value="monitor" ${tropicalAlerts.min_threat_level === "monitor" ? "selected" : ""}>Monitor</option>
+                  <option value="watch" ${tropicalAlerts.min_threat_level === "watch" ? "selected" : ""}>Watch</option>
+                  <option value="high" ${tropicalAlerts.min_threat_level === "high" ? "selected" : ""}>High</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Max storm distance (mi)</label>
+                <input type="number" id="tropical-alerts-max-distance" min="1" max="5000" value="${tropicalAlerts.max_distance_miles}"/>
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Outlook min formation probability (%)</label>
+              <input type="number" id="tropical-alerts-outlook-prob" min="0" max="100" value="${tropicalAlerts.outlook_min_probability}"/>
+            </div>
+            <hr class="settings-section-divider"/>
+            <div class="subsection-title">Live lightning (Blitzortung)</div>
+            ${renderToggle("lightning-show-on-map", lightning.show_on_map !== false, "Show live lightning on hazard map")}
+            <div class="form-group">
+              <label>Sensor geofield radius (mi)</label>
+              <input type="number" id="lightning-geofield-radius-miles" min="1" max="500" value="${lightning.geofield_radius_miles ?? 100}"/>
+            </div>
+            <div class="form-group">
+              <label>Strike retention (minutes)</label>
+              <input type="number" id="lightning-max-age-minutes" min="5" max="240" value="${lightning.max_age_minutes ?? 60}"/>
+              <p class="form-hint">How long strike markers stay visible on the map. Data from <a href="https://www.blitzortung.org" target="_blank" rel="noopener noreferrer">Blitzortung.org</a>.</p>
+            </div>
+          `)}
+
+          ${renderNestedSection("tornado-monitoring", "Tornado Monitoring", "Detection thresholds for tornado alerts", `
+            <p class="form-hint">Tunes which tornado warnings trigger the Tornado Warning Alerts under Announcements &amp; Alerts.</p>
+            ${renderToggle("tornado-only-home", tornadoAlerts.only_affecting_home !== false, "Only when warning polygon includes home")}
+            <div class="form-group">
+              <label>Max distance when not home-only (mi)</label>
+              <input type="number" id="tornado-alerts-max-distance" min="1" max="500" value="${tornadoAlerts.max_distance_miles}"/>
             </div>
           `)}
 
@@ -5260,6 +5348,7 @@ class HomeWeatherPanel extends HTMLElement {
     this._settings.tornado_alerts = this._collectTornadoAlertsSettings();
     this._settings.earthquake_alerts = this._collectEarthquakeAlertsSettings();
     this._settings.earthquakes = this._collectEarthquakeSettings();
+    this._settings.lightning = this._collectLightningSettings();
 
     const messagePrefix = s.getElementById("message-prefix");
     if (messagePrefix) this._settings.message_prefix = messagePrefix.value || "Weather update";
@@ -5476,6 +5565,20 @@ class HomeWeatherPanel extends HTMLElement {
       map_show_worldwide: getChecked("earthquake-map-worldwide"),
       map_min_magnitude: Math.min(10, Math.max(0, parseFloat(getVal("earthquake-map-min-magnitude", String(defaults.map_min_magnitude))) || defaults.map_min_magnitude)),
       map_feed_type: validFeeds.includes(mapFeedType) ? mapFeedType : defaults.map_feed_type,
+    };
+  }
+
+  _collectLightningSettings() {
+    const s = this.shadowRoot;
+    const defaults = { show_on_map: true, max_age_minutes: 60, max_strikes: 500, geofield_radius_miles: 100 };
+    if (!s) return defaults;
+    const getVal = (id, def) => (s.getElementById(id)?.value ?? def);
+    const getChecked = (id) => !!s.getElementById(id)?.checked;
+    return {
+      show_on_map: getChecked("lightning-show-on-map"),
+      geofield_radius_miles: Math.min(500, Math.max(1, parseInt(getVal("lightning-geofield-radius-miles", String(defaults.geofield_radius_miles)), 10) || defaults.geofield_radius_miles)),
+      max_age_minutes: Math.min(240, Math.max(5, parseInt(getVal("lightning-max-age-minutes", String(defaults.max_age_minutes)), 10) || defaults.max_age_minutes)),
+      max_strikes: defaults.max_strikes,
     };
   }
 }
