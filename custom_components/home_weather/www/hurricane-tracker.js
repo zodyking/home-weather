@@ -139,6 +139,10 @@
       }
     }
 
+    invalidateMapSize() {
+      this._map?.invalidateSize?.();
+    }
+
     async init(rootEl) {
       this._root = rootEl;
       this._injectStyles();
@@ -469,39 +473,53 @@
           position: relative;
           width: 100%;
           height: 100%;
-          min-height: 100%;
+          min-height: 0;
+          flex: 1;
+          display: flex;
+          flex-direction: column;
           padding: 0;
           margin: 0;
           max-width: none;
           box-sizing: border-box;
+          overflow: hidden;
         }
         .hurricane-layout.is-embedded {
-          min-height: 100%;
+          min-height: 0;
           height: 100%;
+          flex: 1;
         }
         .hurricane-layout.is-embedded .hurricane-map-wrap {
           position: relative;
           inset: auto;
+          flex: 1;
           width: 100%;
           height: 100%;
-          min-height: 100%;
+          min-height: 0;
+          overflow: hidden;
         }
         .hurricane-layout.is-embedded .hurricane-map {
-          min-height: 100%;
+          position: absolute;
+          inset: 0;
+          width: 100%;
+          height: 100%;
+          min-height: 0;
           border-radius: 0;
           border: none;
         }
-        .hurricane-layout.is-embedded .hurricane-status {
-          top: 12px;
-          right: 12px;
-          bottom: 12px;
-          max-height: calc(100% - 24px);
-          width: min(280px, calc(100% - 24px));
-        }
-        .hurricane-layout.is-embedded .hurricane-map-empty-banner {
-          top: 12px;
-          left: 12px;
-          right: min(280px, calc(100% - 24px));
+        @media (min-width: 769px) {
+          .hurricane-layout.is-embedded .hurricane-status {
+            top: 12px;
+            right: 12px;
+            bottom: 12px;
+            left: auto;
+            max-height: calc(100% - 24px);
+            width: min(280px, calc(100% - 24px));
+          }
+          .hurricane-layout.is-embedded .hurricane-map-empty-banner {
+            top: 12px;
+            left: 12px;
+            right: min(280px, calc(100% - 24px));
+          }
         }
         .hurricane-status-details {
           border: 1px solid rgba(255,255,255,0.08);
@@ -606,6 +624,7 @@
         .hurricane-map-wrap {
           position: absolute;
           inset: 0;
+          overflow: hidden;
         }
         .hurricane-map {
           width: 100%;
@@ -711,22 +730,67 @@
           background: rgba(40, 40, 40, 0.96);
           color: #fff;
         }
-        /* Horizontal zoom above scale bar (bottom-left stack) */
-        .leaflet-bottom.leaflet-left .leaflet-control-zoom.leaflet-bar {
+        /* Unified top-left map toolbar: theme + zoom + ruler */
+        .hw-map-toolbar {
           display: flex;
           flex-direction: row;
+          align-items: stretch;
+          background: rgba(28, 28, 28, 0.92);
+          border: 1px solid rgba(255,255,255,0.12);
           border-radius: 8px;
-          overflow: hidden;
+          overflow: visible;
+          box-shadow: 0 4px 16px rgba(0,0,0,0.35);
         }
-        .leaflet-bottom.leaflet-left .leaflet-control-zoom.leaflet-bar a {
-          width: 34px;
-          height: 32px;
-          line-height: 32px;
+        .hw-map-toolbar .leaflet-bar {
+          border: none;
+          box-shadow: none;
+          border-radius: 0;
+        }
+        .hw-map-toolbar .leaflet-control-layers {
+          position: relative;
+          margin: 0;
+          background: transparent;
+          border: none;
+          box-shadow: none;
+        }
+        .hw-map-toolbar .leaflet-control-layers-toggle {
+          width: 30px;
+          height: 30px;
+          background-size: 16px 16px;
+          background-position: center;
+          border: none;
+          border-right: 1px solid rgba(255,255,255,0.12);
+          border-radius: 0;
+        }
+        .hw-map-toolbar .leaflet-control-layers-expanded {
+          position: absolute;
+          top: calc(100% + 6px);
+          left: 0;
+          z-index: 1000;
+          min-width: 148px;
+          margin: 0;
+        }
+        .hw-map-toolbar .leaflet-control-zoom {
+          display: flex;
+          flex-direction: row;
+          margin: 0;
+        }
+        .hw-map-toolbar .leaflet-control-zoom a {
+          width: 30px;
+          height: 30px;
+          line-height: 30px;
+          font-size: 15px;
           border-bottom: none;
           border-right: 1px solid rgba(255,255,255,0.12);
+          border-radius: 0;
         }
-        .leaflet-bottom.leaflet-left .leaflet-control-zoom.leaflet-bar a:last-child {
-          border-right: none;
+        .hw-map-toolbar .leaflet-control-zoom a:last-child {
+          border-right: 1px solid rgba(255,255,255,0.12);
+        }
+        .hw-map-toolbar .hw-measure-ctrl {
+          border: none;
+          box-shadow: none;
+          border-radius: 0;
         }
         .leaflet-bottom.leaflet-left .leaflet-control-scale {
           margin-bottom: 0;
@@ -883,11 +947,12 @@
           display: flex !important;
           align-items: center;
           justify-content: center;
-          width: 34px;
-          height: 34px;
-          line-height: 34px;
+          width: 30px;
+          height: 30px;
+          line-height: 30px;
           background: rgba(28, 28, 28, 0.92);
           color: #e1e1e1;
+          border-radius: 0;
         }
         .hw-measure-ctrl .hw-measure-btn:hover { background: rgba(40, 40, 40, 0.96); color: #fff; }
         .hw-measure-ctrl.active .hw-measure-btn { background: #0288d1; color: #fff; }
@@ -920,12 +985,11 @@
           background: rgba(17, 20, 28, 0.92);
           color: #cfd8dc;
           border: 1px solid rgba(255,255,255,0.14);
-          border-radius: 10px;
+          border-radius: 8px;
           backdrop-filter: blur(10px);
         }
         .leaflet-control-layers-toggle {
           background-color: rgba(28, 28, 28, 0.92);
-          border-radius: 8px;
         }
         .leaflet-control-layers-expanded { padding: 8px 10px; }
         .leaflet-control-layers label { font-size: 12px; margin: 2px 0; }
@@ -967,7 +1031,7 @@
             right: 10px;
             bottom: max(10px, env(safe-area-inset-bottom, 0px));
             width: auto;
-            max-height: min(52vh, 420px);
+            max-height: min(46vh, 360px);
             padding: 12px 14px;
             border-radius: 16px 16px 12px 12px;
             transition: max-height 0.2s ease, padding 0.2s ease;
@@ -997,7 +1061,7 @@
             bottom: max(10px, env(safe-area-inset-bottom, 0px));
           }
           .hurricane-map-wrap.status-expanded .leaflet-bottom.leaflet-left {
-            bottom: calc(min(52vh, 420px) + 18px);
+            bottom: calc(min(46vh, 360px) + 18px);
           }
           .hurricane-map-wrap.status-expanded .leaflet-bottom.leaflet-right {
             bottom: max(10px, env(safe-area-inset-bottom, 0px));
@@ -1007,7 +1071,7 @@
           }
           .hw-coords { font-size: 10px; padding: 2px 6px; }
           .hurricane-map-empty-banner {
-            top: 68px;
+            top: 10px;
             left: 12px;
             right: 12px;
           }
@@ -1016,15 +1080,27 @@
             left: 10px;
             right: 10px;
             bottom: max(10px, env(safe-area-inset-bottom, 0px));
-            max-height: min(48vh, 320px);
+            width: auto;
+            max-height: min(42vh, 300px);
           }
           .hurricane-layout.is-embedded .hurricane-map-wrap.status-expanded .leaflet-bottom.leaflet-left {
-            bottom: calc(min(48vh, 320px) + 18px);
+            bottom: calc(min(42vh, 300px) + 18px);
           }
           .hurricane-layout.is-embedded .hurricane-map-empty-banner {
             top: 10px;
             left: 10px;
             right: 10px;
+          }
+          .hw-legend {
+            max-width: min(180px, 48vw);
+          }
+          .leaflet-top.leaflet-right {
+            top: 8px;
+            right: 8px;
+          }
+          .leaflet-top.leaflet-left {
+            top: 8px;
+            left: 8px;
           }
         }
       `;
@@ -1508,11 +1584,12 @@
       this._baseLayers = baseLayers;
       baseLayers.Dark.addTo(this._map);
 
-      /* Scale at bottom, horizontal zoom above it, coords on top */
+      /* Scale + coords at bottom-left; theme/zoom/ruler toolbar at top-left */
       this._safe(() => L.control.scale({ position: "bottomleft", metric: true, imperial: true, maxWidth: 160 }).addTo(this._map));
-      L.control.zoom({ position: "bottomleft" }).addTo(this._map);
       this._safe(() => L.control.layers(baseLayers, null, { position: "topleft", collapsed: true }).addTo(this._map));
+      L.control.zoom({ position: "topleft" }).addTo(this._map);
       this._safe(() => this._addMeasureControl());
+      this._safe(() => this._consolidateMapToolbar());
       this._safe(() => this._addLegendControl());
       this._safe(() => this._addCoordinateControl());
 
@@ -1599,7 +1676,7 @@
     _addLegendControl() {
       const L = global.L;
       if (!L || !this._map) return;
-      const ctrl = L.control({ position: "topleft" });
+      const ctrl = L.control({ position: "topright" });
       const collapsed = (global.innerWidth || 1024) < 768;
       ctrl.onAdd = () => {
         const div = L.DomUtil.create("div", `hw-legend leaflet-control${collapsed ? " collapsed" : ""}`);
@@ -1649,6 +1726,29 @@
       ctrl.addTo(this._map);
     }
 
+    _consolidateMapToolbar() {
+      const L = global.L;
+      if (!L || !this._map) return;
+      const corner = this._map._controlCorners?.topleft;
+      if (!corner || corner.querySelector(".hw-map-toolbar")) return;
+
+      const layers = corner.querySelector(".leaflet-control-layers");
+      const zoom = corner.querySelector(".leaflet-control-zoom");
+      const measure = corner.querySelector(".hw-measure-ctrl");
+      if (!layers && !zoom && !measure) return;
+
+      const toolbar = L.DomUtil.create("div", "hw-map-toolbar leaflet-control");
+      L.DomEvent.disableClickPropagation(toolbar);
+
+      [layers, zoom, measure].forEach((el) => {
+        if (!el?.parentNode) return;
+        el.parentNode.removeChild(el);
+        toolbar.appendChild(el);
+      });
+
+      corner.insertBefore(toolbar, corner.firstChild);
+    }
+
     _addMeasureControl() {
       const L = global.L;
       if (!L || !this._map) return;
@@ -1660,7 +1760,7 @@
         btn.title = "Measure distance";
         btn.setAttribute("role", "button");
         btn.setAttribute("aria-label", "Measure distance");
-        btn.innerHTML = `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M21 6H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h18a1 1 0 0 0 1-1V7a1 1 0 0 0-1-1zm-1 6h-2V9h-1.5v3h-1.5v-2h-1.5v2h-1.5V9H10v3H8.5v-2H7v2H5.5V9H4v3H3V8h17v4z"/></svg>`;
+        btn.innerHTML = `<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M21 6H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h18a1 1 0 0 0 1-1V7a1 1 0 0 0-1-1zm-1 6h-2V9h-1.5v3h-1.5v-2h-1.5v2h-1.5V9H10v3H8.5v-2H7v2H5.5V9H4v3H3V8h17v4z"/></svg>`;
         const readout = L.DomUtil.create("span", "hw-measure-readout", container);
         readout.textContent = "";
         this._measureBtn = container;

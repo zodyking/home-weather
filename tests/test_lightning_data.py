@@ -1,9 +1,28 @@
 """Unit tests for lightning geofield payload."""
 from __future__ import annotations
 
-from custom_components.home_weather.lightning_data import build_lightning_payload, parse_strike
+import json
+from pathlib import Path
+
+from custom_components.home_weather.lightning_data import (
+    build_lightning_payload,
+    decode_blitzortung_message,
+    parse_strike,
+)
 
 HOME = {"lat": 35.1, "lon": -96.1}
+FIXTURES = Path(__file__).resolve().parent / "fixtures"
+
+
+def test_decode_blitzortung_message_matches_fixture():
+    obfuscated = (FIXTURES / "blitzortung_obfuscated_sample.txt").read_text(encoding="utf-8")
+    expected = (FIXTURES / "blitzortung_decoded_sample.json").read_text(encoding="utf-8")
+    decoded = decode_blitzortung_message(obfuscated)
+    assert decoded == expected
+    payload = json.loads(decoded)
+    assert payload["lat"] is not None
+    assert payload["lon"] is not None
+    assert parse_strike(payload) is not None
 
 
 def test_parse_strike_normalizes_fields():

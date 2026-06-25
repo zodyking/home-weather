@@ -1,17 +1,48 @@
 /**
  * Blitzortung live lightning WebSocket client.
- * Protocol ported from https://github.com/SimonSchick/BlitzortungAPI
+ * Uses the current HTTPS websocket API (port 443) with obfuscated payloads.
  */
 (function (global) {
   "use strict";
 
-  const SERVER_IDS = [1, 6, 5, 7];
+  const SERVER_IDS = [1, 2, 3, 5, 6, 7, 8];
+  const SUBSCRIBE_ACTION = 111;
+  const TABLE_START = 256;
   const RECONNECT_BASE_MS = 2000;
   const RECONNECT_MAX_MS = 30000;
 
   function pickServerUrl() {
     const id = SERVER_IDS[Math.floor(Math.random() * SERVER_IDS.length)];
-    return `wss://ws${id}.blitzortung.org:3000/`;
+    return `wss://ws${id}.blitzortung.org/`;
+  }
+
+  /** Reverse Blitzortung's LZW-style obfuscation (see map.blitzortung.org JavaScript). */
+  function decodeMessage(payload) {
+    const text = typeof payload === "string" ? payload : new TextDecoder().decode(payload);
+    const chars = text.split("");
+    if (!chars.length) return "";
+    const dictionary = {};
+    let c = chars[0];
+    let f = c;
+    const out = [c];
+    let nextCode = 256;
+    for (let i = 1; i < chars.length; i += 1) {
+      const entryCode = chars[i].charCodeAt(0);
+      let entry;
+      if (TABLE_START > entryCode) {
+        entry = chars[i];
+      } else if (Object.prototype.hasOwnProperty.call(dictionary, entryCode)) {
+        entry = dictionary[entryCode];
+      } else {
+        entry = f + c;
+      }
+      out.push(entry);
+      c = entry.charAt(0);
+      dictionary[nextCode] = f + c;
+      nextCode += 1;
+      f = entry;
+    }
+    return out.join("");
   }
 
   function parseStrike(raw) {
@@ -91,7 +122,8 @@
       let ws;
       try {
         ws = new WebSocket(url);
-      } catch (err) {
+        ws.binaryType = "arraybuffer";
+      } catch (_) {
         this._scheduleReconnect();
         return;
       }
@@ -99,17 +131,19 @@
 
       ws.onopen = () => {
         this._reconnectAttempt = 0;
-        this._emitStatus("live");
-        const resumeNs = this._lastStrikeTimeNs > 0 ? this._lastStrikeTimeNs : 0;
         try {
-          ws.send(JSON.stringify({ time: resumeNs }));
-        } catch (_) { /* ignore */ }
+          ws.send(JSON.stringify({ a: SUBSCRIBE_ACTION }));
+          this._emitStatus("live");
+        } catch (_) {
+          this._emitStatus("error");
+          ws.close();
+        }
       };
 
       ws.onmessage = (ev) => {
         let raw;
         try {
-          raw = JSON.parse(ev.data);
+          raw = JSON.parse(decodeMessage(ev.data));
         } catch (_) {
           return;
         }
@@ -147,4 +181,5 @@
 
   global.BlitzortungClient = BlitzortungClient;
   global.BlitzortungClient.parseStrike = parseStrike;
+  global.BlitzortungClient.decodeMessage = decodeMessage;
 })(typeof window !== "undefined" ? window : globalThis);

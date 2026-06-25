@@ -2330,10 +2330,14 @@ class HomeWeatherPanel extends HTMLElement {
 
         /* Maps & Weather page */
         .maps-view {
-          height: 100vh;
+          height: 100dvh;
+          max-height: 100dvh;
           display: flex;
           flex-direction: column;
           overflow: hidden;
+        }
+        .maps-view .topbar {
+          flex-shrink: 0;
         }
         .maps-view .settings-body {
           flex: 1;
@@ -2345,6 +2349,7 @@ class HomeWeatherPanel extends HTMLElement {
           box-sizing: border-box;
           display: flex;
           flex-direction: column;
+          overflow: hidden;
         }
         .maps-page {
           display: flex;
@@ -2353,25 +2358,53 @@ class HomeWeatherPanel extends HTMLElement {
           min-height: 0;
           width: 100%;
           height: 100%;
+          overflow: hidden;
         }
         .maps-toolbar {
           display: flex;
-          align-items: center;
-          justify-content: space-between;
+          flex-direction: column;
           gap: var(--space-2);
-          flex-wrap: wrap;
           flex-shrink: 0;
           padding: var(--space-2) var(--space-3);
           border-bottom: 1px solid var(--card-border);
           background: var(--card-background-color);
         }
-        .maps-mode-switcher { flex-shrink: 0; }
+        .maps-toolbar-row {
+          display: flex;
+          align-items: center;
+          gap: var(--space-2);
+          min-width: 0;
+          width: 100%;
+        }
+        .maps-toolbar-row--primary {
+          justify-content: space-between;
+        }
+        .maps-toolbar-row--hazards {
+          gap: var(--space-2);
+        }
+        .maps-mode-switcher {
+          flex: 1;
+          min-width: 0;
+          overflow-x: auto;
+          -webkit-overflow-scrolling: touch;
+          scrollbar-width: none;
+          flex-wrap: nowrap;
+        }
+        .maps-mode-switcher::-webkit-scrollbar { display: none; }
+        .maps-mode-switcher button { flex-shrink: 0; }
         .maps-toolbar-actions {
           display: flex;
           align-items: center;
           gap: var(--space-2);
-          flex-wrap: wrap;
+          flex-wrap: nowrap;
+          flex-shrink: 0;
           margin-left: auto;
+        }
+        .maps-toolbar-actions-compact {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          flex-shrink: 0;
         }
         .maps-toolbar-toggle {
           display: inline-flex;
@@ -2403,13 +2436,23 @@ class HomeWeatherPanel extends HTMLElement {
           font-size: var(--fs-xs);
           color: var(--muted);
           white-space: nowrap;
+          padding: 0 2px;
+        }
+        .maps-toolbar > .maps-toolbar-meta {
+          margin-top: -2px;
         }
         .maps-layer-filters {
-          display: inline-flex;
+          display: flex;
           align-items: center;
           gap: 4px;
-          flex-wrap: wrap;
+          flex: 1;
+          min-width: 0;
+          overflow-x: auto;
+          -webkit-overflow-scrolling: touch;
+          scrollbar-width: none;
+          flex-wrap: nowrap;
         }
+        .maps-layer-filters::-webkit-scrollbar { display: none; }
         .maps-layer-filters button {
           display: inline-flex;
           align-items: center;
@@ -2480,6 +2523,7 @@ class HomeWeatherPanel extends HTMLElement {
           flex: 1;
           min-height: 0;
           width: 100%;
+          overflow: hidden;
         }
         .maps-view-panel,
         .maps-windy-view,
@@ -2488,13 +2532,20 @@ class HomeWeatherPanel extends HTMLElement {
           width: 100%;
           height: 100%;
           min-height: 0;
+          overflow: hidden;
         }
         .maps-view-panel.active,
-        .maps-windy-view.active,
-        .maps-trends-panel.active { display: block; }
+        .maps-windy-view.active {
+          display: flex;
+          flex-direction: column;
+          flex: 1;
+          min-height: 0;
+        }
         .maps-trends-panel.active {
           display: flex;
           flex-direction: column;
+          flex: 1;
+          min-height: 0;
           padding: var(--space-3);
           box-sizing: border-box;
           gap: var(--space-2);
@@ -2510,9 +2561,12 @@ class HomeWeatherPanel extends HTMLElement {
           margin-top: 2px;
         }
         #hurricane-tracker-root {
+          flex: 1;
           width: 100%;
           height: 100%;
           min-height: 0;
+          position: relative;
+          overflow: hidden;
         }
         .maps-windy-frame {
           width: 100%;
@@ -2534,60 +2588,50 @@ class HomeWeatherPanel extends HTMLElement {
           min-height: 0;
           width: 100%;
         }
-        @media (max-width: 640px) {
-          .maps-toolbar {
-            flex-direction: column;
-            align-items: stretch;
-            gap: var(--space-2);
-            padding: var(--space-2);
-          }
-          .maps-mode-switcher {
-            display: flex;
-            overflow-x: auto;
-            -webkit-overflow-scrolling: touch;
-            scrollbar-width: none;
-            flex-wrap: nowrap;
-            max-width: 100%;
-          }
-          .maps-mode-switcher::-webkit-scrollbar { display: none; }
-          .maps-mode-switcher button { flex-shrink: 0; min-height: 40px; padding: var(--space-2) var(--space-3); }
-          .maps-toolbar-actions {
-            margin-left: 0;
-            justify-content: flex-start;
-            gap: var(--space-2);
-            flex-wrap: wrap;
-          }
-          .maps-layer-filters {
-            flex: 1 1 100%;
-            overflow-x: auto;
-            -webkit-overflow-scrolling: touch;
-            scrollbar-width: none;
-            flex-wrap: nowrap;
-            padding-bottom: 2px;
-          }
-          .maps-layer-filters::-webkit-scrollbar { display: none; }
-          .maps-layer-filters button { flex-shrink: 0; min-height: 40px; }
-          .maps-toolbar-divider { display: none; }
-          .maps-toolbar-meta {
-            flex: 1 1 100%;
-            white-space: normal;
-            line-height: 1.35;
-          }
-          .maps-toolbar-btn--labeled span { display: none; }
-          .maps-toolbar-btn--labeled { min-width: 40px; padding: 0; }
-          .maps-hazard-sort { min-height: 40px; }
-          .maps-toolbar-toggle { min-height: 40px; }
-        }
         @media (max-width: 768px) {
           .maps-view {
-            height: 100%;
-            min-height: 100dvh;
+            height: 100dvh;
+            max-height: 100dvh;
           }
+          .maps-toolbar {
+            padding: 8px 10px;
+            gap: 6px;
+          }
+          .maps-mode-switcher button {
+            min-height: 36px;
+            padding: 6px 12px;
+            font-size: 12px;
+          }
+          .maps-layer-filters button {
+            min-height: 34px;
+            padding: 0 10px;
+            font-size: 11px;
+          }
+          .maps-toolbar-divider { display: none; }
+          .maps-toolbar-meta { display: none; }
+          .maps-toolbar-toggle .toggle-label { display: none; }
+          .maps-toolbar-btn--labeled span { display: none; }
+          .maps-toolbar-btn--labeled { min-width: 36px; min-height: 36px; padding: 0; }
+          .maps-hazard-sort {
+            min-height: 36px;
+            max-width: 96px;
+            padding: 0 6px;
+            font-size: 10px;
+          }
+          .maps-toolbar-toggle { min-height: 36px; gap: 0; }
           .maps-view .eyebrow { display: none; }
+          .maps-view .topbar {
+            --header-height: 52px;
+            min-height: 52px;
+            max-height: 52px;
+            height: 52px;
+          }
           .maps-view .topbar-back-btn span { display: none; }
           .maps-view .topbar-back-btn {
-            width: 40px;
-            min-width: 40px;
+            width: 36px;
+            min-width: 36px;
+            height: 36px;
+            min-height: 36px;
             padding: 0;
             justify-content: center;
           }
@@ -3830,23 +3874,24 @@ class HomeWeatherPanel extends HTMLElement {
     ];
     const refreshIcon = `<svg class="maps-btn-ico" viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true"><path d="M17.65 6.35A8 8 0 1 0 19.73 14h-2.08A6 6 0 1 1 16.24 7.76L13 11h7V4l-2.35 2.35z"/></svg>`;
     const hazardsActions = this._mapsMode === "storms" ? `
-      <div class="maps-toolbar-actions">
+      <div class="maps-toolbar-row maps-toolbar-row--hazards">
         <div class="maps-layer-filters" role="group" aria-label="Hazard layers">
           ${layerChips.map((c) => `<button type="button" class="${this._mapsLayers[c.id] ? "active" : ""}" data-map-layer="${c.id}" aria-pressed="${this._mapsLayers[c.id]}"><img class="layer-ico" src="/local/home_weather/icons/${c.icon}.svg" width="15" height="15" alt="" draggable="false"/>${c.label}</button>`).join("")}
         </div>
-        <span class="maps-toolbar-divider" aria-hidden="true"></span>
-        <label class="maps-toolbar-toggle" title="Show hurricane wind-field radii">
-          <input type="checkbox" id="maps-wind-radii-toggle" ${this._mapsWindRadii ? "checked" : ""}/>
-          Wind radii
-        </label>
-        <select class="maps-hazard-sort" id="maps-hazard-sort" title="Sort earthquake markers" aria-label="Sort earthquake markers">
-          <option value="newest" ${this._mapsSort === "newest" ? "selected" : ""}>Sort: Newest</option>
-          <option value="magnitude" ${this._mapsSort === "magnitude" ? "selected" : ""}>Sort: Magnitude</option>
-          <option value="distance" ${this._mapsSort === "distance" ? "selected" : ""}>Sort: Distance</option>
-        </select>
-        <button type="button" class="maps-toolbar-btn maps-toolbar-btn--labeled" id="maps-hazards-refresh" title="Refresh hazard data">${refreshIcon}<span>Refresh</span></button>
-        <span class="maps-toolbar-meta" id="maps-hazards-updated">Updated —</span>
-      </div>` : "";
+        <div class="maps-toolbar-actions-compact">
+          <label class="maps-toolbar-toggle" title="Show hurricane wind-field radii">
+            <input type="checkbox" id="maps-wind-radii-toggle" ${this._mapsWindRadii ? "checked" : ""}/>
+            <span class="toggle-label">Wind radii</span>
+          </label>
+          <select class="maps-hazard-sort" id="maps-hazard-sort" title="Sort earthquake markers" aria-label="Sort earthquake markers">
+            <option value="newest" ${this._mapsSort === "newest" ? "selected" : ""}>Newest</option>
+            <option value="magnitude" ${this._mapsSort === "magnitude" ? "selected" : ""}>Mag</option>
+            <option value="distance" ${this._mapsSort === "distance" ? "selected" : ""}>Dist</option>
+          </select>
+          <button type="button" class="maps-toolbar-btn maps-toolbar-btn--labeled" id="maps-hazards-refresh" title="Refresh hazard data">${refreshIcon}<span>Refresh</span></button>
+        </div>
+      </div>
+      <span class="maps-toolbar-meta" id="maps-hazards-updated" aria-live="polite">Updated —</span>` : "";
 
     const trendsActions = this._mapsMode === "trends" ? `
       <div class="maps-toolbar-actions">
@@ -3858,11 +3903,13 @@ class HomeWeatherPanel extends HTMLElement {
     return `
       <section class="maps-page">
         <div class="maps-toolbar">
-          <div class="maps-mode-switcher switcher">
-            ${modes.map((m) => `<button type="button" class="${this._mapsMode === m.id ? "active" : ""}" data-maps-mode="${m.id}">${m.label}</button>`).join("")}
+          <div class="maps-toolbar-row maps-toolbar-row--primary">
+            <div class="maps-mode-switcher switcher">
+              ${modes.map((m) => `<button type="button" class="${this._mapsMode === m.id ? "active" : ""}" data-maps-mode="${m.id}">${m.label}</button>`).join("")}
+            </div>
+            ${trendsActions}
           </div>
           ${hazardsActions}
-          ${trendsActions}
         </div>
         <div class="maps-stage">
           <div class="maps-view-panel ${this._mapsMode === "storms" ? "active" : ""}" data-maps-mode="storms">
@@ -3944,6 +3991,9 @@ class HomeWeatherPanel extends HTMLElement {
       this._hurricaneTracker.setMapLayers(this._mapsLayers);
       this._hurricaneTracker.setMapSort(this._mapsSort);
       this._updateMapsHazardsMeta();
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => this._hurricaneTracker?.invalidateMapSize?.());
+      });
     } catch (err) {
       root.innerHTML = `<div class="error" style="padding:24px;text-align:center;">Failed to load hazard map: ${String(err.message || err)}</div>`;
     }
@@ -5377,7 +5427,6 @@ class HomeWeatherPanel extends HTMLElement {
 
           ${renderNestedSection("hurricane-monitoring", "Hurricane Monitoring", "Sensor and map geofield for hurricane tracking", `
             <p class="form-hint">Controls Home Assistant hurricane sensors and map display. Detail sensors show values only when a storm is inside this geofield; empty means nothing nearby under current thresholds. Alert thresholds for TTS stay under <strong>Announcements → Hurricane Alerts</strong>.</p>
-            ${renderToggle("hurricane-monitoring-enabled", hurricaneMonitoring.enabled !== false, "Enable hurricane monitoring")}
             <div class="form-row-inline">
               <div class="form-group">
                 <label>Min threat level (sensors)</label>
@@ -5393,17 +5442,16 @@ class HomeWeatherPanel extends HTMLElement {
                 <input type="number" id="hurricane-monitoring-max-distance" min="1" max="5000" value="${hurricaneMonitoring.max_distance_miles}"/>
               </div>
             </div>
-          `)}
+          `, true, "hurricane-monitoring-enabled", hurricaneMonitoring.enabled !== false)}
 
           ${renderNestedSection("tornado-monitoring", "Tornado Monitoring", "Sensor geofield for tornado warnings", `
             <p class="form-hint">Controls tornado sensors. Detail sensors are geofield-scoped — null means no warning polygon matches these thresholds. TTS alert thresholds are under <strong>Announcements → Tornado Warning Alerts</strong>.</p>
-            ${renderToggle("tornado-monitoring-enabled", tornadoMonitoring.enabled !== false, "Enable tornado monitoring")}
             ${renderToggle("tornado-monitoring-only-home", tornadoMonitoring.only_affecting_home !== false, "Only when warning polygon includes home")}
             <div class="form-group">
               <label>Max distance when not home-only (mi)</label>
               <input type="number" id="tornado-monitoring-max-distance" min="1" max="500" value="${tornadoMonitoring.max_distance_miles}"/>
             </div>
-          `)}
+          `, true, "tornado-monitoring-enabled", tornadoMonitoring.enabled !== false)}
 
           ${renderNestedSection("earthquake-monitoring", "Earthquake Monitoring", "Real-time USGS alerts near home; worldwide map display", `
             <p class="form-hint">Nearby alerts and sensors use the real-time USGS feed with a home-radius filter. The hazard map shows worldwide seismic activity from a separate USGS feed. Detail sensors are geofield-scoped.</p>
@@ -5453,7 +5501,6 @@ class HomeWeatherPanel extends HTMLElement {
 
           ${renderNestedSection("lightning-monitoring", "Lightning Monitoring", "Live Blitzortung strike tracking for sensors and map", `
             <p class="form-hint">Enable backend lightning tracking for Home Assistant entities. Map markers require both tracking enabled and the Lightning layer on the hazard map. Detail sensors (distance, place) are geofield-scoped.</p>
-            ${renderToggle("lightning-monitoring-enabled", lightningMonitoring.enabled !== false, "Enable lightning tracking")}
             ${renderToggle("lightning-show-on-map", lightningMonitoring.show_on_map !== false, "Show live lightning on hazard map")}
             <div class="form-group">
               <label>Sensor geofield radius (mi)</label>
@@ -5464,7 +5511,7 @@ class HomeWeatherPanel extends HTMLElement {
               <input type="number" id="lightning-max-age-minutes" min="5" max="240" value="${lightningMonitoring.max_age_minutes ?? 60}"/>
               <p class="form-hint">How long strike markers stay visible on the map. Data from <a href="https://www.blitzortung.org" target="_blank" rel="noopener noreferrer">Blitzortung.org</a>.</p>
             </div>
-          `)}
+          `, true, "lightning-monitoring-enabled", lightningMonitoring.enabled !== false)}
 
           ${renderNestedSection("ai-rewrite", "AI Rewrite", "Rewrite TTS messages with an AI Task", `
             <div class="form-group" style="margin-top: var(--form-gap);">

@@ -19,9 +19,38 @@ from .hurricane_geo import haversine_distance_miles
 
 _LOGGER = logging.getLogger(__name__)
 
-BLITZORTUNG_SERVER_IDS = (1, 6, 5, 7)
+BLITZORTUNG_SERVER_IDS = (1, 2, 3, 5, 6, 7, 8)
+BLITZORTUNG_SUBSCRIBE_ACTION = 111
+BLITZORTUNG_TABLE_START = 256
 RECONNECT_BASE_SECONDS = 2
 RECONNECT_MAX_SECONDS = 30
+
+
+def decode_blitzortung_message(payload: str | bytes) -> str:
+    """Reverse Blitzortung's LZW-style websocket obfuscation."""
+    text = payload.decode("utf-8", errors="replace") if isinstance(payload, bytes) else payload
+    dictionary: dict[int, str] = {}
+    chars = list(text)
+    if not chars:
+        return ""
+    c = chars[0]
+    f = c
+    out = [c]
+    next_code = BLITZORTUNG_TABLE_START
+    for i in range(1, len(chars)):
+        entry_code = ord(chars[i])
+        if BLITZORTUNG_TABLE_START > entry_code:
+            entry = chars[i]
+        elif entry_code in dictionary:
+            entry = dictionary[entry_code]
+        else:
+            entry = f + c
+        out.append(entry)
+        c = entry[0]
+        dictionary[next_code] = f + c
+        next_code += 1
+        f = entry
+    return "".join(out)
 
 
 def get_lightning_config(config: dict[str, Any] | None) -> dict[str, Any]:
@@ -62,7 +91,7 @@ def parse_strike(raw: dict[str, Any]) -> dict[str, Any] | None:
 
 def _pick_server_url() -> str:
     server_id = random.choice(BLITZORTUNG_SERVER_IDS)
-    return f"wss://ws{server_id}.blitzortung.org:3000/"
+    return f"wss://ws{server_id}.blitzortung.org/"
 
 
 def build_lightning_payload(
@@ -235,16 +264,16 @@ class BlitzortungListener:
         async with session.ws_connect(url, heartbeat=30) as ws:
             self._reconnect_attempt = 0
             self._emit_status("live")
-            resume_ns = self.buffer.last_strike_time_ns
-            await ws.send_str(json.dumps({"time": resume_ns}))
+            await ws.send_str(json.dumps({"a": BLITZORTUNG_SUBSCRIBE_ACTION}))
             async for msg in ws:
                 if self._closed:
                     break
-                if msg.type != aiohttp.WSMsgType.TEXT:
+                if msg.type not in (aiohttp.WSMsgType.TEXT, aiohttp.WSMsgType.BINARY):
                     continue
                 try:
-                    raw = json.loads(msg.data)
-                except (json.JSONDecodeError, TypeError):
+                    decoded = decode_blitzortung_message(msg.data)
+                    raw = json.loads(decoded)
+                except (json.JSONDecodeError, TypeError, UnicodeDecodeError):
                     continue
                 strike = parse_strike(raw)
                 if not strike:
