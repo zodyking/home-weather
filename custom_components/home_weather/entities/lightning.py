@@ -20,6 +20,8 @@ def create_lightning_entities(
 ) -> list[Any]:
     """Return lightning detail sensor entities."""
     return [
+        LightningFeedStatusSensor(coordinator, entry),
+        LightningGeofieldCountSensor(coordinator, entry),
         LightningDistanceSensor(coordinator, entry),
         LightningLatitudeSensor(coordinator, entry),
         LightningLongitudeSensor(coordinator, entry),
@@ -61,6 +63,36 @@ class LightningInGeofieldBinarySensor(_LightningBinaryEntity):
     def is_on(self) -> bool:
         data = self.coordinator.data or {}
         return bool(data.get("in_geofield"))
+
+
+class LightningFeedStatusSensor(_LightningEntity):
+    _attr_icon = "mdi:access-point"
+    _attr_name = "Feed Status"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    @property
+    def unique_id(self) -> str:
+        return f"{self._entry.entry_id}_lightning_feed_status"
+
+    @property
+    def native_value(self) -> str:
+        data = self.coordinator.data or {}
+        return str(data.get("feed_status") or "off")
+
+
+class LightningGeofieldCountSensor(_LightningEntity):
+    _attr_icon = "mdi:counter"
+    _attr_name = "Strikes In Geofield"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    @property
+    def unique_id(self) -> str:
+        return f"{self._entry.entry_id}_lightning_geofield_count"
+
+    @property
+    def native_value(self) -> int:
+        data = self.coordinator.data or {}
+        return int(data.get("geofield_count") or 0)
 
 
 class LightningDistanceSensor(_LightningEntity):

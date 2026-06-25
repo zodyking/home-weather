@@ -866,8 +866,16 @@ def detect_tropical_tts_events(
 
 def get_hurricane_geofield_config(config: dict[str, Any] | None) -> dict[str, Any]:
     """Return geofield thresholds from hurricane monitoring settings."""
+    monitoring = (config or {}).get("hurricane_monitoring") or {}
+    if monitoring:
+        return {
+            "enabled": monitoring.get("enabled", True),
+            "max_distance_miles": float(monitoring.get("max_distance_miles", 500)),
+            "min_threat_level": monitoring.get("min_threat_level", "monitor"),
+        }
     tropical = (config or {}).get("tropical_alerts") or {}
     return {
+        "enabled": True,
         "max_distance_miles": float(tropical.get("max_distance_miles", 500)),
         "min_threat_level": tropical.get("min_threat_level", "watch"),
     }
@@ -892,6 +900,27 @@ def build_hurricane_sensor_payload(
     summary = dict(payload.get("summary") or {})
     storms = payload.get("storms") or []
     geofield_config = get_hurricane_geofield_config(config)
+    if not geofield_config.get("enabled", True):
+        return {
+            **payload,
+            "geofield_storms": [],
+            "geofield_count": 0,
+            "in_geofield": False,
+            "primary_geofield": None,
+            "inside_cone_geofield": False,
+            "threat_elevated_geofield": False,
+            "sensor_summary": {
+                "threat_level": "none",
+                "closest_storm_name": None,
+                "distance_miles": None,
+                "closest_approach_hour": None,
+                "formation_probability": None,
+                "active_storm_count": len(storms),
+                "disturbance_count": summary.get("disturbanceCount") or 0,
+                "inside_cone": False,
+            },
+            "last_updated": dt_util.utcnow().isoformat(),
+        }
     geofield_storms = [s for s in storms if storm_in_geofield(s, geofield_config)]
 
     closest: dict[str, Any] | None = None

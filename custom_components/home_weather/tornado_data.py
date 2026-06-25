@@ -162,8 +162,16 @@ def build_geojson_feature_collection(alerts: list[dict[str, Any]]) -> dict[str, 
 
 def get_tornado_geofield_config(config: dict[str, Any] | None) -> dict[str, Any]:
     """Return geofield thresholds from tornado monitoring settings."""
+    monitoring = (config or {}).get("tornado_monitoring") or {}
+    if monitoring:
+        return {
+            "enabled": monitoring.get("enabled", True),
+            "only_affecting_home": monitoring.get("only_affecting_home", True),
+            "max_distance_miles": float(monitoring.get("max_distance_miles", 25)),
+        }
     tornado = (config or {}).get("tornado_alerts") or {}
     return {
+        "enabled": True,
         "only_affecting_home": tornado.get("only_affecting_home", True),
         "max_distance_miles": float(tornado.get("max_distance_miles", 25)),
     }
@@ -196,7 +204,11 @@ def build_coordinator_payload(
     config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build normalized coordinator data payload."""
-    geofield_alerts = filter_alerts_for_geofield(alerts, config)
+    geofield_config = get_tornado_geofield_config(config)
+    if not geofield_config.get("enabled", True):
+        geofield_alerts: list[dict[str, Any]] = []
+    else:
+        geofield_alerts = filter_alerts_for_geofield(alerts, config)
     primary = geofield_alerts[0] if geofield_alerts else None
     affecting_home = any(a.get("affecting_home") for a in geofield_alerts)
     distances = [

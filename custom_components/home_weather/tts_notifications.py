@@ -1241,15 +1241,15 @@ def _round_miles(value: float | None) -> str:
 
 
 def format_tropical_alert_for_tts(context: dict[str, Any]) -> str:
-    """Build spoken tropical cyclone alert from detection context."""
+    """Build spoken hurricane alert from detection context."""
     kind = context.get("event_kind") or "update"
-    name = context.get("stormName") or context.get("closestStormName") or "an active tropical cyclone"
+    name = context.get("stormName") or context.get("closestStormName") or "an active hurricane"
     dist = context.get("distanceMiles") or context.get("distanceToCenterMiles")
     hour = context.get("estimatedClosestApproachHour")
     prob = context.get("formationProbability")
 
     if kind == "inside_cone":
-        parts = [f"Tropical update. {name} is now within the forecast cone for your area."]
+        parts = [f"Hurricane update. {name} is now within the forecast cone for your area."]
         if hour is not None:
             parts.append(f"Closest approach estimated in {hour} hours")
         if dist is not None:
@@ -1259,26 +1259,26 @@ def format_tropical_alert_for_tts(context: dict[str, Any]) -> str:
     if kind == "threat_escalation":
         current = context.get("currentThreat") or "elevated"
         return (
-            f"Tropical threat update. The combined tropical threat level for your area "
+            f"Hurricane threat update. The combined hurricane threat level for your area "
             f"has risen to {current}. Monitor {name} closely."
         )
 
     if kind == "new_storm":
         return (
-            f"Tropical update. New active cyclone {name} detected within "
+            f"Hurricane update. New active hurricane {name} detected within "
             f"{_round_miles(dist)} of your area."
         )
 
     if kind == "outlook_development":
         if context.get("reason") == "inside_region":
-            msg = "Tropical outlook update. Your area is now inside a tropical development region."
+            msg = "Hurricane outlook update. Your area is now inside a hurricane development region."
         else:
-            msg = "Tropical outlook update. Formation probability has increased for a nearby disturbance."
+            msg = "Hurricane outlook update. Formation probability has increased for a nearby disturbance."
         if prob is not None:
             msg += f" Probability is now {prob} percent."
         return msg
 
-    return "Tropical weather update. Monitor conditions in your area."
+    return "Hurricane weather update. Monitor conditions in your area."
 
 
 def format_tornado_warning_for_tts(

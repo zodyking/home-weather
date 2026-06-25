@@ -77,8 +77,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await hass.config_entries.async_forward_entry_setups(entry, ["binary_sensor", "sensor"])
 
+    from .entity_cleanup import async_remove_legacy_entities
+
+    await async_remove_legacy_entities(hass, entry)
+
     async_setup_websocket_api(hass)
     await _ensure_nws_sounds(hass)
+    await _ensure_panel_www_assets(hass)
     await _register_panel(hass)
     
     # Set up TTS triggers after everything else is ready
@@ -125,6 +130,26 @@ async def _ensure_nws_sounds(hass: HomeAssistant) -> None:
     from .sounds_setup import ensure_nws_sounds_dir
 
     await hass.async_add_executor_job(ensure_nws_sounds_dir, hass)
+
+
+async def _ensure_panel_www_assets(hass: HomeAssistant) -> None:
+    """Sync panel JS and icons into config/www when the integration version changes."""
+    import json
+    from pathlib import Path
+
+    from .panel_www_setup import ensure_panel_www_assets
+
+    manifest_path = Path(__file__).parent / "manifest.json"
+    version = "0.0.0"
+    try:
+        manifest_text = await hass.async_add_executor_job(
+            manifest_path.read_text, "utf-8"
+        )
+        version = str(json.loads(manifest_text).get("version", "0.0.0"))
+    except (OSError, json.JSONDecodeError, TypeError) as err:
+        _LOGGER.warning("Could not read version for panel www sync: %s", err)
+
+    await hass.async_add_executor_job(ensure_panel_www_assets, hass, version)
 
 
 async def _register_panel(hass: HomeAssistant) -> None:

@@ -78,9 +78,11 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
         storage = None
         coordinator = None
         trigger_manager = None
+        entry_data = None
         if DOMAIN in hass.data:
             for entry_id, data in hass.data[DOMAIN].items():
                 if isinstance(data, dict):
+                    entry_data = data
                     storage = data.get("storage")
                     coordinator = data.get("coordinator")
                     trigger_manager = data.get("trigger_manager")
@@ -96,12 +98,22 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
             await storage.async_save(config)
             if coordinator:
                 await coordinator.async_request_refresh()
-            
+            if entry_data:
+                for key in (
+                    "earthquake_coordinator",
+                    "tornado_coordinator",
+                    "hurricane_coordinator",
+                    "lightning_coordinator",
+                ):
+                    hazard = entry_data.get(key)
+                    if hazard:
+                        await hazard.async_request_refresh()
+
             # Reload triggers when config changes
             if trigger_manager:
                 await trigger_manager.async_unload()
                 await trigger_manager.async_setup()
-            
+
             connection.send_result(msg["id"], {"success": True})
         except Exception as e:
             _LOGGER.error("Error saving config: %s", e)
@@ -656,6 +668,33 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
         payload = coordinator.data or {}
         connection.send_result(msg["id"], payload)
 
+    @websocket_api.websocket_command(
+        {
+            vol.Required("type"): "home_weather/get_lightning",
+        }
+    )
+    @websocket_api.async_response
+    async def handle_get_lightning(
+        hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+    ) -> None:
+        """Return live lightning data from the lightning coordinator."""
+        entry_data = _get_entry_data(hass)
+        if not entry_data or not entry_data.get("lightning_coordinator"):
+            connection.send_result(
+                msg["id"],
+                {
+                    "geofield_count": 0,
+                    "in_geofield": False,
+                    "strikes_last_hour": 0,
+                    "feed_status": "off",
+                },
+            )
+            return
+
+        coordinator = entry_data["lightning_coordinator"]
+        payload = coordinator.data or {}
+        connection.send_result(msg["id"], payload)
+
     websocket_api.async_register_command(hass, handle_get_config)
     websocket_api.async_register_command(hass, handle_set_config)
     websocket_api.async_register_command(hass, handle_get_weather)
@@ -680,4 +719,5 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, handle_get_hurricanes)
     websocket_api.async_register_command(hass, handle_get_tornadoes)
     websocket_api.async_register_command(hass, handle_get_earthquakes)
+    websocket_api.async_register_command(hass, handle_get_lightning)
 

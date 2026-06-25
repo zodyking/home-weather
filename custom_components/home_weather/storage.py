@@ -23,38 +23,26 @@ class HomeWeatherStorage:
 
     async def async_load(self) -> dict[str, Any]:
         """Load configuration from storage."""
+        from .config_migration import migrate_config
+
         try:
             data = await self._store.async_load()
             if data:
-                # Deep merge with defaults to ensure all keys exist
-                merged = {**DEFAULT_CONFIG}
-                for key, val in data.items():
-                    if key in DEFAULT_CONFIG and isinstance(DEFAULT_CONFIG[key], dict) and isinstance(val, dict):
-                        merged[key] = {**DEFAULT_CONFIG[key], **val}
-                    else:
-                        merged[key] = val
-                self._data = merged
+                self._data = migrate_config(data)
                 return self._data.copy()
-            else:
-                # No stored data, return defaults
-                self._data = DEFAULT_CONFIG.copy()
-                return self._data
+            self._data = migrate_config({})
+            return self._data
         except Exception as e:
             _LOGGER.error("Error loading configuration: %s", e)
-            self._data = DEFAULT_CONFIG.copy()
+            self._data = migrate_config({})
             return self._data
 
     async def async_save(self, data: dict[str, Any]) -> None:
         """Save configuration to storage."""
+        from .config_migration import migrate_config
+
         try:
-            # Deep merge for nested config (tts, etc.)
-            merged = {**DEFAULT_CONFIG}
-            for key, val in data.items():
-                if key in DEFAULT_CONFIG and isinstance(DEFAULT_CONFIG[key], dict) and isinstance(val, dict):
-                    merged[key] = {**DEFAULT_CONFIG[key], **val}
-                else:
-                    merged[key] = val
-            self._data = merged
+            self._data = migrate_config(data)
             await self._store.async_save(self._data)
             _LOGGER.info("Configuration saved")
         except Exception as e:

@@ -58,7 +58,7 @@ FAR_TORNADO_FEATURE = _tornado_feature("urn:oid:2.2", FAR_POLYGON)
 
 def test_geofield_only_includes_home_polygon_when_home_only():
     alerts = parse_tornado_features([TORNADO_FEATURE, FAR_TORNADO_FEATURE], HOME)
-    config = {"tornado_alerts": {"only_affecting_home": True, "max_distance_miles": 25}}
+    config = {"tornado_monitoring": {"only_affecting_home": True, "max_distance_miles": 25}}
     geofield = filter_alerts_for_geofield(alerts, config)
     assert len(geofield) == 1
     assert geofield[0]["alert_id"] == "urn:oid:1.1"
@@ -66,14 +66,14 @@ def test_geofield_only_includes_home_polygon_when_home_only():
 
 def test_geofield_respects_max_distance_when_not_home_only():
     alerts = parse_tornado_features([TORNADO_FEATURE, FAR_TORNADO_FEATURE], HOME)
-    config = {"tornado_alerts": {"only_affecting_home": False, "max_distance_miles": 5000}}
+    config = {"tornado_monitoring": {"only_affecting_home": False, "max_distance_miles": 5000}}
     geofield = filter_alerts_for_geofield(alerts, config)
     assert len(geofield) == 2
 
 
 def test_coordinator_payload_uses_geofield_not_all_us_alerts():
     alerts = parse_tornado_features([TORNADO_FEATURE, FAR_TORNADO_FEATURE], HOME)
-    config = {"tornado_alerts": {"only_affecting_home": True, "max_distance_miles": 25}}
+    config = {"tornado_monitoring": {"only_affecting_home": True, "max_distance_miles": 25}}
     payload = build_coordinator_payload(alerts, config)
     assert payload["map_count"] == 2
     assert payload["active_count"] == 1
@@ -81,3 +81,12 @@ def test_coordinator_payload_uses_geofield_not_all_us_alerts():
     assert payload["primary_geofield"]["alert_id"] == "urn:oid:1.1"
     assert payload["nearest_distance_miles"] is not None
     assert payload["nearest_distance_miles"] < 500
+
+
+def test_coordinator_payload_empty_when_monitoring_disabled():
+    alerts = parse_tornado_features([TORNADO_FEATURE, FAR_TORNADO_FEATURE], HOME)
+    config = {"tornado_monitoring": {"enabled": False, "only_affecting_home": True, "max_distance_miles": 25}}
+    payload = build_coordinator_payload(alerts, config)
+    assert payload["active_count"] == 0
+    assert payload["in_geofield"] is False
+    assert payload["primary_geofield"] is None

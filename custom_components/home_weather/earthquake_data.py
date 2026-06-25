@@ -27,7 +27,7 @@ EMPTY_GEOJSON: dict[str, Any] = {"type": "FeatureCollection", "features": []}
 
 
 def get_earthquake_config(config: dict[str, Any] | None) -> dict[str, Any]:
-    """Return merged earthquake config with defaults."""
+    """Return merged earthquake monitoring config with defaults."""
     defaults = {
         "enabled": True,
         "min_magnitude": 2.5,
@@ -38,7 +38,9 @@ def get_earthquake_config(config: dict[str, Any] | None) -> dict[str, Any]:
         "map_min_magnitude": 4.5,
         "map_feed_type": "all_day",
     }
-    merged = {**defaults, **((config or {}).get("earthquakes") or {})}
+    monitoring = (config or {}).get("earthquake_monitoring") or {}
+    legacy = (config or {}).get("earthquakes") or {}
+    merged = {**defaults, **legacy, **monitoring}
     if merged["feed_type"] not in USGS_FEED_TYPES:
         merged["feed_type"] = "all_hour"
     if merged["map_feed_type"] not in USGS_FEED_TYPES:

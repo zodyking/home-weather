@@ -45,6 +45,7 @@
       this._data = null;
       this._tornadoData = null;
       this._earthquakeData = null;
+      this._backendLightning = null;
       this._loading = false;
       this._error = null;
       this._showWindRadii = false;
@@ -54,9 +55,13 @@
       this._lastDetailTier = null;
       this._zoomDebounceTimer = null;
       this._zoomHandlerBound = false;
+      this._viewLockHandlerBound = false;
+      this._hasInitialFit = false;
+      this._userViewLocked = false;
       this._mapLayers = { hurricane: true, tornado: true, earthquakes: true, lightning: true };
       this._mapSort = "newest";
       this._lightningSettings = {
+        enabled: true,
         show_on_map: true,
         max_age_minutes: 60,
         max_strikes: 500,
@@ -74,11 +79,24 @@
       this._measureLayer = null;
       this._coordsEl = null;
       this._baseLayers = null;
+      this._statusCollapsed = true;
+    }
+
+    _isCompactLayout() {
+      const width = this._root?.clientWidth ?? global.innerWidth ?? 1024;
+      return width <= 768;
     }
 
     setMapLayers(layers) {
       const prevLightning = this._mapLayers.lightning;
-      this._mapLayers = { ...this._mapLayers, ...layers };
+      const merged = { ...this._mapLayers, ...(layers || {}) };
+      if (Object.prototype.hasOwnProperty.call(merged, "tropical")) {
+        if (!Object.prototype.hasOwnProperty.call(merged, "hurricane")) {
+          merged.hurricane = merged.tropical;
+        }
+        delete merged.tropical;
+      }
+      this._mapLayers = merged;
       if (layers.lightning !== undefined && layers.lightning !== prevLightning) {
         this._syncLightningLayer();
       }
@@ -127,8 +145,30 @@
       this._renderShell();
       await this._ensureDeps();
       this._bindControls();
+      this._bindLayoutObserver();
       await this.loadData();
       this._refreshTimer = setInterval(() => this.loadData(), REFRESH_MS);
+    }
+
+    _bindLayoutObserver() {
+      if (this._layoutObserver || !this._root) return;
+      let lastCompact = this._isCompactLayout();
+      this._layoutObserver = new ResizeObserver(() => {
+        const compact = this._isCompactLayout();
+        this._syncStatusPanelLayout();
+        this._map?.invalidateSize?.();
+        if (compact !== lastCompact) {
+          lastCompact = compact;
+          if (compact) this._statusCollapsed = true;
+          const aside = this._root?.querySelector(".hurricane-status");
+          if (aside && this._data) {
+            aside.outerHTML = this._buildStatusPanelHtml();
+            this._bindStatusPanelToggle();
+            this._syncStatusPanelLayout();
+          }
+        }
+      });
+      this._layoutObserver.observe(this._root);
     }
 
     destroy() {
@@ -136,6 +176,8 @@
         clearInterval(this._refreshTimer);
         this._refreshTimer = null;
       }
+      this._layoutObserver?.disconnect();
+      this._layoutObserver = null;
       this._stopLightning(true);
       if (this._map) {
         this._map.remove();
@@ -143,7 +185,10 @@
         this._mapInitialized = false;
         this._earthquakeClusterGroup = null;
         this._zoomHandlerBound = false;
+        this._viewLockHandlerBound = false;
         this._lastDetailTier = null;
+        this._hasInitialFit = false;
+        this._userViewLocked = false;
         this._resetMapControlState();
       }
     }
@@ -172,6 +217,7 @@
 
     _lightningEnabled() {
       const settings = this._getLightningSettings();
+      if (settings.enabled === false) return false;
       return this._mapLayers.lightning !== false && settings.show_on_map !== false;
     }
 
@@ -196,12 +242,52 @@
         connecting: "Connecting…",
         reconnecting: "Reconnecting…",
         error: "Error",
+        disabled: "Disabled",
         off: "Off",
       };
       return labels[status] || "Off";
     }
 
     _getLightningStats() {
+      const backend = this._backendLightning;
+      if (backend?.feed_status === "disabled") {
+        return {
+          visibleCount: backend.geofield_count ?? 0,
+          hourCount: backend.strikes_last_hour ?? 0,
+          nearestMiles: backend.nearest_distance_miles ?? null,
+          status: "disabled",
+        };
+      }
+
+      const browserFeedActive = this._lightningEnabled() && this._lightningStatus === "live";
+      if (browserFeedActive) {
+        const now = Date.now();
+        const hourAgo = now - 60 * 60 * 1000;
+        const maxAgeMs = (this._getLightningSettings().max_age_minutes || 60) * 60 * 1000;
+        const active = this._lightningStrikes.filter((e) => now - e.strike.timeMs <= maxAgeMs);
+        const lastHour = active.filter((e) => e.strike.timeMs >= hourAgo);
+        let nearest = null;
+        active.forEach((e) => {
+          const d = this._distanceFromHomeMiles(e.strike.lat, e.strike.lon);
+          if (d != null && (nearest == null || d < nearest)) nearest = d;
+        });
+        return {
+          visibleCount: active.length,
+          hourCount: lastHour.length,
+          nearestMiles: nearest,
+          status: this._lightningStatus,
+        };
+      }
+
+      if (backend && backend.feed_status && backend.feed_status !== "off") {
+        return {
+          visibleCount: backend.geofield_count ?? 0,
+          hourCount: backend.strikes_last_hour ?? 0,
+          nearestMiles: backend.nearest_distance_miles ?? null,
+          status: backend.feed_status,
+        };
+      }
+
       const now = Date.now();
       const hourAgo = now - 60 * 60 * 1000;
       const maxAgeMs = (this._getLightningSettings().max_age_minutes || 60) * 60 * 1000;
@@ -231,7 +317,7 @@
       if (nearestEl) nearestEl.textContent = stats.nearestMiles != null ? this._fmtMiles(stats.nearestMiles) : "—";
       if (statusEl) {
         statusEl.textContent = this._formatLightningStatus(stats.status);
-        statusEl.className = stats.status === "live" ? "is-live" : stats.status === "error" ? "is-danger" : "";
+        statusEl.className = stats.status === "live" ? "is-live" : (stats.status === "error" || stats.status === "disabled") ? "is-danger" : "";
       }
       const badge = root.querySelector("#hw-lightning-badge");
       if (badge) badge.textContent = String(stats.visibleCount);
@@ -625,6 +711,26 @@
           background: rgba(40, 40, 40, 0.96);
           color: #fff;
         }
+        /* Horizontal zoom above scale bar (bottom-left stack) */
+        .leaflet-bottom.leaflet-left .leaflet-control-zoom.leaflet-bar {
+          display: flex;
+          flex-direction: row;
+          border-radius: 8px;
+          overflow: hidden;
+        }
+        .leaflet-bottom.leaflet-left .leaflet-control-zoom.leaflet-bar a {
+          width: 34px;
+          height: 32px;
+          line-height: 32px;
+          border-bottom: none;
+          border-right: 1px solid rgba(255,255,255,0.12);
+        }
+        .leaflet-bottom.leaflet-left .leaflet-control-zoom.leaflet-bar a:last-child {
+          border-right: none;
+        }
+        .leaflet-bottom.leaflet-left .leaflet-control-scale {
+          margin-bottom: 0;
+        }
         .leaflet-bar {
           border: 1px solid rgba(255,255,255,0.12);
           box-shadow: 0 4px 16px rgba(0,0,0,0.35);
@@ -833,15 +939,73 @@
           animation: hw-pulse 1.5s ease-in-out infinite;
         }
         @keyframes hw-pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.08); } }
+        .hurricane-status-toggle {
+          display: none;
+          margin-left: auto;
+          width: 32px;
+          height: 32px;
+          padding: 0;
+          border: 1px solid rgba(255,255,255,0.14);
+          border-radius: 8px;
+          background: rgba(255,255,255,0.06);
+          color: #b0bec5;
+          cursor: pointer;
+          flex-shrink: 0;
+          line-height: 1;
+          font-size: 14px;
+        }
+        .hurricane-status-toggle:hover { background: rgba(255,255,255,0.12); color: #eceff1; }
+        .hurricane-status h3.hurricane-status-head {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
         @media (max-width: 768px) {
           .hurricane-status {
             top: auto;
-            left: 12px;
-            right: 12px;
-            bottom: 12px;
+            left: 10px;
+            right: 10px;
+            bottom: max(10px, env(safe-area-inset-bottom, 0px));
             width: auto;
-            max-height: min(46vh, 360px);
+            max-height: min(52vh, 420px);
+            padding: 12px 14px;
+            border-radius: 16px 16px 12px 12px;
+            transition: max-height 0.2s ease, padding 0.2s ease;
           }
+          .hurricane-status.is-collapsed {
+            max-height: none;
+            overflow: hidden;
+            padding-bottom: 12px;
+          }
+          .hurricane-status.is-collapsed .hurricane-banner,
+          .hurricane-status.is-collapsed .hurricane-stat,
+          .hurricane-status.is-collapsed .hurricane-status-details {
+            display: none;
+          }
+          .hurricane-status.is-collapsed .hurricane-status-headline {
+            margin: 0;
+            font-size: 13px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+          }
+          .hurricane-status-toggle { display: inline-flex; align-items: center; justify-content: center; }
+          .hurricane-status.is-collapsed .hurricane-status-toggle { transform: rotate(-90deg); }
+          .hurricane-map-wrap .leaflet-bottom.leaflet-left {
+            left: auto;
+            right: 10px;
+            bottom: max(10px, env(safe-area-inset-bottom, 0px));
+          }
+          .hurricane-map-wrap.status-expanded .leaflet-bottom.leaflet-left {
+            bottom: calc(min(52vh, 420px) + 18px);
+          }
+          .hurricane-map-wrap.status-expanded .leaflet-bottom.leaflet-right {
+            bottom: max(10px, env(safe-area-inset-bottom, 0px));
+          }
+          .leaflet-bottom.leaflet-left .leaflet-control-scale {
+            max-width: min(140px, 42vw);
+          }
+          .hw-coords { font-size: 10px; padding: 2px 6px; }
           .hurricane-map-empty-banner {
             top: 68px;
             left: 12px;
@@ -851,8 +1015,11 @@
             top: auto;
             left: 10px;
             right: 10px;
-            bottom: 10px;
-            max-height: min(42vh, 280px);
+            bottom: max(10px, env(safe-area-inset-bottom, 0px));
+            max-height: min(48vh, 320px);
+          }
+          .hurricane-layout.is-embedded .hurricane-map-wrap.status-expanded .leaflet-bottom.leaflet-left {
+            bottom: calc(min(48vh, 320px) + 18px);
           }
           .hurricane-layout.is-embedded .hurricane-map-empty-banner {
             top: 10px;
@@ -929,18 +1096,21 @@
       this._loading = true;
       this._error = null;
       try {
-        const [payload, tornadoPayload, earthquakePayload] = await Promise.all([
+        const [payload, tornadoPayload, earthquakePayload, lightningPayload] = await Promise.all([
           this._hass.callWS({
             type: "home_weather/get_hurricanes",
             force_refresh: !!forceRefresh,
           }),
           this._hass.callWS({ type: "home_weather/get_tornadoes" }).catch(() => null),
           this._hass.callWS({ type: "home_weather/get_earthquakes" }).catch(() => null),
+          this._hass.callWS({ type: "home_weather/get_lightning" }).catch(() => null),
         ]);
         this._data = payload;
         this._tornadoData = tornadoPayload;
         this._earthquakeData = earthquakePayload;
+        this._backendLightning = lightningPayload;
         this._renderUI();
+        this._updateLightningStatusDom();
       } catch (err) {
         this._error = err?.message || String(err);
         if (this._data) {
@@ -975,6 +1145,17 @@
         clearTimeout(this._zoomDebounceTimer);
         this._zoomDebounceTimer = setTimeout(() => this._renderMap(), 150);
       });
+    }
+
+    _bindMapViewLockHandler() {
+      if (!this._map || this._viewLockHandlerBound) return;
+      this._viewLockHandlerBound = true;
+      const lockIfUser = (e) => {
+        if (!e?.originalEvent) return;
+        this._userViewLocked = true;
+      };
+      this._map.on("dragend", lockIfUser);
+      this._map.on("zoomend", lockIfUser);
     }
 
     _esc(text) {
@@ -1125,21 +1306,7 @@
       return { text: "No active hurricanes or disturbances", className: "" };
     }
 
-    _renderUI() {
-      if (!this._root || !this._data) return;
-      let preservedStrikes = [];
-      if (this._map) {
-        preservedStrikes = this._lightningStrikes.map((e) => e.strike);
-        this._stopLightning(true);
-        this._map.remove();
-        this._map = null;
-        this._mapInitialized = false;
-        this._layerGroup = null;
-        this._earthquakeClusterGroup = null;
-        this._zoomHandlerBound = false;
-        this._lastDetailTier = null;
-        this._resetMapControlState();
-      }
+    _buildStatusPanelHtml() {
       const summary = this._data.summary || {};
       const storms = this._data.storms || [];
       const threatClass =
@@ -1178,6 +1345,10 @@
       const tornadoCountLabel = tornadoCount;
       const eqCountLabel = eqMapCount;
       const lightningStats = this._getLightningStats();
+      const compact = this._isCompactLayout();
+      const detailsOpen = compact ? "" : " open";
+      const collapsedClass = compact && this._statusCollapsed ? " is-collapsed" : "";
+      const statusExpanded = compact && !this._statusCollapsed;
 
       const tropicalBody = `
             ${summary.hasOutlookActivity ? `
@@ -1195,17 +1366,20 @@
             <div class="hurricane-stat"><span>Closest approach</span><strong>${summary.estimatedClosestApproachHour != null ? summary.estimatedClosestApproachHour + "H" : "—"}</strong></div>` : ""}
             ${!summary.hasOutlookActivity && storms.length === 0 ? `<div class="hurricane-stat"><span>Status</span><strong>No active storms</strong></div>` : ""}`;
 
-      const statusPanel = `
-        <aside class="hurricane-status ${threatClass}">
-          <h3>Hazard Status</h3>
+      return `
+        <aside class="hurricane-status ${threatClass}${collapsedClass}" data-status-expanded="${statusExpanded ? "true" : "false"}">
+          <h3 class="hurricane-status-head">
+            Hazard Status
+            <button type="button" class="hurricane-status-toggle" aria-expanded="${statusExpanded ? "true" : "false"}" aria-label="${statusExpanded ? "Collapse hazard status" : "Expand hazard status"}">▾</button>
+          </h3>
           <p class="hurricane-status-headline ${headline.className}">${this._esc(headline.text)}</p>
           ${staleBanner}
           <div class="hurricane-stat"><span>Overall hurricane threat</span><strong>${this._esc(summary.threatLevel || "none")}</strong></div>
-          <details class="hurricane-status-details" open>
+          <details class="hurricane-status-details"${detailsOpen}>
             <summary><span>Hurricanes</span><span class="h-count">${tropicalCount}</span><span class="h-chevron">▸</span></summary>
             <div class="hurricane-status-details-body">${tropicalBody}</div>
           </details>
-          <details class="hurricane-status-details" open>
+          <details class="hurricane-status-details"${detailsOpen}>
             <summary><span>Tornado Warnings</span><span class="h-count">${tornadoCountLabel}</span><span class="h-chevron">▸</span></summary>
             <div class="hurricane-status-details-body">
               <div class="hurricane-stat"><span>Active warnings</span><strong>${tornadoCount}</strong></div>
@@ -1214,7 +1388,7 @@
               <div class="hurricane-stat"><span>Primary alert</span><strong>${this._esc(tornadoHeadline)}</strong></div>
             </div>
           </details>
-          <details class="hurricane-status-details" open>
+          <details class="hurricane-status-details"${detailsOpen}>
             <summary><span>Earthquakes</span><span class="h-count">${eqCountLabel}</span><span class="h-chevron">▸</span></summary>
             <div class="hurricane-status-details-body">
               <div class="hurricane-stat"><span>Worldwide on map</span><strong>${eqMapCount}</strong></div>
@@ -1226,7 +1400,7 @@
               <div class="hurricane-stat ${eqPrimary.tsunami === 1 ? "is-danger" : ""}"><span>Tsunami flag</span><strong>${eqTsunami}</strong></div>
             </div>
           </details>
-          <details class="hurricane-status-details" open>
+          <details class="hurricane-status-details"${detailsOpen}>
             <summary><span>Lightning</span><span class="h-count" id="hw-lightning-badge">${lightningStats.visibleCount}</span><span class="h-chevron">▸</span></summary>
             <div class="hurricane-status-details-body">
               <div class="hurricane-stat"><span>Strikes (last hour)</span><strong id="hw-lightning-count">${lightningStats.hourCount}</strong></div>
@@ -1236,20 +1410,72 @@
             </div>
           </details>
         </aside>`;
+    }
+
+    _syncStatusPanelLayout() {
+      const wrap = this._root?.querySelector(".hurricane-map-wrap");
+      const aside = this._root?.querySelector(".hurricane-status");
+      if (!wrap || !aside) return;
+      const expanded = this._isCompactLayout() && !this._statusCollapsed;
+      wrap.classList.toggle("status-expanded", expanded);
+      aside.classList.toggle("is-collapsed", this._isCompactLayout() && this._statusCollapsed);
+      aside.dataset.statusExpanded = expanded ? "true" : "false";
+      const toggle = aside.querySelector(".hurricane-status-toggle");
+      if (toggle) {
+        toggle.setAttribute("aria-expanded", expanded ? "true" : "false");
+        toggle.setAttribute("aria-label", expanded ? "Collapse hazard status" : "Expand hazard status");
+      }
+    }
+
+    _bindStatusPanelToggle() {
+      const aside = this._root?.querySelector(".hurricane-status");
+      if (!aside || aside.dataset.toggleBound === "true") return;
+      aside.dataset.toggleBound = "true";
+      const toggle = () => {
+        if (!this._isCompactLayout()) return;
+        this._statusCollapsed = !this._statusCollapsed;
+        this._syncStatusPanelLayout();
+        this._map?.invalidateSize?.();
+      };
+      aside.querySelector(".hurricane-status-toggle")?.addEventListener("click", (e) => {
+        e.stopPropagation();
+        toggle();
+      });
+      aside.querySelector(".hurricane-status-head")?.addEventListener("click", (e) => {
+        if (!this._isCompactLayout()) return;
+        if (e.target.closest(".hurricane-status-toggle")) return;
+        toggle();
+      });
+    }
+
+    _renderUI() {
+      if (!this._root || !this._data) return;
+
+      const mapReady = !!(this._map && this._root.querySelector("#hurricane-map"));
+      if (mapReady) {
+        const aside = this._root.querySelector(".hurricane-status");
+        if (aside) {
+          aside.outerHTML = this._buildStatusPanelHtml();
+          this._bindStatusPanelToggle();
+          this._syncStatusPanelLayout();
+        }
+        this._renderMap();
+        this._updateLightningStatusDom();
+        return;
+      }
 
       const layoutClass = this._embedded ? "hurricane-layout is-embedded" : "hurricane-layout";
       this._root.innerHTML = `
         <section class="${layoutClass}">
           <div class="hurricane-map-wrap">
             <div id="hurricane-map" class="hurricane-map"></div>
-            ${statusPanel}
+            ${this._buildStatusPanelHtml()}
           </div>
         </section>`;
-      this._renderMap();
-      if (preservedStrikes.length) {
-        preservedStrikes.forEach((strike) => this._onLightningStrike(strike));
-      }
+      this._renderMap(true);
       this._syncLightningLayer();
+      this._bindStatusPanelToggle();
+      this._syncStatusPanelLayout();
     }
 
     _fmtMiles(value) {
@@ -1282,8 +1508,9 @@
       this._baseLayers = baseLayers;
       baseLayers.Dark.addTo(this._map);
 
-      L.control.zoom({ position: "bottomleft" }).addTo(this._map);
+      /* Scale at bottom, horizontal zoom above it, coords on top */
       this._safe(() => L.control.scale({ position: "bottomleft", metric: true, imperial: true, maxWidth: 160 }).addTo(this._map));
+      L.control.zoom({ position: "bottomleft" }).addTo(this._map);
       this._safe(() => L.control.layers(baseLayers, null, { position: "topleft", collapsed: true }).addTo(this._map));
       this._safe(() => this._addMeasureControl());
       this._safe(() => this._addLegendControl());
@@ -1310,7 +1537,7 @@
       }
       this._mapInitialized = true;
       this._bindMapZoomHandler();
-      this._map.fitBounds(this._getUsaBounds(), { padding: [24, 24] });
+      this._bindMapViewLockHandler();
       const attr = this._map.attributionControl;
       if (attr?.setPrefix) {
         attr.setPrefix('Lightning &copy; <a href="https://www.blitzortung.org">Blitzortung</a>');
@@ -1377,7 +1604,7 @@
       ctrl.onAdd = () => {
         const div = L.DomUtil.create("div", `hw-legend leaflet-control${collapsed ? " collapsed" : ""}`);
         const catRows = [
-          { c: CATEGORY_COLORS[0], t: "TD / Tropical Storm" },
+          { c: CATEGORY_COLORS[0], t: "TD / Storm" },
           { c: CATEGORY_COLORS[1], t: "Category 1" },
           { c: CATEGORY_COLORS[2], t: "Category 2" },
           { c: CATEGORY_COLORS[3], t: "Category 3" },
@@ -1503,7 +1730,7 @@
       }
     }
 
-    _renderMap() {
+    _renderMap(fitView = false) {
       const storms = this._data?.storms || [];
       const outlook = this._data?.outlook || {};
       const home = this._data?.home;
@@ -1548,13 +1775,16 @@
         bounds.push([home.lat, home.lon]);
       }
 
-      this._fitMapView(bounds);
+      if (fitView || !this._hasInitialFit) {
+        this._fitMapView(bounds);
+      }
       setTimeout(() => this._map?.invalidateSize(), 100);
     }
 
     _fitMapView(stormBounds) {
       const usa = this._getUsaBounds();
       if (!this._map || !usa) return;
+      if (this._userViewLocked) return;
 
       if (stormBounds.length > 0) {
         const combined = global.L.latLngBounds(stormBounds).extend(usa);
@@ -1562,6 +1792,7 @@
       } else {
         this._map.fitBounds(usa, { padding: [24, 24] });
       }
+      this._hasInitialFit = true;
     }
 
     _drawOutlook(outlook, bounds) {

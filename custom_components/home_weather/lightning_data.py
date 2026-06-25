@@ -25,14 +25,17 @@ RECONNECT_MAX_SECONDS = 30
 
 
 def get_lightning_config(config: dict[str, Any] | None) -> dict[str, Any]:
-    """Return merged lightning config with defaults."""
+    """Return merged lightning monitoring config with defaults."""
     defaults = {
+        "enabled": True,
         "show_on_map": True,
         "max_age_minutes": 60,
         "max_strikes": 500,
         "geofield_radius_miles": 100,
     }
-    return {**defaults, **((config or {}).get("lightning") or {})}
+    monitoring = (config or {}).get("lightning_monitoring") or {}
+    legacy = (config or {}).get("lightning") or {}
+    return {**defaults, **legacy, **monitoring}
 
 
 def parse_strike(raw: dict[str, Any]) -> dict[str, Any] | None:
@@ -115,11 +118,12 @@ def build_lightning_payload(
         "nearest_longitude": nearest.get("lon") if nearest else None,
         "last_strike_time": last_strike_time,
         "strikes_last_hour": strikes_last_hour,
+        "feed_status": "live",
         "last_updated": dt_util.utcnow().isoformat(),
     }
 
 
-def empty_lightning_payload() -> dict[str, Any]:
+def empty_lightning_payload(*, feed_status: str = "off") -> dict[str, Any]:
     """Return empty lightning payload."""
     return {
         "strikes": [],
@@ -132,6 +136,7 @@ def empty_lightning_payload() -> dict[str, Any]:
         "nearest_longitude": None,
         "last_strike_time": None,
         "strikes_last_hour": 0,
+        "feed_status": feed_status,
         "last_updated": dt_util.utcnow().isoformat(),
     }
 
@@ -175,17 +180,24 @@ class BlitzortungListener:
         hass: HomeAssistant,
         buffer: LightningStrikeBuffer,
         on_strike: Any | None = None,
+        on_status: Any | None = None,
     ) -> None:
         self.hass = hass
         self.buffer = buffer
         self._on_strike = on_strike
+        self._on_status = on_status
         self._task: asyncio.Task | None = None
         self._closed = False
         self._reconnect_attempt = 0
 
+    def _emit_status(self, status: str) -> None:
+        if self._on_status:
+            self._on_status(status)
+
     def start(self) -> None:
         if self._task is None or self._task.done():
             self._closed = False
+            self._emit_status("connecting")
             self._task = asyncio.create_task(self._run())
 
     async def async_stop(self) -> None:
@@ -206,8 +218,10 @@ class BlitzortungListener:
                 raise
             except Exception as err:
                 _LOGGER.debug("Blitzortung connection error: %s", err)
+                self._emit_status("error")
             if self._closed:
                 break
+            self._emit_status("reconnecting")
             delay = min(
                 RECONNECT_BASE_SECONDS * (2**self._reconnect_attempt),
                 RECONNECT_MAX_SECONDS,
@@ -220,6 +234,7 @@ class BlitzortungListener:
         url = _pick_server_url()
         async with session.ws_connect(url, heartbeat=30) as ws:
             self._reconnect_attempt = 0
+            self._emit_status("live")
             resume_ns = self.buffer.last_strike_time_ns
             await ws.send_str(json.dumps({"time": resume_ns}))
             async for msg in ws:

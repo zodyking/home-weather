@@ -4,7 +4,7 @@ from typing import Final
 DOMAIN: Final = "home_weather"
 STORAGE_KEY: Final = "home_weather_config"
 WEBHOOK_LAST_TRIGGERED_KEY: Final = "home_weather_webhook_last_triggered"
-STORAGE_VERSION: Final = 2
+STORAGE_VERSION: Final = 3
 
 DEFAULT_CONFIG: Final = {
     "weather_entity": None,
@@ -87,6 +87,34 @@ DEFAULT_CONFIG: Final = {
     },
     # Optional NWS forecast zone (e.g. NYZ072) for tornado alert filtering
     "nws_zone": "",
+    "hurricane_monitoring": {
+        "enabled": True,
+        "max_distance_miles": 500,
+        "min_threat_level": "monitor",
+    },
+    "tornado_monitoring": {
+        "enabled": True,
+        "only_affecting_home": True,
+        "max_distance_miles": 25,
+    },
+    "earthquake_monitoring": {
+        "enabled": True,
+        "min_magnitude": 2.5,
+        "radius_miles": 500,
+        "feed_type": "all_hour",
+        "tsunami_alert_enabled": True,
+        "map_show_worldwide": True,
+        "map_min_magnitude": 4.5,
+        "map_feed_type": "all_day",
+    },
+    "lightning_monitoring": {
+        "enabled": True,
+        "show_on_map": True,
+        "max_age_minutes": 60,
+        "max_strikes": 500,
+        "geofield_radius_miles": 100,
+    },
+    # Legacy keys kept for backward compatibility during transition
     "earthquakes": {
         "enabled": True,
         "min_magnitude": 2.5,
