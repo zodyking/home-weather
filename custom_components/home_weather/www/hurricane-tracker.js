@@ -32,6 +32,12 @@
     [24.396308, -124.848974],
     [49.384358, -66.885444],
   ]);
+  /** How long a lightning icon stays on the map before fading out (ms). */
+  const LIGHTNING_MAP_DISPLAY_MS = 2400;
+  const LIGHTNING_MAP_FADE_MS = 700;
+  /** Ignore replayed/historical strikes older than this when flashing on the map. */
+  const LIGHTNING_MAP_MAX_STRIKE_AGE_MS = 90 * 1000;
+  const LIGHTNING_HISTORY_MS = 60 * 60 * 1000;
 
   class HurricaneTracker {
     constructor(options) {
@@ -170,6 +176,7 @@
             this._bindStatusPanelToggle();
             this._syncStatusPanelLayout();
           }
+          requestAnimationFrame(() => this._map?.invalidateSize?.());
         }
       });
       this._layoutObserver.observe(this._root);
@@ -266,17 +273,16 @@
       const browserFeedActive = this._lightningEnabled() && this._lightningStatus === "live";
       if (browserFeedActive) {
         const now = Date.now();
-        const hourAgo = now - 60 * 60 * 1000;
-        const maxAgeMs = (this._getLightningSettings().max_age_minutes || 60) * 60 * 1000;
-        const active = this._lightningStrikes.filter((e) => now - e.strike.timeMs <= maxAgeMs);
-        const lastHour = active.filter((e) => e.strike.timeMs >= hourAgo);
+        const hourAgo = now - LIGHTNING_HISTORY_MS;
+        const recent = this._lightningStrikes.filter((e) => e.strike.timeMs >= hourAgo);
+        const lastHour = recent;
         let nearest = null;
-        active.forEach((e) => {
+        recent.forEach((e) => {
           const d = this._distanceFromHomeMiles(e.strike.lat, e.strike.lon);
           if (d != null && (nearest == null || d < nearest)) nearest = d;
         });
         return {
-          visibleCount: active.length,
+          visibleCount: this._lightningStrikes.filter((e) => e.marker).length,
           hourCount: lastHour.length,
           nearestMiles: nearest,
           status: this._lightningStatus,
@@ -293,18 +299,16 @@
       }
 
       const now = Date.now();
-      const hourAgo = now - 60 * 60 * 1000;
-      const maxAgeMs = (this._getLightningSettings().max_age_minutes || 60) * 60 * 1000;
-      const active = this._lightningStrikes.filter((e) => now - e.strike.timeMs <= maxAgeMs);
-      const lastHour = active.filter((e) => e.strike.timeMs >= hourAgo);
+      const hourAgo = now - LIGHTNING_HISTORY_MS;
+      const recent = this._lightningStrikes.filter((e) => e.strike.timeMs >= hourAgo);
       let nearest = null;
-      active.forEach((e) => {
+      recent.forEach((e) => {
         const d = this._distanceFromHomeMiles(e.strike.lat, e.strike.lon);
         if (d != null && (nearest == null || d < nearest)) nearest = d;
       });
       return {
-        visibleCount: active.length,
-        hourCount: lastHour.length,
+        visibleCount: this._lightningStrikes.filter((e) => e.marker).length,
+        hourCount: recent.length,
         nearestMiles: nearest,
         status: this._lightningStatus,
       };
@@ -356,8 +360,50 @@
       });
       client.connect();
       if (!this._lightningCleanupTimer) {
-        this._lightningCleanupTimer = setInterval(() => this._cleanupLightningStrikes(), 30000);
+        this._lightningCleanupTimer = setInterval(() => this._cleanupLightningStrikes(), 2000);
       }
+    }
+
+    _clearLightningEntryTimers(entry) {
+      if (!entry) return;
+      if (entry.fadeTimer) {
+        clearTimeout(entry.fadeTimer);
+        entry.fadeTimer = null;
+      }
+      if (entry.removeTimer) {
+        clearTimeout(entry.removeTimer);
+        entry.removeTimer = null;
+      }
+    }
+
+    _removeLightningMarkerEntry(entry, { dropRecord = false } = {}) {
+      if (!entry) return;
+      this._clearLightningEntryTimers(entry);
+      if (entry.marker && this._lightningLayerGroup) {
+        this._lightningLayerGroup.removeLayer(entry.marker);
+      }
+      entry.marker = null;
+      if (dropRecord) {
+        const idx = this._lightningStrikes.indexOf(entry);
+        if (idx >= 0) this._lightningStrikes.splice(idx, 1);
+      }
+    }
+
+    _scheduleLightningMarkerFade(entry) {
+      const fadeDelay = Math.max(0, LIGHTNING_MAP_DISPLAY_MS - LIGHTNING_MAP_FADE_MS);
+      entry.fadeTimer = setTimeout(() => {
+        entry.fadeTimer = null;
+        const wrap = entry.marker?.getElement?.()?.querySelector(".hw-hazard-icon-wrap");
+        if (wrap) {
+          wrap.classList.remove("is-fresh");
+          wrap.classList.add("is-fading");
+        }
+      }, fadeDelay);
+      entry.removeTimer = setTimeout(() => {
+        entry.removeTimer = null;
+        this._removeLightningMarkerEntry(entry);
+        this._updateLightningStatusDom();
+      }, LIGHTNING_MAP_DISPLAY_MS);
     }
 
     _stopLightning(clearAll) {
@@ -379,11 +425,7 @@
       }
       this._lightningStatus = "off";
       if (clearAll) {
-        this._lightningStrikes.forEach((e) => {
-          if (e.marker && this._lightningLayerGroup) {
-            this._lightningLayerGroup.removeLayer(e.marker);
-          }
-        });
+        this._lightningStrikes.forEach((e) => this._removeLightningMarkerEntry(e, { dropRecord: true }));
         this._lightningStrikes = [];
         this._lightningLayerGroup?.clearLayers();
       }
@@ -393,25 +435,23 @@
     _onLightningStrike(strike) {
       if (!this._lightningEnabled() || !this._lightningLayerGroup || !global.L) return;
       const settings = this._getLightningSettings();
-      const maxStrikes = Math.max(50, Number(settings.max_strikes) || 500);
+      const maxRecords = Math.max(50, Number(settings.max_strikes) || 500);
       if (this._lightningStrikes.some((e) => e.strike.id === strike.id)) return;
+
+      const strikeAgeMs = Date.now() - strike.timeMs;
+      if (strikeAgeMs > LIGHTNING_MAP_MAX_STRIKE_AGE_MS) return;
 
       const marker = this._addLightningMarker(strike);
       if (!marker) return;
-      this._lightningStrikes.push({ strike, marker });
 
-      while (this._lightningStrikes.length > maxStrikes) {
+      const entry = { strike, marker, fadeTimer: null, removeTimer: null };
+      this._lightningStrikes.push(entry);
+      this._scheduleLightningMarkerFade(entry);
+
+      while (this._lightningStrikes.length > maxRecords) {
         const oldest = this._lightningStrikes.shift();
-        if (oldest?.marker) this._lightningLayerGroup.removeLayer(oldest.marker);
+        this._removeLightningMarkerEntry(oldest);
       }
-
-      setTimeout(() => {
-        const el = marker.getElement?.();
-        if (el) {
-          const wrap = el.querySelector(".hw-hazard-icon-wrap");
-          if (wrap) wrap.classList.remove("is-fresh");
-        }
-      }, 2500);
 
       this._cleanupLightningStrikes();
       this._updateLightningStatusDom();
@@ -420,9 +460,6 @@
     _addLightningMarker(strike) {
       const L = global.L;
       if (!L || !this._lightningLayerGroup) return null;
-      const ageMs = Date.now() - strike.timeMs;
-      const maxAgeMs = (this._getLightningSettings().max_age_minutes || 60) * 60 * 1000;
-      const ageClass = ageMs > maxAgeMs * 0.5 ? "is-aging" : "is-fresh";
       const dist = this._distanceFromHomeMiles(strike.lat, strike.lon);
       const timeStr = strike.timeMs ? new Date(strike.timeMs).toLocaleString() : "—";
       const popup = [
@@ -436,7 +473,7 @@
 
       const icon = this._createHazardIcon("lightning-bolt", {
         size: 22,
-        className: `hw-lightning-marker ${ageClass}`,
+        className: "hw-lightning-marker is-fresh",
       });
       const marker = L.marker([strike.lat, strike.lon], {
         icon,
@@ -448,19 +485,18 @@
     }
 
     _cleanupLightningStrikes() {
-      const maxAgeMs = (this._getLightningSettings().max_age_minutes || 60) * 60 * 1000;
-      const cutoff = Date.now() - maxAgeMs;
-      const keep = [];
-      this._lightningStrikes.forEach((entry) => {
-        if (entry.strike.timeMs < cutoff) {
-          if (entry.marker && this._lightningLayerGroup) {
-            this._lightningLayerGroup.removeLayer(entry.marker);
-          }
-        } else {
-          keep.push(entry);
+      const now = Date.now();
+      const historyCutoff = now - LIGHTNING_HISTORY_MS;
+      this._lightningStrikes = this._lightningStrikes.filter((entry) => {
+        if (entry.strike.timeMs < historyCutoff) {
+          this._removeLightningMarkerEntry(entry);
+          return false;
         }
+        if (entry.marker && entry.removeTimer == null && entry.strike.timeMs < now - LIGHTNING_MAP_DISPLAY_MS) {
+          this._removeLightningMarkerEntry(entry);
+        }
+        return true;
       });
-      this._lightningStrikes = keep;
       this._updateLightningStatusDom();
     }
 
@@ -498,8 +534,6 @@
           overflow: hidden;
         }
         .hurricane-layout.is-embedded .hurricane-map {
-          position: absolute;
-          inset: 0;
           width: 100%;
           height: 100%;
           min-height: 0;
@@ -507,18 +541,49 @@
           border: none;
         }
         @media (min-width: 769px) {
-          .hurricane-layout.is-embedded .hurricane-status {
-            top: 12px;
-            right: 12px;
-            bottom: 12px;
-            left: auto;
-            max-height: calc(100% - 24px);
-            width: min(280px, calc(100% - 24px));
+          .hurricane-map-wrap {
+            display: flex;
+            flex-direction: row;
+            align-items: stretch;
           }
-          .hurricane-layout.is-embedded .hurricane-map-empty-banner {
+          .hurricane-map-wrap > .hurricane-map,
+          .hurricane-layout.is-embedded .hurricane-map {
+            position: relative;
+            flex: 1 1 auto;
+            min-width: 0;
+            min-height: 0;
+            width: auto;
+            height: 100%;
+            inset: auto;
+          }
+          .hurricane-status {
+            position: relative;
+            top: auto;
+            right: auto;
+            bottom: auto;
+            left: auto;
+            flex: 0 0 clamp(248px, 28vw, 300px);
+            width: clamp(248px, 28vw, 300px);
+            max-width: clamp(248px, 28vw, 300px);
+            max-height: 100%;
+            height: auto;
+            align-self: stretch;
+            margin: 0;
+            border-radius: 0;
+            border-top: none;
+            border-right: none;
+            border-bottom: none;
+            border-left: 1px solid rgba(255,255,255,0.12);
+            box-shadow: none;
+            z-index: 2;
+          }
+          .hurricane-map-empty-banner {
             top: 12px;
             left: 12px;
-            right: min(280px, calc(100% - 24px));
+            right: 12px;
+          }
+          .hw-legend {
+            max-width: min(196px, calc(100% - 12px));
           }
         }
         .hurricane-status-details {
@@ -644,6 +709,7 @@
           width: min(280px, calc(100% - 24px));
           max-height: calc(100% - 24px);
           overflow-y: auto;
+          overflow-x: hidden;
           z-index: 600;
           background: rgba(17, 20, 28, 0.88);
           border: 1px solid rgba(255,255,255,0.12);
@@ -654,6 +720,7 @@
           gap: 12px;
           backdrop-filter: blur(14px);
           box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+          -webkit-overflow-scrolling: touch;
         }
         .hurricane-status.is-threat-high {
           border-color: rgba(244,67,54,0.55);
@@ -871,10 +938,14 @@
         .hw-hazard-icon-wrap.hw-lightning-marker.is-fresh {
           filter: drop-shadow(0 0 12px rgba(255, 193, 7, 0.95)) drop-shadow(0 2px 8px rgba(0,0,0,0.5));
           animation: hw-lightning-pop 0.45s ease-out;
+          opacity: 1;
+          transform: scale(1);
         }
-        .hw-hazard-icon-wrap.hw-lightning-marker.is-aging {
-          opacity: 0.45;
-          filter: drop-shadow(0 1px 4px rgba(0,0,0,0.35));
+        .hw-hazard-icon-wrap.hw-lightning-marker.is-fading {
+          opacity: 0;
+          transform: scale(0.55);
+          filter: drop-shadow(0 0 4px rgba(255, 193, 7, 0.35));
+          transition: opacity 0.7s ease-out, transform 0.7s ease-out, filter 0.7s ease-out;
         }
         @keyframes hw-lightning-pop {
           0% { transform: scale(0.4); opacity: 0.2; }
@@ -1552,6 +1623,9 @@
       this._syncLightningLayer();
       this._bindStatusPanelToggle();
       this._syncStatusPanelLayout();
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => this._map?.invalidateSize?.());
+      });
     }
 
     _fmtMiles(value) {
@@ -1677,7 +1751,7 @@
       const L = global.L;
       if (!L || !this._map) return;
       const ctrl = L.control({ position: "topright" });
-      const collapsed = (global.innerWidth || 1024) < 768;
+      const collapsed = true;
       ctrl.onAdd = () => {
         const div = L.DomUtil.create("div", `hw-legend leaflet-control${collapsed ? " collapsed" : ""}`);
         const catRows = [
