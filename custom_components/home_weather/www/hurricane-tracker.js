@@ -582,8 +582,11 @@
             left: 12px;
             right: 12px;
           }
+          .hw-map-controls-stack {
+            --hw-map-btn: 32px;
+          }
           .hw-legend {
-            max-width: min(196px, calc(100% - 12px));
+            max-width: none;
           }
         }
         .hurricane-status-details {
@@ -797,11 +800,22 @@
           background: rgba(40, 40, 40, 0.96);
           color: #fff;
         }
-        /* Unified top-left map toolbar: theme + zoom + ruler */
+        /* Unified top-left map controls stack: toolbar row + legend */
+        .hw-map-controls-stack {
+          --hw-map-btn: 34px;
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+          width: calc(var(--hw-map-btn) * 4 + 3px);
+          background: transparent;
+          border: none;
+          box-shadow: none;
+        }
         .hw-map-toolbar {
           display: flex;
           flex-direction: row;
           align-items: stretch;
+          width: 100%;
           background: rgba(28, 28, 28, 0.92);
           border: 1px solid rgba(255,255,255,0.12);
           border-radius: 8px;
@@ -812,6 +826,7 @@
           border: none;
           box-shadow: none;
           border-radius: 0;
+          background: transparent !important;
         }
         .hw-map-toolbar .leaflet-control-layers {
           position: relative;
@@ -819,15 +834,20 @@
           background: transparent;
           border: none;
           box-shadow: none;
+          flex: 0 0 var(--hw-map-btn);
         }
         .hw-map-toolbar .leaflet-control-layers-toggle {
-          width: 30px;
-          height: 30px;
+          width: var(--hw-map-btn);
+          height: var(--hw-map-btn);
+          min-width: var(--hw-map-btn);
+          min-height: var(--hw-map-btn);
+          background-color: rgba(28, 28, 28, 0.92) !important;
           background-size: 16px 16px;
           background-position: center;
           border: none;
           border-right: 1px solid rgba(255,255,255,0.12);
           border-radius: 0;
+          box-sizing: border-box;
         }
         .hw-map-toolbar .leaflet-control-layers-expanded {
           position: absolute;
@@ -836,28 +856,65 @@
           z-index: 1000;
           min-width: 148px;
           margin: 0;
+          background: rgba(17, 20, 28, 0.96);
+          border: 1px solid rgba(255,255,255,0.14);
+          border-radius: 8px;
         }
         .hw-map-toolbar .leaflet-control-zoom {
           display: flex;
           flex-direction: row;
+          flex: 0 0 calc(var(--hw-map-btn) * 2);
           margin: 0;
+          background: transparent !important;
         }
         .hw-map-toolbar .leaflet-control-zoom a {
-          width: 30px;
-          height: 30px;
-          line-height: 30px;
-          font-size: 15px;
-          border-bottom: none;
+          width: var(--hw-map-btn);
+          height: var(--hw-map-btn);
+          min-width: var(--hw-map-btn);
+          min-height: var(--hw-map-btn);
+          line-height: var(--hw-map-btn);
+          font-size: 16px;
+          font-weight: 600;
+          border-bottom: none !important;
           border-right: 1px solid rgba(255,255,255,0.12);
           border-radius: 0;
+          box-sizing: border-box;
+          background: rgba(28, 28, 28, 0.92) !important;
+          color: #e1e1e1 !important;
+        }
+        .hw-map-toolbar .leaflet-control-zoom a:hover {
+          background: rgba(40, 40, 40, 0.96) !important;
+          color: #fff !important;
         }
         .hw-map-toolbar .leaflet-control-zoom a:last-child {
           border-right: 1px solid rgba(255,255,255,0.12);
         }
         .hw-map-toolbar .hw-measure-ctrl {
+          display: flex;
+          flex: 0 0 var(--hw-map-btn);
           border: none;
           box-shadow: none;
           border-radius: 0;
+          background: transparent !important;
+        }
+        .hw-map-controls-stack .hw-measure-readout-row {
+          display: none;
+          width: 100%;
+          box-sizing: border-box;
+          padding: 4px 8px;
+          font-size: 10px;
+          font-weight: 600;
+          color: #cfd8dc;
+          background: rgba(17, 20, 28, 0.92);
+          border: 1px solid rgba(255,255,255,0.12);
+          border-radius: 8px;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          font-variant-numeric: tabular-nums;
+        }
+        .hw-map-controls-stack.measure-active .hw-measure-readout-row {
+          display: block;
         }
         .leaflet-bottom.leaflet-left .leaflet-control-scale {
           margin-bottom: 0;
@@ -971,12 +1028,17 @@
         .hw-legend {
           background: rgba(17, 20, 28, 0.92);
           border: 1px solid rgba(255,255,255,0.14);
-          border-radius: 10px;
+          border-radius: 8px;
           color: #cfd8dc;
           overflow: hidden;
-          max-width: 210px;
+          width: 100%;
+          max-width: none;
+          box-sizing: border-box;
           backdrop-filter: blur(10px);
-          box-shadow: 0 6px 22px rgba(0,0,0,0.4);
+          box-shadow: 0 4px 16px rgba(0,0,0,0.35);
+        }
+        .hw-map-controls-stack .hw-legend {
+          margin: 0;
         }
         .hw-legend-header {
           display: flex;
@@ -1018,15 +1080,19 @@
           display: flex !important;
           align-items: center;
           justify-content: center;
-          width: 30px;
-          height: 30px;
-          line-height: 30px;
-          background: rgba(28, 28, 28, 0.92);
-          color: #e1e1e1;
+          width: var(--hw-map-btn, 34px);
+          height: var(--hw-map-btn, 34px);
+          min-width: var(--hw-map-btn, 34px);
+          min-height: var(--hw-map-btn, 34px);
+          line-height: 1;
+          background: rgba(28, 28, 28, 0.92) !important;
+          color: #e1e1e1 !important;
           border-radius: 0;
+          box-sizing: border-box;
         }
-        .hw-measure-ctrl .hw-measure-btn:hover { background: rgba(40, 40, 40, 0.96); color: #fff; }
-        .hw-measure-ctrl.active .hw-measure-btn { background: #0288d1; color: #fff; }
+        .hw-measure-ctrl .hw-measure-btn:hover { background: rgba(40, 40, 40, 0.96) !important; color: #fff !important; }
+        .hw-measure-ctrl.active .hw-measure-btn { background: #0288d1 !important; color: #fff !important; }
+        .hw-map-toolbar .hw-measure-readout { display: none !important; }
         .hw-measure-readout {
           display: none;
           align-items: center;
@@ -1162,12 +1228,11 @@
             left: 10px;
             right: 10px;
           }
-          .hw-legend {
-            max-width: min(180px, 48vw);
+          .hw-map-controls-stack {
+            --hw-map-btn: 30px;
           }
-          .leaflet-top.leaflet-right {
-            top: 8px;
-            right: 8px;
+          .hw-legend {
+            max-width: none;
           }
           .leaflet-top.leaflet-left {
             top: 8px;
@@ -1663,8 +1728,8 @@
       this._safe(() => L.control.layers(baseLayers, null, { position: "topleft", collapsed: true }).addTo(this._map));
       L.control.zoom({ position: "topleft" }).addTo(this._map);
       this._safe(() => this._addMeasureControl());
-      this._safe(() => this._consolidateMapToolbar());
       this._safe(() => this._addLegendControl());
+      this._safe(() => this._consolidateMapControlsStack());
       this._safe(() => this._addCoordinateControl());
 
       this._layerGroup = L.layerGroup().addTo(this._map);
@@ -1747,72 +1812,81 @@
       });
     }
 
-    _addLegendControl() {
+    _buildLegendElement(collapsed = true) {
       const L = global.L;
-      if (!L || !this._map) return;
-      const ctrl = L.control({ position: "topright" });
-      const collapsed = true;
-      ctrl.onAdd = () => {
-        const div = L.DomUtil.create("div", `hw-legend leaflet-control${collapsed ? " collapsed" : ""}`);
-        const catRows = [
-          { c: CATEGORY_COLORS[0], t: "TD / Storm" },
-          { c: CATEGORY_COLORS[1], t: "Category 1" },
-          { c: CATEGORY_COLORS[2], t: "Category 2" },
-          { c: CATEGORY_COLORS[3], t: "Category 3" },
-          { c: CATEGORY_COLORS[4], t: "Category 4" },
-          { c: CATEGORY_COLORS[5], t: "Category 5" },
-        ];
-        div.innerHTML = `
-          <div class="hw-legend-header" role="button" tabindex="0" aria-expanded="${!collapsed}">
-            <span>Legend</span><span class="hw-legend-caret">▾</span>
+      const div = L.DomUtil.create("div", `hw-legend${collapsed ? " collapsed" : ""}`);
+      const catRows = [
+        { c: CATEGORY_COLORS[0], t: "TD / Storm" },
+        { c: CATEGORY_COLORS[1], t: "Category 1" },
+        { c: CATEGORY_COLORS[2], t: "Category 2" },
+        { c: CATEGORY_COLORS[3], t: "Category 3" },
+        { c: CATEGORY_COLORS[4], t: "Category 4" },
+        { c: CATEGORY_COLORS[5], t: "Category 5" },
+      ];
+      div.innerHTML = `
+        <div class="hw-legend-header" role="button" tabindex="0" aria-expanded="${!collapsed}">
+          <span>Legend</span><span class="hw-legend-caret">▾</span>
+        </div>
+        <div class="hw-legend-body">
+          <div class="hw-legend-group">
+            <div class="hw-legend-group-title">Hurricane category</div>
+            ${catRows.map((r) => `<div class="hw-legend-row"><span class="hw-legend-dot" style="background:${r.c}"></span>${r.t}</div>`).join("")}
           </div>
-          <div class="hw-legend-body">
-            <div class="hw-legend-group">
-              <div class="hw-legend-group-title">Hurricane category</div>
-              ${catRows.map((r) => `<div class="hw-legend-row"><span class="hw-legend-dot" style="background:${r.c}"></span>${r.t}</div>`).join("")}
-            </div>
-            <div class="hw-legend-group">
-              <div class="hw-legend-group-title">Earthquake magnitude</div>
-              ${EQ_SCALE.map((r) => `<div class="hw-legend-row"><span class="hw-legend-dot" style="background:${r.color}"></span>${r.label}</div>`).join("")}
-            </div>
-            <div class="hw-legend-group">
-              <div class="hw-legend-group-title">Other layers</div>
-              <div class="hw-legend-row"><span class="hw-legend-swatch" style="background:rgba(224,64,251,0.3);border-color:#e040fb"></span>Tornado warning</div>
-              <div class="hw-legend-row"><img src="/local/home_weather/icons/disturbance.svg" alt=""/>NHC disturbance</div>
-              <div class="hw-legend-row"><span class="hw-legend-swatch" style="background:rgba(255,167,38,0.25);border-color:#ffa726;border-style:dashed"></span>Development area</div>
-              <div class="hw-legend-row"><img src="/local/home_weather/icons/lightning-bolt.svg" alt=""/>Live strike (Blitzortung)</div>
-              <div class="hw-legend-row"><img src="/local/home_weather/icons/home.svg" alt=""/>Your home</div>
-            </div>
-          </div>`;
-        L.DomEvent.disableClickPropagation(div);
-        L.DomEvent.disableScrollPropagation(div);
-        const header = div.querySelector(".hw-legend-header");
-        const toggle = () => {
-          const isCollapsed = div.classList.toggle("collapsed");
-          header.setAttribute("aria-expanded", String(!isCollapsed));
-        };
-        header.addEventListener("click", toggle);
-        header.addEventListener("keydown", (ev) => {
-          if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); toggle(); }
-        });
-        return div;
+          <div class="hw-legend-group">
+            <div class="hw-legend-group-title">Earthquake magnitude</div>
+            ${EQ_SCALE.map((r) => `<div class="hw-legend-row"><span class="hw-legend-dot" style="background:${r.color}"></span>${r.label}</div>`).join("")}
+          </div>
+          <div class="hw-legend-group">
+            <div class="hw-legend-group-title">Other layers</div>
+            <div class="hw-legend-row"><span class="hw-legend-swatch" style="background:rgba(224,64,251,0.3);border-color:#e040fb"></span>Tornado warning</div>
+            <div class="hw-legend-row"><img src="/local/home_weather/icons/disturbance.svg" alt=""/>NHC disturbance</div>
+            <div class="hw-legend-row"><span class="hw-legend-swatch" style="background:rgba(255,167,38,0.25);border-color:#ffa726;border-style:dashed"></span>Development area</div>
+            <div class="hw-legend-row"><img src="/local/home_weather/icons/lightning-bolt.svg" alt=""/>Live strike (Blitzortung)</div>
+            <div class="hw-legend-row"><img src="/local/home_weather/icons/home.svg" alt=""/>Your home</div>
+          </div>
+        </div>`;
+      L.DomEvent.disableClickPropagation(div);
+      L.DomEvent.disableScrollPropagation(div);
+      const header = div.querySelector(".hw-legend-header");
+      const toggle = () => {
+        const isCollapsed = div.classList.toggle("collapsed");
+        header.setAttribute("aria-expanded", String(!isCollapsed));
       };
-      ctrl.addTo(this._map);
+      header.addEventListener("click", toggle);
+      header.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); toggle(); }
+      });
+      return div;
     }
 
-    _consolidateMapToolbar() {
+    _addLegendControl() {
+      if (!global.L || !this._map) return;
+      this._legendEl = this._buildLegendElement(true);
+    }
+
+    _consolidateMapControlsStack() {
       const L = global.L;
       if (!L || !this._map) return;
       const corner = this._map._controlCorners?.topleft;
-      if (!corner || corner.querySelector(".hw-map-toolbar")) return;
+      if (!corner || corner.querySelector(".hw-map-controls-stack")) return;
 
       const layers = corner.querySelector(".leaflet-control-layers");
       const zoom = corner.querySelector(".leaflet-control-zoom");
       const measure = corner.querySelector(".hw-measure-ctrl");
       if (!layers && !zoom && !measure) return;
 
-      const toolbar = L.DomUtil.create("div", "hw-map-toolbar leaflet-control");
-      L.DomEvent.disableClickPropagation(toolbar);
+      const topRight = this._map._controlCorners?.topright;
+      const oldLegendWrap = topRight?.querySelector(".hw-legend")?.closest(".leaflet-control");
+      if (oldLegendWrap?.parentNode) {
+        oldLegendWrap.parentNode.removeChild(oldLegendWrap);
+      }
+
+      const stack = L.DomUtil.create("div", "hw-map-controls-stack leaflet-control");
+      const toolbar = L.DomUtil.create("div", "hw-map-toolbar");
+      const readoutRow = L.DomUtil.create("div", "hw-measure-readout-row");
+      readoutRow.textContent = "";
+      this._mapControlsStack = stack;
+      this._measureReadoutRow = readoutRow;
 
       [layers, zoom, measure].forEach((el) => {
         if (!el?.parentNode) return;
@@ -1820,7 +1894,14 @@
         toolbar.appendChild(el);
       });
 
-      corner.insertBefore(toolbar, corner.firstChild);
+      const legend = this._legendEl || this._buildLegendElement(true);
+      this._legendEl = legend;
+
+      stack.appendChild(toolbar);
+      stack.appendChild(readoutRow);
+      stack.appendChild(legend);
+      L.DomEvent.disableClickPropagation(stack);
+      corner.insertBefore(stack, corner.firstChild);
     }
 
     _addMeasureControl() {
@@ -1846,6 +1927,15 @@
       ctrl.addTo(this._map);
     }
 
+    _setMeasureReadout(text) {
+      const value = text || "";
+      if (this._measureReadout) this._measureReadout.textContent = value;
+      if (this._measureReadoutRow) this._measureReadoutRow.textContent = value;
+      if (this._mapControlsStack) {
+        this._mapControlsStack.classList.toggle("measure-active", Boolean(value));
+      }
+    }
+
     _toggleMeasure() {
       const L = global.L;
       if (!L || !this._map) return;
@@ -1860,7 +1950,7 @@
         this._measureDblHandler = () => { this._measureActive && this._toggleMeasure(); };
         this._map.on("click", this._measureClickHandler);
         this._map.on("dblclick", this._measureDblHandler);
-        if (this._measureReadout) this._measureReadout.textContent = "Click points…";
+        this._setMeasureReadout("Click points…");
       } else {
         this._map.off("click", this._measureClickHandler);
         this._map.off("dblclick", this._measureDblHandler);
@@ -1869,7 +1959,7 @@
         L.DomUtil.removeClass(this._map.getContainer(), "hw-measuring");
         this._measureLayer?.clearLayers();
         this._measurePoints = [];
-        if (this._measureReadout) this._measureReadout.textContent = "";
+        this._setMeasureReadout("");
       }
     }
 
@@ -1895,7 +1985,7 @@
       const text = miles >= 1
         ? `${miles.toFixed(1)} mi · ${km.toFixed(1)} km`
         : `${Math.round(meters * 3.28084)} ft · ${Math.round(meters)} m`;
-      if (this._measureReadout) this._measureReadout.textContent = pts.length < 2 ? "Click next point…" : text;
+      this._setMeasureReadout(pts.length < 2 ? "Click next point…" : text);
       if (pts.length >= 2) {
         L.marker(pts[pts.length - 1], { opacity: 0 })
           .bindTooltip(text, { permanent: true, direction: "top", className: "hw-measure-tip", offset: [0, -4] })
