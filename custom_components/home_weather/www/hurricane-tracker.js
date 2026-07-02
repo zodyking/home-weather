@@ -73,7 +73,7 @@
       this._hasInitialFit = false;
       this._lastFitBounds = null;
       this._userViewLocked = false;
-      this._mapLayers = { hurricane: true, tornado: true, earthquakes: true, lightning: true, volcanoes: true, travel: true, wildfire: true, air_quality: true };
+      this._mapLayers = { hurricane: true, tornado: true, earthquakes: true, lightning: true, volcanoes: true, travel: false, wildfire: false, air_quality: false };
       this._mapSort = "newest";
       this._lightningSettings = {
         enabled: true,
@@ -117,7 +117,24 @@
       if (layers.lightning !== undefined && layers.lightning !== prevLightning) {
         this._syncLightningLayer();
       }
+      this._syncBottomBarButtons();
       if (this._map && this._layerGroup) this._renderMap();
+    }
+
+    setOnLayerToggle(callback) {
+      this._onLayerToggle = callback;
+    }
+
+    _syncBottomBarButtons() {
+      const btns = this._root?.querySelectorAll(".hw-bottom-layer-btn");
+      if (!btns) return;
+      btns.forEach((btn) => {
+        const key = btn.dataset.layer;
+        if (!key) return;
+        const active = !!this._mapLayers[key];
+        btn.classList.toggle("is-active", active);
+        btn.setAttribute("aria-pressed", active ? "true" : "false");
+      });
     }
 
     setLightningSettings(settings) {
@@ -1356,6 +1373,96 @@
           align-items: center;
           gap: 8px;
         }
+        /* Bottom toolbar */
+        .hw-bottom-bar {
+          position: absolute;
+          bottom: 0;
+          left: 0;
+          right: 320px;
+          height: 48px;
+          background: #141820;
+          border-top: 1px solid rgba(255,255,255,0.1);
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 0 12px;
+          z-index: 1050;
+          gap: 8px;
+        }
+        .hw-bottom-layers {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+        }
+        .hw-bottom-layer-btn {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 36px;
+          height: 36px;
+          border: none;
+          border-radius: 8px;
+          background: transparent;
+          cursor: pointer;
+          transition: background 0.15s, opacity 0.15s;
+          opacity: 0.45;
+          padding: 0;
+        }
+        .hw-bottom-layer-btn:hover {
+          background: rgba(255,255,255,0.08);
+          opacity: 0.75;
+        }
+        .hw-bottom-layer-btn.is-active {
+          background: rgba(255,255,255,0.1);
+          opacity: 1;
+        }
+        .hw-bottom-layer-btn img,
+        .hw-bottom-layer-btn svg {
+          width: 22px;
+          height: 22px;
+          display: block;
+        }
+        .hw-bottom-coords {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          font-size: 11px;
+          color: #9e9e9e;
+          font-variant-numeric: tabular-nums;
+          white-space: nowrap;
+        }
+        .hw-bottom-coords .hw-scale-wrap {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+        }
+        .hw-bottom-coords .hw-scale-line {
+          display: inline-block;
+          height: 4px;
+          border-left: 1px solid #9e9e9e;
+          border-right: 1px solid #9e9e9e;
+          border-bottom: 1px solid #9e9e9e;
+          min-width: 40px;
+        }
+        @media (max-width: 768px) {
+          .hw-bottom-bar {
+            right: 0;
+            height: 44px;
+            padding: 0 8px;
+          }
+          .hw-bottom-layer-btn {
+            width: 32px;
+            height: 32px;
+          }
+          .hw-bottom-layer-btn img,
+          .hw-bottom-layer-btn svg {
+            width: 18px;
+            height: 18px;
+          }
+          .hw-bottom-coords {
+            font-size: 10px;
+          }
+        }
         @media (max-width: 768px) {
           .hurricane-status {
             top: 0;
@@ -1983,12 +2090,14 @@
         <section class="${layoutClass}">
           <div class="hurricane-map-wrap">
             <div id="hurricane-map" class="hurricane-map"></div>
+            ${this._buildBottomBarHtml()}
           </div>
           ${this._buildStatusPanelHtml()}
         </section>`;
       this._renderMap(true);
       this._syncLightningLayer();
       this._bindStatusPanelToggle();
+      this._bindBottomBarToggles();
       this._syncStatusPanelLayout();
       requestAnimationFrame(() => {
         requestAnimationFrame(() => this._map?.invalidateSize?.());
@@ -1998,6 +2107,64 @@
     _fmtMiles(value) {
       if (value == null || Number.isNaN(Number(value))) return "—";
       return `${Math.round(Number(value))} mi`;
+    }
+
+    _buildBottomBarHtml() {
+      const layers = [
+        { key: "hurricane", label: "Hurricanes", icon: "/local/home_weather/icons/hurricane.svg" },
+        { key: "tornado", label: "Tornadoes", icon: "/local/home_weather/icons/tornado.svg" },
+        { key: "earthquakes", label: "Earthquakes", icon: "/local/home_weather/icons/earthquake.svg" },
+        { key: "volcanoes", label: "Volcanoes", icon: "/local/home_weather/icons/volcano.svg" },
+        { key: "lightning", label: "Lightning", svg: `<svg viewBox="0 0 24 24" fill="#ffeb3b"><path d="M7 2v11h3v9l7-12h-4l4-8z"/></svg>` },
+        { key: "travel", label: "Travel Advisories", icon: "/local/home_weather/icons/globe.svg" },
+        { key: "wildfire", label: "Wildfires", icon: "/local/home_weather/icons/fire.svg" },
+        { key: "air_quality", label: "Air Quality", icon: "/local/home_weather/icons/air-quality.svg" },
+      ];
+      const btns = layers.map((l) => {
+        const active = this._mapLayers[l.key] ? "is-active" : "";
+        const iconHtml = l.svg ? l.svg : `<img src="${l.icon}" alt="" draggable="false"/>`;
+        return `<button type="button" class="hw-bottom-layer-btn ${active}" data-layer="${l.key}" title="${l.label}" aria-label="${l.label}" aria-pressed="${this._mapLayers[l.key] ? "true" : "false"}">${iconHtml}</button>`;
+      }).join("");
+      return `
+        <div class="hw-bottom-bar">
+          <div class="hw-bottom-layers">${btns}</div>
+          <div class="hw-bottom-coords">
+            <span class="hw-coords-text">—</span>
+            <span class="hw-scale-wrap"><span class="hw-scale-line" style="width:50px"></span><span class="hw-scale-label">—</span></span>
+          </div>
+        </div>`;
+    }
+
+    _bindBottomBarToggles() {
+      const bar = this._root?.querySelector(".hw-bottom-bar");
+      if (!bar || bar.dataset.bound === "true") return;
+      bar.dataset.bound = "true";
+      bar.addEventListener("click", (e) => {
+        const btn = e.target.closest(".hw-bottom-layer-btn");
+        if (!btn) return;
+        const key = btn.dataset.layer;
+        if (!key) return;
+        this._mapLayers[key] = !this._mapLayers[key];
+        btn.classList.toggle("is-active", this._mapLayers[key]);
+        btn.setAttribute("aria-pressed", this._mapLayers[key] ? "true" : "false");
+        this._renderMap();
+        if (this._onLayerToggle) this._onLayerToggle(key, this._mapLayers[key]);
+      });
+    }
+
+    _updateBottomBarCoords(lat, lon, zoom) {
+      const el = this._root?.querySelector(".hw-bottom-bar .hw-coords-text");
+      if (el) el.textContent = `${lat.toFixed(3)}°, ${lon.toFixed(3)}° · z${zoom ?? "?"}`;
+    }
+
+    _updateBottomBarScale(meters, label) {
+      const line = this._root?.querySelector(".hw-bottom-bar .hw-scale-line");
+      const lbl = this._root?.querySelector(".hw-bottom-bar .hw-scale-label");
+      if (line && meters) {
+        const px = Math.min(100, Math.max(40, meters / 10));
+        line.style.width = `${px}px`;
+      }
+      if (lbl) lbl.textContent = label || "—";
     }
 
     _getUsaBounds() {
@@ -2034,8 +2201,7 @@
       this._baseLayers = baseLayers;
       baseLayers.Dark.addTo(this._map);
 
-      /* Scale + coords at bottom-left; custom toolbar stack at top-left */
-      this._safe(() => L.control.scale({ position: "bottomleft", metric: true, imperial: true, maxWidth: 160 }).addTo(this._map));
+      /* Custom toolbar stack at top-left; coords/scale in bottom bar */
       this._safe(() => this._buildMapControlsStack());
       this._safe(() => this._addCoordinateControl());
 
@@ -2111,24 +2277,45 @@
     _addCoordinateControl() {
       const L = global.L;
       if (!L || !this._map) return;
-      const ctrl = L.control({ position: "bottomleft" });
-      ctrl.onAdd = () => {
-        const div = L.DomUtil.create("div", "hw-coords");
-        div.textContent = "—";
-        this._coordsEl = div;
-        return div;
-      };
-      ctrl.addTo(this._map);
       const update = (lat, lon) => {
-        if (!this._coordsEl) return;
         const z = this._map?.getZoom?.();
-        this._coordsEl.textContent = `${lat.toFixed(3)}°, ${lon.toFixed(3)}°  ·  z${z ?? "?"}`;
+        this._updateBottomBarCoords(lat, lon, z);
       };
       this._map.on("mousemove", (e) => update(e.latlng.lat, e.latlng.lng));
       this._map.on("zoomend moveend", () => {
         const c = this._map.getCenter();
         update(c.lat, c.lng);
+        this._updateBottomBarScaleFromMap();
       });
+      const initCenter = this._map.getCenter();
+      if (initCenter) update(initCenter.lat, initCenter.lng);
+      this._updateBottomBarScaleFromMap();
+    }
+
+    _updateBottomBarScaleFromMap() {
+      if (!this._map) return;
+      const center = this._map.getCenter();
+      const zoom = this._map.getZoom();
+      const metersPerPixel = 40075016.686 * Math.abs(Math.cos(center.lat * Math.PI / 180)) / Math.pow(2, zoom + 8);
+      const barWidth = 60;
+      const meters = metersPerPixel * barWidth;
+      let label = "";
+      if (meters >= 1000) {
+        const km = Math.round(meters / 1000);
+        label = `${km} km`;
+      } else {
+        label = `${Math.round(meters)} m`;
+      }
+      const miles = meters / 1609.34;
+      if (miles >= 1) {
+        label += ` / ${Math.round(miles)} mi`;
+      } else {
+        label += ` / ${Math.round(meters * 3.281)} ft`;
+      }
+      const line = this._root?.querySelector(".hw-bottom-bar .hw-scale-line");
+      const lbl = this._root?.querySelector(".hw-bottom-bar .hw-scale-label");
+      if (line) line.style.width = `${barWidth}px`;
+      if (lbl) lbl.textContent = label;
     }
 
     _buildLegendElement(collapsed = true) {

@@ -14,7 +14,7 @@ class HomeWeatherPanel extends HTMLElement {
     this._mapsMode = "storms";
     this._mapsWindRadii = false;
     this._mapsShowZones = true;
-    this._mapsLayers = this._normalizeMapLayers({ hurricane: true, tornado: true, earthquakes: true, lightning: true, volcanoes: true, travel: true, wildfire: true, air_quality: true });
+    this._mapsLayers = this._normalizeMapLayers({ hurricane: true, tornado: true, earthquakes: true, lightning: true, volcanoes: true, travel: false, wildfire: false, air_quality: false });
     this._mapsSort = "newest";
     this._settingsPane = "general";
     this._zoneEditor = null;
@@ -4273,8 +4273,8 @@ class HomeWeatherPanel extends HTMLElement {
                   <span style="font-size:12px;font-weight:500;">Alerts</span>
                   ${this._renderAlertsBadge()}
                 </button>
-                <button class="icon-btn" id="hurricanes-btn" aria-label="Maps and Weather" title="Maps &amp; Weather">
-                  <img src="/local/home_weather/icons/hurricane.svg" width="20" height="20" alt="" style="display:block;" />
+                <button class="icon-btn" id="hurricanes-btn" aria-label="Hazard Map" title="Hazard Map">
+                  <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M20.5 3l-.16.03L15 5.1 9 3 3.36 4.9c-.21.07-.36.25-.36.48V20.5c0 .28.22.5.5.5l.16-.03L9 18.9l6 2.1 5.64-1.9c.21-.07.36-.25.36-.48V3.5c0-.28-.22-.5-.5-.5zM15 19l-6-2.11V5l6 2.11V19z"/></svg>
                 </button>
                 <button class="icon-btn" id="gear-btn" aria-label="Settings">
                   <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.488.488 0 00-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 00-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94 0 .31.02.64.07.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
@@ -5553,6 +5553,10 @@ class HomeWeatherPanel extends HTMLElement {
       this._hurricaneTracker.setMapLayers(this._mapsLayers);
       this._hurricaneTracker.setMapSort(this._mapsSort);
       this._hurricaneTracker.setShowZones?.(this._mapsShowZones, this._getZoneOverlayConfig());
+      this._hurricaneTracker.setOnLayerToggle?.((key, active) => {
+        this._mapsLayers = this._normalizeMapLayers({ ...this._mapsLayers, [key]: active });
+        this._syncMenubarChecks("maps-layer", (v) => !!this._mapsLayers[v]);
+      });
       this._updateMapsHazardsMeta();
       requestAnimationFrame(() => {
         requestAnimationFrame(() => this._hurricaneTracker?.invalidateMapSize?.());
