@@ -117,7 +117,7 @@
     constructor(options) {
       this._hass = options.hass;
       this._shadow = options.shadowRoot;
-      this._home = options.home || { lat: 40.441, lon: -73.938 };
+      this._home = options.home || { lat: 39.8283, lon: -98.5795 }; // Center of contiguous US
       this._settings = options.settings || {};
       this._onSave = options.onSave || (() => {});
       this._onClose = options.onClose || (() => {});

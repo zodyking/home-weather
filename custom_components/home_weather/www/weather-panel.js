@@ -1068,6 +1068,10 @@ class HomeWeatherPanel extends HTMLElement {
   }
 
   _getSunTimes(lat, lon, date) {
+    // Handle null/undefined coordinates gracefully
+    if (lat == null || lon == null || !Number.isFinite(lat) || !Number.isFinite(lon)) {
+      return { sunrise: null, sunset: null, solar_noon: null, day_length: null, civil_twilight_begin: null, civil_twilight_end: null };
+    }
     const d = date instanceof Date ? date : new Date(date);
     const dateStr = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
     const key = `${lat.toFixed(4)}_${lon.toFixed(4)}_${dateStr}`;
@@ -1101,23 +1105,53 @@ class HomeWeatherPanel extends HTMLElement {
 
   _getHomeCoordinates() {
     const h = this._hass;
-    if (!h) return { lat: 40.441, lon: -73.938 };
-
+    
+    // Priority 1: Home Assistant's configured home location (most reliable)
+    if (h?.config?.latitude != null && h?.config?.longitude != null) {
+      const lat = Number(h.config.latitude);
+      const lon = Number(h.config.longitude);
+      if (Number.isFinite(lat) && Number.isFinite(lon)) {
+        return { lat, lon };
+      }
+    }
+    
+    // Priority 2: zone.home entity (HA's home zone)
+    const zoneHome = h?.states?.["zone.home"];
+    if (zoneHome?.attributes?.latitude != null && zoneHome?.attributes?.longitude != null) {
+      const lat = Number(zoneHome.attributes.latitude);
+      const lon = Number(zoneHome.attributes.longitude);
+      if (Number.isFinite(lat) && Number.isFinite(lon)) {
+        return { lat, lon };
+      }
+    }
+    
+    // Priority 3: Weather entity attributes (some weather integrations provide this)
     const weatherEntity = this._settings?.weather_entity ?? this._config?.weather_entity;
-    const weatherState = weatherEntity ? h.states?.[weatherEntity] : null;
+    const weatherState = weatherEntity ? h?.states?.[weatherEntity] : null;
     const wLat = weatherState?.attributes?.latitude;
     const wLon = weatherState?.attributes?.longitude;
-    if (wLat != null && wLon != null && Number.isFinite(Number(wLat)) && Number.isFinite(Number(wLon))) {
-      return { lat: Number(wLat), lon: Number(wLon) };
+    if (wLat != null && wLon != null) {
+      const lat = Number(wLat);
+      const lon = Number(wLon);
+      if (Number.isFinite(lat) && Number.isFinite(lon)) {
+        return { lat, lon };
+      }
     }
-
-    const lat = h.config?.latitude ?? h.states?.["zone.home"]?.attributes?.latitude ?? 40.441;
-    const lon = h.config?.longitude ?? h.states?.["zone.home"]?.attributes?.longitude ?? -73.938;
-    return { lat, lon };
+    
+    // Fallback: return null to indicate coordinates not available yet
+    // Callers should handle this case appropriately
+    return { lat: null, lon: null };
+  }
+  
+  _hasValidHomeCoordinates() {
+    const { lat, lon } = this._getHomeCoordinates();
+    return lat != null && lon != null && Number.isFinite(lat) && Number.isFinite(lon);
   }
 
   _buildWindyUrl(product = "radar") {
     const { lat, lon } = this._getHomeCoordinates();
+    // Return null if coordinates aren't available yet
+    if (lat == null || lon == null) return null;
     return `https://embed.windy.com/embed.html?type=map&location=coordinates&metricRain=in&metricTemp=°F&metricWind=mph&zoom=8&overlay=${product}&product=${product}&level=surface&lat=${lat}&lon=${lon}&pressure=true&message=false&play=0`;
   }
 
@@ -2696,6 +2730,14 @@ class HomeWeatherPanel extends HTMLElement {
           border: none;
           display: block;
         }
+        .maps-windy-loading {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          height: 100%;
+          color: var(--hw-muted, #9b9b9b);
+          font-size: 14px;
+        }
         .maps-chart-container {
           flex: 1;
           min-height: 0;
@@ -3065,14 +3107,16 @@ class HomeWeatherPanel extends HTMLElement {
           -webkit-backdrop-filter: blur(12px) saturate(140%);
           border-top: 1px solid var(--hw-border);
         }
-        .form-actions-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: var(--form-gap); }
+        .form-actions-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: var(--form-gap-lg); padding-top: var(--form-gap); border-top: 1px solid rgba(255,255,255,0.06); }
         .btn-secondary-test { background: var(--secondary-background-color); color: var(--primary-text-color); border: 1px solid var(--input-border); }
         .btn-secondary-test:hover { background: rgba(255, 255, 255, 0.06); }
         code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.92em; padding: 1px 5px; border-radius: 4px; background: rgba(255,255,255,0.06); color: var(--panel-accent-hover); }
-        .form-group { display: flex; flex-direction: column; gap: 6px; margin-bottom: var(--form-gap); }
-        .form-group label { font-size: var(--form-label-size); font-weight: var(--form-label-weight); color: var(--primary-text-color); }
-        .form-group input, .form-group select { padding: 10px 14px; height: var(--form-input-height); border: 1px solid var(--input-border); border-radius: 8px; background: var(--input-bg); color: var(--primary-text-color); font-size: 14px; box-sizing: border-box; }
+        .form-group { display: flex; flex-direction: column; gap: 5px; margin-bottom: var(--form-gap); }
+        .form-group label { font-size: var(--form-label-size); font-weight: 500; color: var(--primary-text-color); letter-spacing: 0.01em; }
+        .form-group input, .form-group select { padding: 10px 14px; height: var(--form-input-height); border: 1px solid var(--input-border); border-radius: 8px; background: var(--input-bg); color: var(--primary-text-color); font-size: 14px; box-sizing: border-box; transition: border-color 0.15s ease; }
+        .form-group input:focus, .form-group select:focus { outline: none; border-color: var(--panel-accent); }
         .form-group input[type="checkbox"] { width: auto; padding: 0; height: auto; }
+        .form-group .form-hint { margin-top: 2px; margin-bottom: 0; }
         .form-row { display: flex; align-items: center; gap: var(--form-gap-sm); }
         .form-row-inline {
           display: grid;
@@ -3084,38 +3128,43 @@ class HomeWeatherPanel extends HTMLElement {
         .form-row-inline .form-group { margin-bottom: 0; }
         .settings-toggle-row,
         .inline-toggle {
-          display: inline-flex;
+          display: flex;
           align-items: center;
-          flex-wrap: wrap;
-          gap: 8px 12px;
-          padding: 10px 14px;
-          margin-bottom: var(--form-gap-sm);
-          justify-content: flex-start;
-          background: rgba(255, 255, 255, 0.04);
-          border: 1px solid var(--hw-border);
-          border-radius: var(--radius-sm);
-          width: fit-content;
-          max-width: 100%;
+          gap: 10px;
+          padding: 8px 12px;
+          margin-bottom: 6px;
+          justify-content: space-between;
+          background: rgba(255, 255, 255, 0.025);
+          border-left: 3px solid rgba(255,255,255,0.1);
+          border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+          max-width: min(400px, 100%);
           box-sizing: border-box;
+          transition: background 0.15s ease, border-color 0.15s ease;
+        }
+        .settings-toggle-row:hover,
+        .inline-toggle:hover {
+          background: rgba(255, 255, 255, 0.045);
+          border-left-color: var(--panel-accent);
         }
         .settings-toggle-row--wide,
         .inline-toggle--wide {
-          display: flex;
-          width: 100%;
           max-width: min(520px, 100%);
         }
+        .toggle-group { display: flex; flex-direction: column; gap: 2px; margin-bottom: var(--form-gap-sm); }
+        .toggle-group .settings-toggle-row,
+        .toggle-group .inline-toggle { margin-bottom: 0; }
         .settings-toggle-row .inline-toggle-label,
         .inline-toggle-label,
         .settings-toggle-row > label:first-of-type:not(.toggle-switch) {
-          flex: 0 1 auto;
+          flex: 1;
           margin: 0;
-          font-size: var(--form-label-size);
-          font-weight: var(--form-label-weight);
+          font-size: 13px;
+          font-weight: 450;
           color: var(--primary-text-color);
-          line-height: 1.35;
+          line-height: 1.4;
         }
         .settings-toggle-row .toggle-switch,
-        .inline-toggle .toggle-switch { flex-shrink: 0; }
+        .inline-toggle .toggle-switch { flex-shrink: 0; margin-left: auto; }
         .days-of-week-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--form-gap-sm); margin-bottom: var(--form-gap); }
         .day-toggle-row {
           display: flex;
@@ -3179,8 +3228,11 @@ class HomeWeatherPanel extends HTMLElement {
         .collapsible-content { padding: var(--section-padding); display: none; flex-direction: column; gap: var(--form-gap); }
         .collapsible-header + .collapsible-content { border-top: 1px solid var(--card-border); }
         .collapsible-section.open > .collapsible-content { display: flex; }
-        .subsection-block { display: flex; flex-direction: column; gap: var(--form-gap-sm); }
-        .subsection-title { font-size: 14px; font-weight: 600; color: var(--primary-text-color); margin-bottom: 4px; }
+        .subsection-block { display: flex; flex-direction: column; gap: var(--form-gap-sm); padding-top: var(--form-gap); margin-top: var(--form-gap-sm); border-top: 1px solid rgba(255,255,255,0.08); }
+        .subsection-block:first-child { padding-top: 0; margin-top: 0; border-top: none; }
+        .subsection-title { font-size: 11px; font-weight: 600; color: var(--secondary-text-color); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; padding-top: var(--form-gap); border-top: 1px solid rgba(255,255,255,0.06); }
+        .subsection-block .subsection-title:first-child { padding-top: 0; border-top: none; }
+        .subsection-block + .subsection-title { margin-top: var(--form-gap); }
         .range-slider { display: flex; align-items: center; gap: 12px; width: 100%; }
         .range-slider input[type="range"] { flex: 1; height: 6px; border-radius: 3px; background: var(--secondary-background-color); appearance: none; -webkit-appearance: none; cursor: pointer; }
         .range-slider input[type="range"]::-webkit-slider-thumb { appearance: none; -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%; background: var(--accent-color); cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
@@ -3202,7 +3254,7 @@ class HomeWeatherPanel extends HTMLElement {
         .multi-select-item input { display: none; }
         .textarea-field { width: 100%; min-height: 100px; padding: 12px; border: 1px solid var(--input-border); border-radius: 8px; background: var(--input-bg); color: var(--primary-text-color); font-size: 14px; font-family: inherit; resize: vertical; }
         .settings-section-divider { border: none; border-top: 1px solid var(--card-border); margin: 20px 0; }
-        .form-hint { font-size: 12px; color: var(--secondary-text-color); margin: 0 0 8px; line-height: 1.45; }
+        .form-hint { font-size: 11.5px; color: var(--secondary-text-color); margin: 0 0 var(--form-gap-sm); line-height: 1.5; opacity: 0.85; }
         .settings-form .collapsible-content > .form-group:last-child,
         .settings-form .collapsible-content > .inline-toggle:last-child,
         .settings-form .collapsible-content > .settings-toggle-row:last-child,
@@ -3530,6 +3582,32 @@ class HomeWeatherPanel extends HTMLElement {
           .hw-menubar-mobile-trigger { display: inline-flex; }
         }
         .narrow .hw-menubar-mobile-trigger { display: inline-flex; }
+        /* Back button in menubar */
+        .hw-menubar-back {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          height: 100%;
+          padding: 0 12px;
+          background: none;
+          border: none;
+          color: var(--hw-text);
+          font-size: 12px;
+          font-weight: 500;
+          font-family: inherit;
+          cursor: pointer;
+          white-space: nowrap;
+          transition: background 0.12s ease;
+        }
+        .hw-menubar-back:hover { background: var(--hw-hover); }
+        .hw-menubar-back:focus-visible { outline: 2px solid var(--hw-accent); outline-offset: -2px; }
+        .hw-menubar-back svg { flex-shrink: 0; opacity: 0.8; }
+        .hw-menubar-back + .hw-menu { margin-left: 4px; }
+        @media (max-width: 768px) {
+          .hw-menubar-back { display: none; }
+        }
+        .narrow .hw-menubar-back { display: none; }
+        .hw-menu-back-item { font-weight: 600; color: var(--hw-accent); }
         /* Mobile menu sheet */
         .hw-menusheet-backdrop {
           position: fixed;
@@ -3662,7 +3740,22 @@ class HomeWeatherPanel extends HTMLElement {
           min-width: 0;
         }
         .settings-card-title { font-size: 15px; font-weight: 600; color: var(--hw-text); }
-        .settings-card-sub { font-size: 12px; color: var(--hw-muted); margin-top: -10px; line-height: 1.5; }
+        .settings-card-sub { font-size: 12px; color: var(--hw-muted); line-height: 1.5; margin-top: 2px; }
+        .settings-card-header {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 16px;
+          padding-bottom: 12px;
+          border-bottom: 1px solid var(--hw-border);
+          margin-bottom: 4px;
+        }
+        .settings-card-header .settings-card-sub { margin-top: 4px; }
+        .settings-card-header + .settings-card-body { padding-top: 8px; }
+        .settings-card-body { display: flex; flex-direction: column; gap: var(--form-gap, 16px); }
+        .settings-card-body > .form-group:last-child { margin-bottom: 0; }
+        .settings-card-body > .form-hint:first-child { margin-top: 0; }
+        .settings-card-body > .form-actions-row { margin-top: 4px; }
         .settings-form-grid {
           display: grid;
           grid-template-columns: 1fr 1fr;
@@ -4494,9 +4587,14 @@ class HomeWeatherPanel extends HTMLElement {
       </button>`;
   }
 
-  _renderMenubar({ menus = [] }) {
+  _renderMenubar({ menus = [], backAction = null, backLabel = null }) {
+    const backBtnHtml = backAction && backLabel ? `
+      <button type="button" class="hw-menubar-back" data-mb-action="${backAction}" data-mb-value="" title="${backLabel}">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+        <span>${backLabel}</span>
+      </button>` : "";
     const menusHtml = menus.map((menu, index) => {
-      const sep = index === 1 ? `<span class="hw-menu-sep" aria-hidden="true"></span>` : "";
+      const sep = index === 1 && !backAction ? `<span class="hw-menu-sep" aria-hidden="true"></span>` : "";
       return `${sep}
       <div class="hw-menu" data-menu-id="${menu.id}">
         <button type="button" class="hw-menu-trigger" aria-haspopup="true" aria-expanded="false">${menu.label}</button>
@@ -4515,6 +4613,10 @@ class HomeWeatherPanel extends HTMLElement {
           </button>
         </div>
         <div class="hw-menusheet-body">
+          ${backAction && backLabel ? `<button type="button" class="hw-menu-item hw-menu-back-item" data-mb-action="${backAction}" data-mb-value="">
+            <span class="hw-menu-mark"><svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg></span>
+            <span class="hw-menu-item-label">${backLabel}</span>
+          </button><hr class="hw-menu-divider"/>` : ""}
           ${menus.map((menu) => `
             <div class="hw-menu-group-label">${menu.label}</div>
             ${menu.items.map((item) => this._renderMenubarItem(item)).join("")}
@@ -4524,6 +4626,7 @@ class HomeWeatherPanel extends HTMLElement {
     return `
       <header class="hw-menubar">
         <nav class="hw-menubar-menus" role="menubar" aria-label="Application menu">
+          ${backBtnHtml}
           ${menusHtml}
         </nav>
         <div class="hw-menubar-end">
@@ -4611,16 +4714,22 @@ class HomeWeatherPanel extends HTMLElement {
   }
 
   _renderZonesMenubar() {
+    const returnView = this._zoneEditorReturnView || "settings";
+    const backLabel = returnView === "hurricanes" ? "Back to Hazard Map" : returnView === "forecast" ? "Back to Dashboard" : "Back to Settings";
     const zonesMenu = {
       id: "zones-menu",
       label: "Zones",
       items: [
+        { type: "action", action: "close-zones", value: "", label: backLabel, icon: "arrow-left" },
+        { type: "divider" },
+        { type: "action", action: "nav", value: "hurricanes", label: "Open Hazard Map" },
         { type: "action", action: "nav", value: "settings", label: "Open Settings" },
-        { type: "action", action: "nav", value: "hurricanes", label: "Open hazard map" },
       ],
     };
     return this._renderMenubar({
       menus: [this._menubarNavMenu(), zonesMenu],
+      backAction: "close-zones",
+      backLabel,
     });
   }
 
@@ -4760,6 +4869,11 @@ class HomeWeatherPanel extends HTMLElement {
         this._closeAllMenus();
         this._openZoneEditorView(this._currentView === "zones" ? this._zoneEditorReturnView : this._currentView);
         break;
+      case "close-zones":
+        this._closeMenusheet();
+        this._closeAllMenus();
+        this._closeZoneEditorView();
+        break;
       case "maps-mode": {
         this._closeMenusheet();
         const mode = value || "storms";
@@ -4895,10 +5009,15 @@ class HomeWeatherPanel extends HTMLElement {
       await this._loadZoneEditorScript();
       if (this._currentView !== "zones") return;
       this._destroyZoneEditor();
+      const homeCoords = this._getHomeCoordinates();
+      // Provide default coordinates if not available (center of contiguous US)
+      const home = (homeCoords.lat != null && homeCoords.lon != null)
+        ? homeCoords
+        : { lat: 39.8283, lon: -98.5795 };
       this._zoneEditor = new window.ZoneEditor({
         hass: this._hass,
         shadowRoot: s,
-        home: this._getHomeCoordinates(),
+        home,
         settings: this._settings || {},
         onSave: (patch) => this._saveZonePatch(patch),
         onClose: () => this._closeZoneEditorView(),
@@ -4939,10 +5058,16 @@ class HomeWeatherPanel extends HTMLElement {
     const windyModes = ["radar", "wind", "rain"];
     const windyPanels = windyModes.map((mode) => {
       const active = this._mapsMode === mode;
+      const windyUrl = this._buildWindyUrl(mode);
+      const iframeHtml = active && windyUrl
+        ? `<iframe src="${windyUrl}" frameborder="0" title="${mode} weather map" width="100%" height="100%" loading="lazy"></iframe>`
+        : active && !windyUrl
+          ? `<div class="maps-windy-loading">Loading location data…</div>`
+          : "";
       return `
         <div class="maps-windy-view ${active ? "active" : ""}" data-maps-mode="${mode}">
           <div class="maps-windy-frame">
-            ${active ? `<iframe src="${this._buildWindyUrl(mode)}" frameborder="0" title="${mode} weather map" width="100%" height="100%" loading="lazy"></iframe>` : ""}
+            ${iframeHtml}
           </div>
         </div>`;
     }).join("");
@@ -5913,6 +6038,24 @@ class HomeWeatherPanel extends HTMLElement {
       </div>
     `;
 
+    const renderSettingsSection = (title, subtitle, content, hasToggle = false, toggleId = "", toggleChecked = false) => `
+      <div class="settings-card">
+        <div class="settings-card-header">
+          <div>
+            <div class="settings-card-title">${title}</div>
+            ${subtitle ? `<div class="settings-card-sub">${subtitle}</div>` : ""}
+          </div>
+          ${hasToggle ? `
+            <label class="toggle-switch" title="Enable ${title}">
+              <input type="checkbox" id="${toggleId}" ${toggleChecked ? "checked" : ""}/>
+              <span class="toggle-slider"></span>
+            </label>
+          ` : ""}
+        </div>
+        <div class="settings-card-body">${content}</div>
+      </div>
+    `;
+
     const renderMiniCollapsible = (id, title, content, optionalTag = "") => `
       <div class="collapsible-section collapsible-section--mini ${this._expandedSections.has(id) ? "open" : ""}" data-section-id="${id}">
         <div class="collapsible-header">
@@ -6060,27 +6203,19 @@ class HomeWeatherPanel extends HTMLElement {
             <section class="settings-pane ${activePane === "general" ? "active" : ""}" data-settings-pane="general">
               <div class="settings-pane-head">
                 <div class="settings-pane-title">General</div>
-                <div class="settings-pane-sub">Data source and location basics for the whole integration.</div>
+                <div class="settings-pane-sub">Data source for the whole integration.</div>
               </div>
               <div class="settings-card">
-                <div class="settings-card-title">Weather source</div>
+                <div class="settings-card-title">Weather Source</div>
                 <div class="form-group">
-                  <label id="weather-entity-label">Weather Entity *</label>
+                  <label id="weather-entity-label">Weather Entity</label>
                   ${this._renderWeatherEntitySelect(this._settings.weather_entity || "")}
                   <p class="form-hint">Required. Must support hourly and daily forecasts.</p>
                 </div>
               </div>
               <div class="settings-card">
-                <div class="settings-card-title">NWS forecast zone</div>
-                <div class="form-group">
-                  <label>Zone ID (optional)</label>
-                  <input type="text" id="nws-zone" placeholder="e.g. NYZ072" value="${(this._settings.nws_zone || "").replace(/"/g, "&quot;")}"/>
-                  <p class="form-hint">When set, tornado warnings are fetched for this NWS zone instead of nationwide. Leave blank to use your home location only.</p>
-                </div>
-              </div>
-              <div class="settings-card">
                 <div class="settings-card-title">About</div>
-                <p class="form-hint" style="margin:0;">Home Weather integration${this._version ? ` · v${this._version}` : ""}. Configure alert zones, hazard monitoring, and announcements from the sections on the left.</p>
+                <p class="form-hint" style="margin:0;">Home Weather integration${this._version ? ` v${this._version}` : ""}. Configure alert zones, hazard monitoring, and announcements from the sidebar.</p>
               </div>
             </section>
 
@@ -6118,9 +6253,14 @@ class HomeWeatherPanel extends HTMLElement {
                   </select>
                 </div>
               `)}
-              ${renderMonitoringCard("Tornado", "Warning polygon matching", `
-                <p class="form-hint">When enabled, sensors only trigger if the warning polygon actually covers your home; otherwise the tornado zone radius from Alert Zones applies.</p>
-                ${renderToggle("tornado-monitoring-only-home", tornadoMonitoring.only_affecting_home !== false, "Only when warning polygon includes home")}
+              ${renderMonitoringCard("Tornado", "Warning polygon matching and NWS zone", `
+                ${renderToggle("tornado-monitoring-only-home", tornadoMonitoring.only_affecting_home !== false, "Only trigger when polygon includes home")}
+                <p class="form-hint">When enabled, sensors only trigger if the warning polygon actually covers your home; otherwise the tornado zone radius applies.</p>
+                <div class="form-group">
+                  <label>NWS Zone ID (optional)</label>
+                  <input type="text" id="nws-zone" placeholder="e.g. NYZ072" value="${(this._settings.nws_zone || "").replace(/"/g, "&quot;")}"/>
+                  <p class="form-hint">When set, tornado warnings are fetched for this specific NWS zone. Leave blank to use your home location.</p>
+                </div>
               `)}
               ${renderMonitoringCard("Earthquake", "USGS feeds and magnitude thresholds", `
                 <p class="form-hint">Nearby alerts and sensors use the real-time USGS feed within your earthquake zone. The hazard map shows worldwide seismic activity from a separate feed.</p>
@@ -6186,18 +6326,19 @@ class HomeWeatherPanel extends HTMLElement {
             <section class="settings-pane ${activePane === "announcements" ? "active" : ""}" data-settings-pane="announcements">
               <div class="settings-pane-head">
                 <div class="settings-pane-title">Announcements</div>
-                <div class="settings-pane-sub">Spoken forecasts and hazard alerts. Media players and TTS entities are configured per player; each alert type can be enabled and tested independently.</div>
+                <div class="settings-pane-sub">Spoken forecasts and hazard alerts. Configure media players and enable alert types below.</div>
               </div>
-          ${renderNestedSection("general", "Message Intro", "Opening phrase for spoken forecasts", `
+
+          ${renderNestedSection("general", "Message Intro", "Opening phrase spoken before forecasts", `
             <div class="form-group">
-              <label>Message Intro</label>
+              <label>Intro Message</label>
               <input type="text" id="message-prefix" placeholder="Here's your weather forecast" value="${messagePrefix}"/>
-              <p class="form-hint">Time is announced automatically: "The time is seven oh five AM. [Your intro]. Right now it's..."</p>
+              <p class="form-hint">Time is announced automatically before your intro.</p>
             </div>
           `)}
 
           ${renderNestedSection("media-players", "Media Players", `${mediaPlayers.length} configured`, `
-            <p class="form-hint">Each media player has its own TTS settings. Add players and configure TTS entity, volume, and options.</p>
+            <p class="form-hint">Each media player has its own TTS settings, volume, and options.</p>
             <div class="media-player-list" id="media-player-list">
               ${mediaPlayers.map((m, i) => renderMediaPlayerCard(m, i)).join("")}
             </div>
@@ -6210,8 +6351,8 @@ class HomeWeatherPanel extends HTMLElement {
             </div>
           `)}
 
-          ${renderNestedSection("time-based", "Time-Based Forecasts", "Scheduled announcements", `
-            <div class="form-row-inline" style="margin-top: var(--form-gap);">
+          ${renderNestedSection("time-based", "Scheduled Forecasts", "Time-based announcements", `
+            <div class="form-row-inline">
               <div class="form-group">
                 <label>Announce Every</label>
                 <select id="hour-pattern">
@@ -6224,11 +6365,10 @@ class HomeWeatherPanel extends HTMLElement {
                 </select>
               </div>
               <div class="form-group">
-                <label>Minute Offset (0-59)</label>
+                <label>Minute Offset</label>
                 <input type="number" id="minute-offset" min="0" max="59" value="${tts.minute_offset}"/>
               </div>
             </div>
-            
             <div class="form-group">
               <label>Active Hours</label>
               <div class="time-input-group">
@@ -6237,7 +6377,6 @@ class HomeWeatherPanel extends HTMLElement {
                 <input type="time" id="end-time" value="${tts.end_time}"/>
               </div>
             </div>
-            
             <div class="form-group">
               <label>Active Days</label>
               <div class="days-of-week-grid" id="days-of-week">
@@ -6252,87 +6391,82 @@ class HomeWeatherPanel extends HTMLElement {
                 `).join("")}
               </div>
             </div>
-            
             <div class="form-actions-row">
               <button type="button" class="test-tts-btn" id="test-forecast-btn">Test forecast</button>
             </div>
-            <p class="form-hint">Plays the full scheduled forecast on all configured media players.</p>
           `, true, "enable-time-based", tts.enable_time_based)}
 
-          ${renderNestedSection("current-change", "Current Change Alerts", "Speak when conditions change", `
-            <p class="form-hint" style="margin-top: var(--form-gap);">Triggered when the weather entity's condition changes (e.g. sunny → cloudy). Volume is controlled per media player.</p>
+          ${renderNestedSection("current-change", "Current Condition Alerts", "Speak when weather changes", `
+            <p class="form-hint">Triggered when the weather condition changes (e.g. sunny → cloudy).</p>
             <div class="form-actions-row">
-              <button type="button" class="test-tts-btn" id="test-current-change-btn">Test current change</button>
+              <button type="button" class="test-tts-btn" id="test-current-change-btn">Test alert</button>
             </div>
           `, true, "enable-current-change", tts.enable_current_change)}
 
-          ${renderNestedSection("upcoming-change", "Upcoming Change Alerts", "Heads-up before rain or snow", `
-            <div class="form-group" style="margin-top: var(--form-gap);">
-              <label>Minutes Before to Announce</label>
+          ${renderNestedSection("upcoming-change", "Upcoming Weather Alerts", "Heads-up before rain or snow", `
+            <div class="form-group">
+              <label>Alert Lead Time</label>
               <select id="minutes-before-announce">
                 <option value="15" ${tts.minutes_before_announce === 15 ? "selected" : ""}>15 minutes</option>
                 <option value="30" ${tts.minutes_before_announce === 30 ? "selected" : ""}>30 minutes</option>
                 <option value="45" ${tts.minutes_before_announce === 45 ? "selected" : ""}>45 minutes</option>
                 <option value="60" ${tts.minutes_before_announce === 60 ? "selected" : ""}>1 hour</option>
               </select>
+              <p class="form-hint">How far ahead to warn about precipitation.</p>
             </div>
             <div class="form-actions-row">
-              <button type="button" class="test-tts-btn" id="test-upcoming-change-btn">Test upcoming change</button>
+              <button type="button" class="test-tts-btn" id="test-upcoming-change-btn">Test alert</button>
             </div>
-            <p class="form-hint">Picks the next forecast period above your precipitation threshold.</p>
           `, true, "enable-upcoming-change", tts.enable_upcoming_change)}
 
-          ${renderNestedSection("sun-alerts", "Sunrise &amp; Sunset Alerts", "TTS and automations at sunrise/sunset", `
-            <div class="subsection-block" style="margin-top: var(--form-gap);">
-              <div class="subsection-title">Sunrise TTS</div>
-              ${renderToggle("sunrise-tts-enabled", sunAlerts.sunrise_tts.enabled, "Enable sunrise announcements")}
-              <div class="form-row-inline" style="margin-top: var(--form-gap-sm);">
+          ${renderNestedSection("sun-alerts", "Sunrise &amp; Sunset", "TTS and automations at dawn/dusk", `
+            <div class="subsection-block">
+              <div class="subsection-title">Sunrise</div>
+              ${renderToggle("sunrise-tts-enabled", sunAlerts.sunrise_tts.enabled, "Announce sunrise")}
+              <div class="form-row-inline">
                 <div class="form-group">
-                  <label>Minutes before sunrise</label>
+                  <label>Minutes before</label>
                   <input type="number" id="sunrise-minutes-before" min="5" max="60" value="${sunAlerts.sunrise_tts.minutes_before}"/>
                 </div>
                 <div class="form-group">
-                  <label>Repeat interval (min)</label>
+                  <label>Repeat interval</label>
                   <input type="number" id="sunrise-interval-minutes" min="1" max="30" value="${sunAlerts.sunrise_tts.interval_minutes}"/>
                 </div>
               </div>
-              ${renderToggle("sunrise-automation-enabled", sunAlerts.sunrise_automation.enabled, "Trigger automation at sunrise")}
-              <div class="form-group" style="margin-top: var(--form-gap-sm);">
-                <label>Automation</label>
-                ${this._renderEntityAutocomplete("sunrise-automation-entity", sunAlerts.sunrise_automation.entity_id || "", "automation", "Type to search automations...")}
+              ${renderToggle("sunrise-automation-enabled", sunAlerts.sunrise_automation.enabled, "Trigger automation")}
+              <div class="form-group">
+                <label>Automation Entity</label>
+                ${this._renderEntityAutocomplete("sunrise-automation-entity", sunAlerts.sunrise_automation.entity_id || "", "automation", "Search automations...")}
               </div>
             </div>
-            
-            <div class="subsection-block" style="margin-top: var(--form-gap);">
-              <div class="subsection-title">Sunset TTS</div>
-              ${renderToggle("sunset-tts-enabled", sunAlerts.sunset_tts.enabled, "Enable sunset announcements")}
-              <div class="form-row-inline" style="margin-top: var(--form-gap-sm);">
+            <div class="subsection-block">
+              <div class="subsection-title">Sunset</div>
+              ${renderToggle("sunset-tts-enabled", sunAlerts.sunset_tts.enabled, "Announce sunset")}
+              <div class="form-row-inline">
                 <div class="form-group">
-                  <label>Minutes before sunset</label>
+                  <label>Minutes before</label>
                   <input type="number" id="sunset-minutes-before" min="5" max="60" value="${sunAlerts.sunset_tts.minutes_before}"/>
                 </div>
                 <div class="form-group">
-                  <label>Repeat interval (min)</label>
+                  <label>Repeat interval</label>
                   <input type="number" id="sunset-interval-minutes" min="1" max="30" value="${sunAlerts.sunset_tts.interval_minutes}"/>
                 </div>
               </div>
-              ${renderToggle("sunset-automation-enabled", sunAlerts.sunset_automation.enabled, "Trigger automation at sunset")}
-              <div class="form-group" style="margin-top: var(--form-gap-sm);">
-                <label>Automation</label>
-                ${this._renderEntityAutocomplete("sunset-automation-entity", sunAlerts.sunset_automation.entity_id || "", "automation", "Type to search automations...")}
+              ${renderToggle("sunset-automation-enabled", sunAlerts.sunset_automation.enabled, "Trigger automation")}
+              <div class="form-group">
+                <label>Automation Entity</label>
+                ${this._renderEntityAutocomplete("sunset-automation-entity", sunAlerts.sunset_automation.entity_id || "", "automation", "Search automations...")}
               </div>
             </div>
             <div class="form-actions-row">
               <button type="button" class="test-tts-btn" id="test-sunrise-btn">Test sunrise</button>
               <button type="button" class="test-tts-btn btn-secondary-test" id="test-sunset-btn">Test sunset</button>
             </div>
-            <p class="form-hint">Tests speak the "upcoming" message immediately.</p>
           `, true, "sun-alerts-enabled", sunAlerts.enabled)}
 
-          <!-- NWS Alerts -->
-          ${renderNestedSection("nws-alerts", "NWS Weather Alerts", "Siren + TTS for National Weather Service alerts", `
-            <div class="form-group" style="margin-top: var(--form-gap);">
-              <label>Alert sound (plays before TTS)</label>
+          ${renderNestedSection("nws-alerts", "NWS Weather Alerts", "National Weather Service warnings", `
+            <div class="form-group">
+              <label>Alert Sound</label>
               <select id="nws-alerts-sound-file">
                 <option value="">None</option>
                 ${(this._wwwSounds || []).map((f) => `<option value="${f}" ${nwsAlerts.sound_file === f ? "selected" : ""}>${f}</option>`).join("")}
@@ -6340,31 +6474,27 @@ class HomeWeatherPanel extends HTMLElement {
             </div>
             <div class="form-row-inline">
               <div class="form-group">
-                <label>Siren volume</label>
+                <label>Siren Volume</label>
                 ${renderSlider("nws-alerts-sound-volume", nwsAlerts.sound_volume, 0, 1, 0.05, "%")}
               </div>
               <div class="form-group">
-                <label>TTS volume</label>
+                <label>TTS Volume</label>
                 ${renderSlider("nws-alerts-tts-volume", nwsAlerts.tts_volume, 0, 1, 0.05, "%")}
               </div>
             </div>
-            <div class="inline-toggle inline-toggle--wide">
-              <span class="inline-toggle-label">Replay active alerts after time-based forecasts</span>
-              <label class="toggle-switch">
-                <input type="checkbox" id="nws-alerts-replay-forecast" ${nwsAlerts.replay_on_time_based_forecast !== false ? "checked" : ""}/>
-                <span class="toggle-slider"></span>
-              </label>
+            <div class="subsection-title">Behavior</div>
+            <div class="toggle-group">
+              ${renderToggle("nws-alerts-replay-forecast", nwsAlerts.replay_on_time_based_forecast !== false, "Replay active alerts after scheduled forecasts")}
             </div>
-            <p class="form-hint">New alerts play immediately. When enabled, active alerts replay (siren + summary) after each scheduled forecast.</p>
             <div class="form-actions-row">
               <button type="button" class="test-tts-btn btn-secondary-test" id="test-nws-siren-btn">Test siren</button>
-              <button type="button" class="test-tts-btn" id="test-nws-btn">Test NWS alert</button>
+              <button type="button" class="test-tts-btn" id="test-nws-btn">Test alert</button>
             </div>
           `, true, "nws-alerts-enabled", nwsAlerts.enabled)}
 
-          ${renderNestedSection("tropical-alerts", "Hurricane Alerts", "Siren + TTS for nearby hurricanes", `
-            <div class="form-group" style="margin-top: var(--form-gap);">
-              <label>Alert sound (plays before TTS)</label>
+          ${renderNestedSection("tropical-alerts", "Hurricane Alerts", "Nearby storm warnings", `
+            <div class="form-group">
+              <label>Alert Sound</label>
               <select id="tropical-alerts-sound-file">
                 <option value="">None</option>
                 ${(this._wwwSounds || []).map((f) => `<option value="${f}" ${tropicalAlerts.sound_file === f ? "selected" : ""}>${f}</option>`).join("")}
@@ -6372,24 +6502,25 @@ class HomeWeatherPanel extends HTMLElement {
             </div>
             <div class="form-row-inline">
               <div class="form-group">
-                <label>Siren volume</label>
+                <label>Siren Volume</label>
                 ${renderSlider("tropical-alerts-sound-volume", tropicalAlerts.sound_volume, 0, 1, 0.05, "%")}
               </div>
               <div class="form-group">
-                <label>TTS volume</label>
+                <label>TTS Volume</label>
                 ${renderSlider("tropical-alerts-tts-volume", tropicalAlerts.tts_volume, 0, 1, 0.05, "%")}
               </div>
             </div>
-            <div class="subsection-title">Announcements</div>
-            ${renderToggle("tropical-announce-cone", tropicalAlerts.announce_inside_cone !== false, "Announce when home enters forecast cone")}
-            ${renderToggle("tropical-announce-escalation", tropicalAlerts.announce_threat_escalation !== false, "Announce threat level escalation")}
-            ${renderToggle("tropical-announce-new-storm", tropicalAlerts.announce_new_storm !== false, "Announce new nearby hurricane")}
-            ${renderToggle("tropical-announce-outlook", tropicalAlerts.announce_outlook_development !== false, "Announce outlook development")}
-            <div class="subsection-title">Alert thresholds (TTS only)</div>
-            <p class="form-hint">These control when hurricane alerts are spoken. Distance uses your hurricane zone from <strong>Alert Zones</strong>.</p>
+            <div class="subsection-title">Announce When</div>
+            <div class="toggle-group">
+              ${renderToggle("tropical-announce-cone", tropicalAlerts.announce_inside_cone !== false, "Home enters forecast cone")}
+              ${renderToggle("tropical-announce-escalation", tropicalAlerts.announce_threat_escalation !== false, "Threat level escalates")}
+              ${renderToggle("tropical-announce-new-storm", tropicalAlerts.announce_new_storm !== false, "New nearby hurricane detected")}
+              ${renderToggle("tropical-announce-outlook", tropicalAlerts.announce_outlook_development !== false, "Outlook development")}
+            </div>
+            <div class="subsection-title">Alert Thresholds</div>
             <div class="form-row-inline">
               <div class="form-group">
-                <label>Min threat level</label>
+                <label>Min Threat Level</label>
                 <select id="tropical-alerts-min-threat">
                   <option value="none" ${tropicalAlerts.min_threat_level === "none" ? "selected" : ""}>None</option>
                   <option value="monitor" ${tropicalAlerts.min_threat_level === "monitor" ? "selected" : ""}>Monitor</option>
@@ -6398,18 +6529,18 @@ class HomeWeatherPanel extends HTMLElement {
                 </select>
               </div>
               <div class="form-group">
-                <label>Outlook min formation probability (%)</label>
+                <label>Outlook Min Probability</label>
                 <input type="number" id="tropical-alerts-outlook-prob" min="0" max="100" value="${tropicalAlerts.outlook_min_probability}"/>
               </div>
             </div>
             <div class="form-actions-row">
-              <button type="button" class="test-tts-btn" id="test-tropical-btn">Test hurricane alert</button>
+              <button type="button" class="test-tts-btn" id="test-tropical-btn">Test alert</button>
             </div>
           `, true, "tropical-alerts-enabled", tropicalAlerts.enabled)}
 
-          ${renderNestedSection("tornado-alerts", "Tornado Warning Alerts", "Siren + TTS for tornado warnings", `
-            <div class="form-group" style="margin-top: var(--form-gap);">
-              <label>Alert sound (plays before TTS)</label>
+          ${renderNestedSection("tornado-alerts", "Tornado Alerts", "Tornado warning announcements", `
+            <div class="form-group">
+              <label>Alert Sound</label>
               <select id="tornado-alerts-sound-file">
                 <option value="">None</option>
                 ${(this._wwwSounds || []).map((f) => `<option value="${f}" ${tornadoAlerts.sound_file === f ? "selected" : ""}>${f}</option>`).join("")}
@@ -6417,25 +6548,26 @@ class HomeWeatherPanel extends HTMLElement {
             </div>
             <div class="form-row-inline">
               <div class="form-group">
-                <label>Siren volume</label>
+                <label>Siren Volume</label>
                 ${renderSlider("tornado-alerts-sound-volume", tornadoAlerts.sound_volume, 0, 1, 0.05, "%")}
               </div>
               <div class="form-group">
-                <label>TTS volume</label>
+                <label>TTS Volume</label>
                 ${renderSlider("tornado-alerts-tts-volume", tornadoAlerts.tts_volume, 0, 1, 0.05, "%")}
               </div>
             </div>
-            <div class="subsection-title">Announcements</div>
-            ${renderToggle("tornado-announce-cleared", tornadoAlerts.announce_cleared === true, "Announce when warning clears")}
-            <p class="form-hint">Spoken alerts follow your tornado zone and home-polygon settings from <strong>Alert Zones</strong> and <strong>Hazard Monitoring</strong>.</p>
+            <div class="subsection-title">Behavior</div>
+            <div class="toggle-group">
+              ${renderToggle("tornado-announce-cleared", tornadoAlerts.announce_cleared === true, "Announce when warning clears")}
+            </div>
             <div class="form-actions-row">
-              <button type="button" class="test-tts-btn" id="test-tornado-btn">Test tornado alert</button>
+              <button type="button" class="test-tts-btn" id="test-tornado-btn">Test alert</button>
             </div>
           `, true, "tornado-alerts-enabled", tornadoAlerts.enabled)}
 
-          ${renderNestedSection("earthquake-alerts", "Earthquake Alerts", "Spoken alerts for nearby USGS events", `
-            <div class="form-group" style="margin-top: var(--form-gap);">
-              <label>Alert sound (plays before TTS)</label>
+          ${renderNestedSection("earthquake-alerts", "Earthquake Alerts", "Nearby USGS seismic events", `
+            <div class="form-group">
+              <label>Alert Sound</label>
               <select id="earthquake-alerts-sound-file">
                 <option value="">None</option>
                 ${(this._wwwSounds || []).map((f) => `<option value="${f}" ${earthquakeAlerts.sound_file === f ? "selected" : ""}>${f}</option>`).join("")}
@@ -6443,36 +6575,38 @@ class HomeWeatherPanel extends HTMLElement {
             </div>
             <div class="form-row-inline">
               <div class="form-group">
-                <label>Siren volume</label>
+                <label>Siren Volume</label>
                 ${renderSlider("earthquake-alerts-sound-volume", earthquakeAlerts.sound_volume, 0, 1, 0.05, "%")}
               </div>
               <div class="form-group">
-                <label>TTS volume</label>
+                <label>TTS Volume</label>
                 ${renderSlider("earthquake-alerts-tts-volume", earthquakeAlerts.tts_volume, 0, 1, 0.05, "%")}
               </div>
             </div>
             <div class="form-row-inline">
               <div class="form-group">
-                <label>Min magnitude for TTS</label>
+                <label>Min Magnitude</label>
                 <input type="number" id="earthquake-alerts-min-magnitude" min="0" max="10" step="0.1" value="${earthquakeAlerts.min_magnitude}"/>
               </div>
               <div class="form-group">
-                <label>Max distance (mi)</label>
+                <label>Max Distance (mi)</label>
                 <input type="number" id="earthquake-alerts-max-distance" min="1" max="5000" value="${earthquakeAlerts.max_distance_miles}"/>
               </div>
             </div>
-            ${renderToggle("earthquake-alerts-tsunami-priority", earthquakeAlerts.tsunami_priority !== false, "Always announce tsunami-flagged events")}
-            ${renderToggle("earthquake-alerts-announce-updated", earthquakeAlerts.announce_updated === true, "Announce magnitude updates")}
-            ${renderToggle("earthquake-alerts-announce-cleared", earthquakeAlerts.announce_cleared === true, "Announce when event clears")}
-            <p class="form-hint">TTS thresholds are separate from the sensor zone in <strong>Alert Zones</strong> — use a tighter distance here to only speak about closer events.</p>
+            <div class="subsection-title">Behavior</div>
+            <div class="toggle-group">
+              ${renderToggle("earthquake-alerts-tsunami-priority", earthquakeAlerts.tsunami_priority !== false, "Always announce tsunami-flagged events")}
+              ${renderToggle("earthquake-alerts-announce-updated", earthquakeAlerts.announce_updated === true, "Announce magnitude updates")}
+              ${renderToggle("earthquake-alerts-announce-cleared", earthquakeAlerts.announce_cleared === true, "Announce when event clears")}
+            </div>
             <div class="form-actions-row">
-              <button type="button" class="test-tts-btn" id="test-earthquake-alert-btn">Test earthquake alert</button>
+              <button type="button" class="test-tts-btn" id="test-earthquake-alert-btn">Test alert</button>
             </div>
           `, true, "earthquake-alerts-enabled", earthquakeAlerts.enabled)}
 
-          ${renderNestedSection("volcano-alerts", "Volcano Alerts", "Spoken alerts for volcanic activity in your zone", `
-            <div class="form-group" style="margin-top: var(--form-gap);">
-              <label>Alert sound (plays before TTS)</label>
+          ${renderNestedSection("volcano-alerts", "Volcano Alerts", "Volcanic activity warnings", `
+            <div class="form-group">
+              <label>Alert Sound</label>
               <select id="volcano-alerts-sound-file">
                 <option value="">None</option>
                 ${(this._wwwSounds || []).map((f) => `<option value="${f}" ${volcanoAlerts.sound_file === f ? "selected" : ""}>${f}</option>`).join("")}
@@ -6480,64 +6614,61 @@ class HomeWeatherPanel extends HTMLElement {
             </div>
             <div class="form-row-inline">
               <div class="form-group">
-                <label>Siren volume</label>
+                <label>Siren Volume</label>
                 ${renderSlider("volcano-alerts-sound-volume", volcanoAlerts.sound_volume, 0, 1, 0.05, "%")}
               </div>
               <div class="form-group">
-                <label>TTS volume</label>
+                <label>TTS Volume</label>
                 ${renderSlider("volcano-alerts-tts-volume", volcanoAlerts.tts_volume, 0, 1, 0.05, "%")}
               </div>
             </div>
             <div class="form-group">
-              <label>Min activity level for TTS</label>
+              <label>Min Activity Level</label>
               <select id="volcano-alerts-min-level">
                 <option value="advisory" ${volcanoAlerts.min_alert_level === "advisory" ? "selected" : ""}>Advisory</option>
                 <option value="watch" ${volcanoAlerts.min_alert_level === "watch" ? "selected" : ""}>Watch</option>
                 <option value="warning" ${volcanoAlerts.min_alert_level === "warning" ? "selected" : ""}>Warning</option>
               </select>
             </div>
-            ${renderToggle("volcano-alerts-announce-cleared", volcanoAlerts.announce_cleared === true, "Announce when activity clears")}
-            <p class="form-hint">Alerts follow your volcano zone from <strong>Alert Zones</strong> — only activity inside the zone (or everywhere in bypass mode) is spoken.</p>
+            <div class="subsection-title">Behavior</div>
+            <div class="toggle-group">
+              ${renderToggle("volcano-alerts-announce-cleared", volcanoAlerts.announce_cleared === true, "Announce when activity clears")}
+            </div>
             <div class="form-actions-row">
-              <button type="button" class="test-tts-btn" id="test-volcano-alert-btn">Test volcano alert</button>
+              <button type="button" class="test-tts-btn" id="test-volcano-alert-btn">Test alert</button>
             </div>
           `, true, "volcano-alerts-enabled", volcanoAlerts.enabled)}
 
-          <!-- Sensor Triggered -->
-          ${renderNestedSection("sensor-triggered", "Sensor Triggered", "Announce when an entity reaches a state", `
-            <div class="form-group" style="margin-top: var(--form-gap);">
-              <label>Sensor Triggers</label>
-              <p class="form-hint">Add entities and define the state that triggers a TTS announcement.</p>
-              <div id="sensor-triggers-list" class="media-player-list">
-                ${tts.sensor_triggers.map((st, i) => `
-                  <div class="media-player-card sensor-trigger-card" data-sensor-idx="${i}">
-                    <div class="form-row-inline">
-                      <div class="form-group" style="flex: 2; min-width: 180px;">
-                        <label>Entity</label>
-                        ${this._renderEntityAutocomplete(`sensor-trigger-entity-${i}`, st.entity_id || "", "all", "Type to search any entity...", "sensor-trigger-entity")}
-                      </div>
-                      <div class="form-group" style="flex: 1; min-width: 120px;">
-                        <label>Trigger State</label>
-                        <input type="text" class="sensor-trigger-state media-player-tts-entity" data-idx="${i}" placeholder="e.g. on, home, open" value="${st.trigger_state || ""}"/>
-                      </div>
+          ${renderNestedSection("sensor-triggered", "Sensor Triggers", "Announce when entity state changes", `
+            <p class="form-hint">Add entities and define the state that triggers a TTS announcement.</p>
+            <div id="sensor-triggers-list" class="media-player-list">
+              ${tts.sensor_triggers.map((st, i) => `
+                <div class="media-player-card sensor-trigger-card" data-sensor-idx="${i}">
+                  <div class="form-row-inline">
+                    <div class="form-group" style="flex: 2; min-width: 180px;">
+                      <label>Entity</label>
+                      ${this._renderEntityAutocomplete(`sensor-trigger-entity-${i}`, st.entity_id || "", "all", "Search entities...", "sensor-trigger-entity")}
                     </div>
-                    <div class="media-player-row">
-                      <span class="media-player-label">Media Player</span>
-                      <select class="sensor-trigger-media-player" data-idx="${i}" style="flex: 1;">
-                        <option value="">-- All Media Players --</option>
-                        ${mediaPlayers.map(mp => `<option value="${mp.entity_id}" ${st.media_player === mp.entity_id ? "selected" : ""}>${mp.entity_id}</option>`).join("")}
-                      </select>
-                      <button class="btn btn-secondary" data-remove-sensor="${i}">Remove</button>
+                    <div class="form-group" style="flex: 1; min-width: 120px;">
+                      <label>Trigger State</label>
+                      <input type="text" class="sensor-trigger-state media-player-tts-entity" data-idx="${i}" placeholder="e.g. on, home" value="${st.trigger_state || ""}"/>
                     </div>
                   </div>
-                `).join("")}
-              </div>
-              <button class="btn btn-secondary" id="add-sensor-trigger" style="margin-top: 12px;">+ Add Sensor Trigger</button>
+                  <div class="media-player-row">
+                    <span class="media-player-label">Media Player</span>
+                    <select class="sensor-trigger-media-player" data-idx="${i}" style="flex: 1;">
+                      <option value="">All Media Players</option>
+                      ${mediaPlayers.map(mp => `<option value="${mp.entity_id}" ${st.media_player === mp.entity_id ? "selected" : ""}>${mp.entity_id}</option>`).join("")}
+                    </select>
+                    <button class="btn btn-secondary" data-remove-sensor="${i}">Remove</button>
+                  </div>
+                </div>
+              `).join("")}
             </div>
+            <button class="btn btn-secondary" id="add-sensor-trigger" style="margin-top: 8px;">+ Add Trigger</button>
             <div class="form-actions-row">
-              <button type="button" class="test-tts-btn" id="test-sensor-btn">Test sensor trigger</button>
+              <button type="button" class="test-tts-btn" id="test-sensor-btn">Test trigger</button>
             </div>
-            <p class="form-hint">Runs a forecast on the media player from the first sensor row (or all players).</p>
           `, true, "enable-sensor-triggered", tts.enable_sensor_triggered)}
 
           <!-- Webhook -->

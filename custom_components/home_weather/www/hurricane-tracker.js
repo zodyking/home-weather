@@ -209,6 +209,7 @@
       } catch (_) {
         /* keep last known server stats */
       }
+    }
 
     _bindLayoutObserver() {
       if (this._layoutObserver || !this._root) return;
