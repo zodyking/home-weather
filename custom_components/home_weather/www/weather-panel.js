@@ -36,7 +36,8 @@ class HomeWeatherPanel extends HTMLElement {
     this._hurricaneTracker = null;
     this._hurricaneTrackerPromise = null;
     this._version = null;
-    this._updateStatus = "latest";  // "latest" | "available" | "checking"
+    this._updateStatus = "checking";  // "latest" | "available" | "checking" | "error"
+    this._latestRelease = null;  // { version, name, body, date, url, isCommit }
     this._updateCheckInterval = null;
     this._clockTimeout = null;
     this._dashboardSettled = false;
@@ -309,28 +310,164 @@ class HomeWeatherPanel extends HTMLElement {
 
   async _checkForUpdate() {
     const current = this._version;
-    if (!current) return;
+    if (!current) {
+      this._updateStatus = "checking";
+      return;
+    }
+
+    const repo = "zodyking/home-weather";
+    const prevStatus = this._updateStatus;
+
     try {
-      const res = await fetch("https://api.github.com/repos/zodyking/home-weather/releases/latest");
-      if (res.status === 404) {
-        this._updateStatus = "latest";
-      } else if (!res.ok) {
-        this._updateStatus = this._updateStatus === "available" ? "available" : "latest";
-        return;
-      } else {
-        const data = await res.json();
+      // Try releases first
+      const relRes = await fetch(`https://api.github.com/repos/${repo}/releases/latest`);
+      if (relRes.ok) {
+        const data = await relRes.json();
         const tag = (data.tag_name || "").replace(/^v/i, "").trim();
-        if (!tag) {
-          this._updateStatus = "latest";
-        } else if (this._compareVersions(current, tag) > 0) {
-          this._updateStatus = "available";
-        } else {
-          this._updateStatus = "latest";
+        if (tag) {
+          this._latestRelease = {
+            version: tag,
+            name: data.name || `v${tag}`,
+            body: this._formatReleaseBody(data.body || ""),
+            date: data.published_at ? new Date(data.published_at) : null,
+            url: data.html_url,
+            isCommit: false,
+          };
+          this._updateStatus = this._compareVersions(current, tag) > 0 ? "available" : "latest";
+          this._renderVersionSection();
+          return;
         }
       }
+
+      // Fallback: try tags
+      const tagRes = await fetch(`https://api.github.com/repos/${repo}/tags?per_page=1`);
+      if (tagRes.ok) {
+        const tags = await tagRes.json();
+        if (tags.length > 0) {
+          const tag = (tags[0].name || "").replace(/^v/i, "").trim();
+          if (tag) {
+            this._latestRelease = {
+              version: tag,
+              name: `v${tag}`,
+              body: "",
+              date: null,
+              url: `https://github.com/${repo}/releases/tag/${tags[0].name}`,
+              isCommit: false,
+            };
+            this._updateStatus = this._compareVersions(current, tag) > 0 ? "available" : "latest";
+            this._renderVersionSection();
+            return;
+          }
+        }
+      }
+
+      // Fallback: latest commit
+      const commitRes = await fetch(`https://api.github.com/repos/${repo}/commits?per_page=1`);
+      if (commitRes.ok) {
+        const commits = await commitRes.json();
+        if (commits.length > 0) {
+          const commit = commits[0];
+          const sha = commit.sha?.substring(0, 7) || "unknown";
+          this._latestRelease = {
+            version: sha,
+            name: `Commit ${sha}`,
+            body: commit.commit?.message?.split("\n")[0] || "",
+            date: commit.commit?.author?.date ? new Date(commit.commit.author.date) : null,
+            url: commit.html_url,
+            isCommit: true,
+          };
+          // Can't compare semver to commit hash — assume up to date if no releases exist
+          this._updateStatus = "latest";
+          this._renderVersionSection();
+          return;
+        }
+      }
+
+      this._updateStatus = prevStatus === "available" ? "available" : "latest";
     } catch (e) {
-      this._updateStatus = this._updateStatus === "available" ? "available" : "latest";
+      console.warn("Update check failed:", e);
+      this._updateStatus = prevStatus === "available" ? "available" : "error";
     }
+    this._renderVersionSection();
+  }
+
+  _formatReleaseBody(body) {
+    if (!body) return "";
+    // Trim to first ~300 chars at a sentence boundary for display
+    const trimmed = body.length > 300 ? body.substring(0, 300).replace(/\s+\S*$/, "…") : body;
+    // Strip markdown headers but keep structure
+    return trimmed
+      .replace(/^##+ /gm, "")
+      .replace(/\*\*/g, "")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+  }
+
+  _renderVersionSection() {
+    const s = this.shadowRoot;
+    if (!s) return;
+    const container = s.querySelector(".version-section-content");
+    if (!container) return;
+    container.innerHTML = this._buildVersionSectionContent();
+  }
+
+  _buildVersionSectionContent() {
+    const current = this._version;
+    const latest = this._latestRelease;
+    const status = this._updateStatus;
+
+    const formatDate = (d) => {
+      if (!d) return "";
+      return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+    };
+
+    let statusBadge = "";
+    if (status === "checking") {
+      statusBadge = `<span class="version-badge checking">Checking…</span>`;
+    } else if (status === "available") {
+      statusBadge = `<span class="version-badge update">Update Available</span>`;
+    } else if (status === "error") {
+      statusBadge = `<span class="version-badge error">Check Failed</span>`;
+    }
+
+    let latestHtml = "";
+    if (latest) {
+      const dateStr = formatDate(latest.date);
+      const typeLabel = latest.isCommit ? "Latest Commit" : "Latest Release";
+      latestHtml = `
+        <div class="version-row latest">
+          <div class="version-row-header">
+            <span class="version-label">${typeLabel}</span>
+            <span class="version-value">${this._esc(latest.name)}</span>
+            ${dateStr ? `<span class="version-date">${dateStr}</span>` : ""}
+          </div>
+          ${latest.body ? `<div class="version-notes">${this._esc(latest.body)}</div>` : ""}
+          ${latest.url ? `<a class="version-link" href="${this._esc(latest.url)}" target="_blank" rel="noopener noreferrer">View on GitHub →</a>` : ""}
+        </div>`;
+    } else if (status === "checking") {
+      latestHtml = `<div class="version-row latest"><span class="version-checking-text">Checking for updates…</span></div>`;
+    } else if (status === "error") {
+      latestHtml = `<div class="version-row latest"><span class="version-error-text">Could not check for updates</span></div>`;
+    }
+
+    return `
+      <div class="version-row installed">
+        <div class="version-row-header">
+          <span class="version-label">Installed</span>
+          <span class="version-value">${current ? `v${this._esc(current)}` : "Unknown"}</span>
+          ${statusBadge}
+        </div>
+      </div>
+      ${latestHtml}
+    `;
+  }
+
+  _esc(text) {
+    return String(text ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
   }
 
   _startUpdateCheckPoll() {
@@ -3775,6 +3912,88 @@ class HomeWeatherPanel extends HTMLElement {
         .settings-card-body > .form-group:last-child { margin-bottom: 0; }
         .settings-card-body > .form-hint:first-child { margin-top: 0; }
         .settings-card-body > .form-actions-row { margin-top: 4px; }
+
+        /* Version section */
+        .version-section { margin-top: 4px; }
+        .version-row {
+          padding: 12px 14px;
+          background: var(--hw-surface-2);
+          border-radius: var(--radius-sm, 6px);
+          margin-bottom: 10px;
+        }
+        .version-row:last-child { margin-bottom: 0; }
+        .version-row-header {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          flex-wrap: wrap;
+        }
+        .version-label {
+          font-size: 11px;
+          font-weight: 600;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+          color: var(--hw-muted);
+          min-width: 90px;
+        }
+        .version-value {
+          font-size: 14px;
+          font-weight: 600;
+          color: var(--hw-text);
+          font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, monospace;
+        }
+        .version-date {
+          font-size: 12px;
+          color: var(--hw-muted);
+          margin-left: auto;
+        }
+        .version-badge {
+          font-size: 10px;
+          font-weight: 600;
+          text-transform: uppercase;
+          letter-spacing: 0.3px;
+          padding: 3px 8px;
+          border-radius: 4px;
+          white-space: nowrap;
+        }
+        .version-badge.update {
+          background: rgba(76, 175, 80, 0.15);
+          color: #4caf50;
+        }
+        .version-badge.checking {
+          background: rgba(3, 169, 244, 0.12);
+          color: var(--hw-accent);
+        }
+        .version-badge.error {
+          background: rgba(244, 67, 54, 0.12);
+          color: var(--hw-danger);
+        }
+        .version-notes {
+          font-size: 12px;
+          color: var(--hw-muted);
+          line-height: 1.55;
+          margin-top: 8px;
+          padding-top: 8px;
+          border-top: 1px solid var(--hw-border);
+          white-space: pre-wrap;
+          word-break: break-word;
+        }
+        .version-link {
+          display: inline-block;
+          font-size: 12px;
+          color: var(--hw-accent);
+          text-decoration: none;
+          margin-top: 8px;
+        }
+        .version-link:hover { text-decoration: underline; }
+        .version-checking-text,
+        .version-error-text {
+          font-size: 12px;
+          color: var(--hw-muted);
+          font-style: italic;
+        }
+        .version-error-text { color: var(--hw-danger); opacity: 0.8; }
+
         .settings-form-grid {
           display: grid;
           grid-template-columns: 1fr 1fr;
@@ -6223,7 +6442,10 @@ class HomeWeatherPanel extends HTMLElement {
               </div>
               <div class="settings-card">
                 <div class="settings-card-title">About</div>
-                <p class="form-hint" style="margin:0;">Home Weather integration${this._version ? ` v${this._version}` : ""}. Configure alert zones, hazard monitoring, and announcements from the sidebar.</p>
+                <p class="form-hint" style="margin:0 0 16px 0;">Home Weather integration. Configure alert zones, hazard monitoring, and announcements from the sidebar.</p>
+                <div class="version-section">
+                  <div class="version-section-content">${this._buildVersionSectionContent()}</div>
+                </div>
               </div>
             </section>
 
