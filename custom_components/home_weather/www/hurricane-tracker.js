@@ -783,11 +783,11 @@
           pointer-events: auto;
           --primary-text-color: var(--hw-text, #e1e1e1);
           --secondary-text-color: var(--hw-muted, #9b9b9b);
-          --card-background-color: var(--hw-surface, #141820);
+          --card-background-color: #141820;
           color: var(--hw-text, #e1e1e1);
-          background: var(--hw-surface, #141820);
+          background: #141820;
           border: none;
-          border-left: 1px solid var(--hw-border-strong, rgba(255,255,255,0.12));
+          border-left: 1px solid rgba(255,255,255,0.12);
           border-radius: 0;
           padding: 16px;
           display: flex;
@@ -829,8 +829,14 @@
           display: flex;
           flex-direction: column;
           gap: 8px;
-          padding-right: 2px;
-          padding-bottom: max(4px, env(safe-area-inset-bottom, 0px));
+          padding-right: 8px;
+          margin-right: -8px;
+          padding-bottom: max(16px, env(safe-area-inset-bottom, 0px));
+          scrollbar-width: none;
+          -ms-overflow-style: none;
+        }
+        .hurricane-status-scroll::-webkit-scrollbar {
+          display: none;
         }
         .hurricane-status.is-threat-high {
           border-color: rgba(244,67,54,0.55);
@@ -1121,18 +1127,6 @@
         }
         .hw-wildfire-perimeter {
           stroke-width: 2;
-        }
-        .hw-aqi-marker {
-          border-radius: 50%;
-          border: 2px solid rgba(255,255,255,0.85);
-          box-shadow: 0 0 8px rgba(0,0,0,0.45);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 10px;
-          font-weight: 800;
-          color: #111;
-          text-shadow: 0 0 2px rgba(255,255,255,0.8);
         }
         .hw-hazard-icon-marker {
           background: transparent;
@@ -2175,10 +2169,10 @@
             <div class="hw-legend-row"><span class="hw-legend-swatch" style="background:rgba(244,67,54,0.55);border-color:#f44336"></span>Travel L4 — Do not travel</div>
             <div class="hw-legend-row"><img src="/local/home_weather/icons/fire.svg" alt=""/>Active wildfire</div>
             <div class="hw-legend-row"><span class="hw-legend-swatch" style="background:rgba(229,57,53,0.35);border-color:#e53935"></span>Fire perimeter</div>
-            <div class="hw-legend-row"><span class="hw-legend-dot" style="background:#00e400"></span>AQI Good</div>
-            <div class="hw-legend-row"><span class="hw-legend-dot" style="background:#ffff00"></span>AQI Moderate</div>
-            <div class="hw-legend-row"><span class="hw-legend-dot" style="background:#ff7e00"></span>AQI USG</div>
-            <div class="hw-legend-row"><span class="hw-legend-dot" style="background:#ff0000"></span>AQI Unhealthy+</div>
+            <div class="hw-legend-row"><span class="hw-legend-swatch" style="background:rgba(0,228,0,0.25);border-color:#00e400"></span>AQI Good</div>
+            <div class="hw-legend-row"><span class="hw-legend-swatch" style="background:rgba(255,255,0,0.3);border-color:#ffff00"></span>AQI Moderate</div>
+            <div class="hw-legend-row"><span class="hw-legend-swatch" style="background:rgba(255,126,0,0.35);border-color:#ff7e00"></span>AQI USG</div>
+            <div class="hw-legend-row"><span class="hw-legend-swatch" style="background:rgba(255,0,0,0.4);border-color:#ff0000"></span>AQI Unhealthy+</div>
             <div class="hw-legend-row"><img src="/local/home_weather/icons/home.svg" alt=""/>Your home</div>
           </div>
         </div>`;
@@ -3165,14 +3159,6 @@
           zIndexOffset: 460,
         });
         marker.bindPopup(popup);
-        if (props.name) {
-          marker.bindTooltip(this._esc(props.name), {
-            permanent: true,
-            direction: "top",
-            className: "hw-name-label",
-            offset: [0, -14],
-          });
-        }
         marker.addTo(this._layerGroup);
         bounds.push([lat, lon]);
       });
@@ -3190,9 +3176,22 @@
       ].filter(Boolean).join("<br/>");
     }
 
-    _aqiMarkerSize(level) {
+    _aqiRadiusMeters(level) {
       const n = Number(level) || 1;
-      return Math.min(28, 12 + n * 2);
+      if (n >= 5) return 65000;
+      if (n >= 4) return 55000;
+      if (n >= 3) return 45000;
+      if (n >= 2) return 35000;
+      return 28000;
+    }
+
+    _aqiFillOpacity(level) {
+      const n = Number(level) || 1;
+      if (n >= 5) return 0.45;
+      if (n >= 4) return 0.38;
+      if (n >= 3) return 0.32;
+      if (n >= 2) return 0.22;
+      return 0.14;
     }
 
     _drawAirQuality(bounds) {
@@ -3200,26 +3199,34 @@
       const features = this._airQualityData?.geojson?.features;
       if (!L || !features?.length || !this._layerGroup) return;
 
-      features.forEach((feature) => {
+      const sorted = [...features].sort((a, b) => {
+        const levelA = Number(a.properties?.category_level) || 1;
+        const levelB = Number(b.properties?.category_level) || 1;
+        return levelA - levelB;
+      });
+
+      sorted.forEach((feature) => {
         const props = feature.properties || {};
         const coords = feature.geometry?.coordinates;
         if (!coords || coords.length < 2) return;
         const lon = coords[0];
         const lat = coords[1];
-        const size = this._aqiMarkerSize(props.category_level);
+        const level = Number(props.category_level) || 1;
         const color = props.color || "#00e400";
-        const marker = L.marker([lat, lon], {
-          icon: L.divIcon({
-            className: "hw-hazard-icon-marker",
-            html: `<div class="hw-aqi-marker" style="width:${size}px;height:${size}px;background:${color}">${props.aqi != null ? props.aqi : ""}</div>`,
-            iconSize: [size, size],
-            iconAnchor: [size / 2, size / 2],
-          }),
-          zIndexOffset: 350 + (Number(props.category_level) || 1) * 10,
+        const radius = this._aqiRadiusMeters(level);
+        const fillOpacity = this._aqiFillOpacity(level);
+
+        const circle = L.circle([lat, lon], {
+          radius,
+          color: "transparent",
+          weight: 0,
+          fillColor: color,
+          fillOpacity,
+          interactive: true,
+          pane: "overlayPane",
         });
-        marker.bindPopup(this._aqiPopup(props));
-        marker.addTo(this._layerGroup);
-        bounds.push([lat, lon]);
+        circle.bindPopup(this._aqiPopup(props));
+        circle.addTo(this._layerGroup);
       });
     }
 
