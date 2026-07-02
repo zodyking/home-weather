@@ -6806,12 +6806,34 @@ class HomeWeatherPanel extends HTMLElement {
                 <p class="form-hint">Sensors track active volcanoes inside your volcano zone using the min activity level set in <strong>Alert Zones</strong>. Sources: Smithsonian GVP catalog, GDACS live alerts, and USGS HANS.</p>
                 <p class="form-hint">Every worldwide volcano is plotted on the hazard map: dormant volcanoes appear as dim catalog points, while active ones glow with their alert color and show affected-area rings. Toggle the Volcano layer from the map's layer menu to hide them all.</p>
               `)}
+              ${renderMonitoringCard("Wildfires", "NIFC WFIGS active/ongoing incidents", `
+                <p class="form-hint">Live U.S. wildfire data from the National Interagency Fire Center <a href="https://data-nifc.opendata.arcgis.com/" target="_blank" rel="noopener noreferrer">WFIGS</a> program (no API key). Only currently active and ongoing fires are tracked. Incident points and fire perimeters appear on the hazard map; click for size, containment, and location details.</p>
+                ${renderToggle("wildfire-monitoring-enabled", wildfireMonitoring.enabled !== false, "Enable wildfire data")}
+                ${renderToggle("wildfire-show-on-map", wildfireMonitoring.show_on_map !== false, "Show wildfires on hazard map")}
+                ${renderToggle("wildfire-show-perimeters", wildfireMonitoring.show_perimeters !== false, "Show fire perimeters on map")}
+                ${renderToggle("wildfire-exclude-prescribed", wildfireMonitoring.exclude_prescribed !== false, "Exclude prescribed burns (RX)")}
+                <div class="form-group">
+                  <label>Minimum fire size (acres)</label>
+                  <input type="number" id="wildfire-min-acres" min="0" max="1000000" step="1" value="${wildfireMonitoring.min_acres ?? 100}"/>
+                  <p class="form-hint">Smaller incidents are hidden from the map and status panel.</p>
+                </div>
+              `)}
+              ${renderMonitoringCard("Air Quality", "EPA AirNow reporting-area observations", `
+                <p class="form-hint">Real-time air quality from the EPA <a href="https://www.airnow.gov/" target="_blank" rel="noopener noreferrer">AirNow</a> reporting-area file (no API key). Colors follow the standard EPA AQI scale.</p>
+                ${renderToggle("air-quality-monitoring-enabled", airQualityMonitoring.enabled !== false, "Enable air quality data")}
+                ${renderToggle("air-quality-show-on-map", airQualityMonitoring.show_on_map !== false, "Show air quality on hazard map")}
+                <div class="form-group">
+                  <label>Minimum map category</label>
+                  <select id="air-quality-min-level">${aqiLevelOptions(airQualityMonitoring.min_category_level ?? 1)}</select>
+                  <p class="form-hint">Only show reporting areas at or above this EPA category level.</p>
+                </div>
+              `)}
             </section>
 
             <section class="settings-pane ${activePane === "safety" ? "active" : ""}" data-settings-pane="safety">
               <div class="settings-pane-head">
                 <div class="settings-pane-title">Safety</div>
-                <div class="settings-pane-sub">Travel, wildfire, air quality, and security data sources. Spoken travel alerts are configured in <strong>Announcements</strong>.</div>
+                <div class="settings-pane-sub">Travel advisory data sources. Spoken travel alerts are configured in <strong>Announcements</strong>.</div>
               </div>
               ${renderMonitoringCard("U.S. Travel Advisories", "State Department worldwide threat levels", `
                 <p class="form-hint">Live data from the U.S. Department of State <a href="https://travel.state.gov/content/travel/en/rss.html" target="_blank" rel="noopener noreferrer">Travel Advisories</a> program. Countries are color-coded on the hazard map by threat level (1–4). Click a country for details.</p>
@@ -6827,28 +6849,6 @@ class HomeWeatherPanel extends HTMLElement {
                   <strong>Level 2</strong> Increased caution ·
                   <strong>Level 3</strong> Reconsider travel ·
                   <strong>Level 4</strong> Do not travel
-                </div>
-              `)}
-              ${renderMonitoringCard("Wildfires", "NIFC WFIGS active incidents and perimeters", `
-                <p class="form-hint">Live U.S. wildfire data from the National Interagency Fire Center <a href="https://data-nifc.opendata.arcgis.com/" target="_blank" rel="noopener noreferrer">WFIGS</a> program (no API key). Incident points and fire perimeters appear on the hazard map; click for size, containment, and location details.</p>
-                ${renderToggle("wildfire-monitoring-enabled", wildfireMonitoring.enabled !== false, "Enable wildfire data")}
-                ${renderToggle("wildfire-show-on-map", wildfireMonitoring.show_on_map !== false, "Show wildfires on hazard map")}
-                ${renderToggle("wildfire-show-perimeters", wildfireMonitoring.show_perimeters !== false, "Show fire perimeters on map")}
-                ${renderToggle("wildfire-exclude-prescribed", wildfireMonitoring.exclude_prescribed !== false, "Exclude prescribed burns (RX)")}
-                <div class="form-group">
-                  <label>Minimum fire size (acres)</label>
-                  <input type="number" id="wildfire-min-acres" min="0" max="1000000" step="1" value="${wildfireMonitoring.min_acres ?? 100}"/>
-                  <p class="form-hint">Smaller incidents are hidden from the map and status panel.</p>
-                </div>
-              `)}
-              ${renderMonitoringCard("Air Quality", "EPA AirNow reporting-area observations", `
-                <p class="form-hint">Real-time air quality from the EPA <a href="https://www.airnow.gov/" target="_blank" rel="noopener noreferrer">AirNow</a> reporting-area file (no API key). Each marker shows the highest AQI pollutant for that city or region. Colors follow the standard EPA AQI scale.</p>
-                ${renderToggle("air-quality-monitoring-enabled", airQualityMonitoring.enabled !== false, "Enable air quality data")}
-                ${renderToggle("air-quality-show-on-map", airQualityMonitoring.show_on_map !== false, "Show air quality on hazard map")}
-                <div class="form-group">
-                  <label>Minimum map category</label>
-                  <select id="air-quality-min-level">${aqiLevelOptions(airQualityMonitoring.min_category_level ?? 1)}</select>
-                  <p class="form-hint">Only show reporting areas at or above this EPA category level.</p>
                 </div>
               `)}
             </section>
@@ -7055,7 +7055,7 @@ class HomeWeatherPanel extends HTMLElement {
             ${renderAlertAudioSection("travel-alerts", travelAlerts, {
               sirenBtnId: "test-travel-siren-btn",
               alertBtnId: "test-travel-btn",
-              hintHtml: `<p class="form-hint">Map display and minimum map level are configured in <strong>Safety</strong>.</p>`,
+              hintHtml: `<p class="form-hint">Map display and minimum map level are also in <strong>Safety</strong>.</p>`,
               behaviorTitle: "Behavior",
               behaviorContent: `
                 <div class="form-group">
