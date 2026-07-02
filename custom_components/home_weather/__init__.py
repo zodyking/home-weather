@@ -29,6 +29,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     from .hurricane_coordinator import HurricaneCoordinator
     from .lightning_coordinator import LightningCoordinator
     from .volcano_coordinator import VolcanoCoordinator
+    from .travel_coordinator import TravelCoordinator
+    from .wildfire_coordinator import WildfireCoordinator
+    from .air_quality_coordinator import AirQualityCoordinator
 
     storage = HomeWeatherStorage(hass)
     await storage.async_load()
@@ -50,6 +53,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     volcano_coordinator = VolcanoCoordinator(hass, storage)
     await volcano_coordinator.async_config_entry_first_refresh()
+
+    travel_coordinator = TravelCoordinator(hass, storage)
+    await travel_coordinator.async_config_entry_first_refresh()
+
+    wildfire_coordinator = WildfireCoordinator(hass, storage)
+    await wildfire_coordinator.async_config_entry_first_refresh()
+
+    air_quality_coordinator = AirQualityCoordinator(hass, storage)
+    await air_quality_coordinator.async_config_entry_first_refresh()
 
     # Set up TTS trigger manager
     def get_config():
@@ -77,6 +89,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "hurricane_coordinator": hurricane_coordinator,
         "lightning_coordinator": lightning_coordinator,
         "volcano_coordinator": volcano_coordinator,
+        "travel_coordinator": travel_coordinator,
+        "wildfire_coordinator": wildfire_coordinator,
+        "air_quality_coordinator": air_quality_coordinator,
         "trigger_manager": trigger_manager,
     }
 

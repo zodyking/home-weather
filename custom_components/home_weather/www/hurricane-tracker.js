@@ -54,6 +54,9 @@
       this._tornadoData = null;
       this._earthquakeData = null;
       this._volcanoData = null;
+      this._travelData = null;
+      this._wildfireData = null;
+      this._airQualityData = null;
       this._volcanoClusterGroup = null;
       this._backendLightning = null;
       this._loading = false;
@@ -70,7 +73,7 @@
       this._hasInitialFit = false;
       this._lastFitBounds = null;
       this._userViewLocked = false;
-      this._mapLayers = { hurricane: true, tornado: true, earthquakes: true, lightning: true, volcanoes: true };
+      this._mapLayers = { hurricane: true, tornado: true, earthquakes: true, lightning: true, volcanoes: true, travel: true, wildfire: true, air_quality: true };
       this._mapSort = "newest";
       this._lightningSettings = {
         enabled: true,
@@ -651,7 +654,7 @@
           background: var(--hw-hover, rgba(255,255,255,0.04));
         }
         .hurricane-status-details + .hurricane-status-details {
-          margin-top: 4px;
+          margin-top: 0;
         }
         .hurricane-status-details summary {
           list-style: none;
@@ -767,11 +770,13 @@
         .hurricane-map-empty-banner { display: none; }
         .hurricane-status {
           position: absolute;
-          top: 12px;
-          right: 12px;
-          bottom: 12px;
-          width: min(280px, calc(100% - 24px));
-          max-height: calc(100% - 24px);
+          top: 0;
+          right: 0;
+          bottom: 0;
+          left: auto;
+          width: min(320px, 100%);
+          height: 100%;
+          max-height: 100%;
           overflow: hidden;
           overflow-x: hidden;
           z-index: 1100;
@@ -781,13 +786,14 @@
           --card-background-color: var(--hw-surface, #141820);
           color: var(--hw-text, #e1e1e1);
           background: var(--hw-surface, #141820);
-          border: 1px solid var(--hw-border-strong, rgba(255,255,255,0.12));
-          border-radius: 14px;
+          border: none;
+          border-left: 1px solid var(--hw-border-strong, rgba(255,255,255,0.12));
+          border-radius: 0;
           padding: 16px;
           display: flex;
           flex-direction: column;
           gap: 0;
-          box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+          box-shadow: -8px 0 28px rgba(0, 0, 0, 0.4);
         }
         .hurricane-status,
         .hurricane-status * {
@@ -809,7 +815,10 @@
           flex-shrink: 0;
           display: flex;
           flex-direction: column;
-          gap: 12px;
+          gap: 10px;
+          padding-bottom: 12px;
+          margin-bottom: 12px;
+          border-bottom: 1px solid var(--hw-border, rgba(255,255,255,0.08));
         }
         .hurricane-status-scroll {
           flex: 1;
@@ -819,7 +828,8 @@
           -webkit-overflow-scrolling: touch;
           display: flex;
           flex-direction: column;
-          gap: 12px;
+          gap: 8px;
+          padding-right: 2px;
           padding-bottom: max(4px, env(safe-area-inset-bottom, 0px));
         }
         .hurricane-status.is-threat-high {
@@ -838,14 +848,23 @@
         .hurricane-stat {
           display: flex;
           justify-content: space-between;
-          gap: 8px;
+          align-items: baseline;
+          gap: 12px;
           font-size: 13px;
+          line-height: 1.35;
           color: var(--hw-muted, #9b9b9b) !important;
+        }
+        .hurricane-stat > span {
+          flex: 1 1 auto;
+          min-width: 0;
         }
         .hurricane-stat strong {
           color: var(--hw-text, #e1e1e1) !important;
           font-weight: 600;
           text-align: right;
+          flex: 0 1 auto;
+          min-width: 0;
+          overflow-wrap: anywhere;
         }
         .hurricane-stat.is-warning strong { color: #ff9800; }
         .hurricane-stat.is-danger strong { color: #f44336; }
@@ -1061,60 +1080,59 @@
         }
         .leaflet-tooltip.hw-name-label::before { display: none; }
         .hw-storm-label { border-left: 3px solid var(--hw-accent, #03a9f4); }
-        .leaflet-tooltip.hw-zone-label {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          gap: 3px;
-          max-width: 180px;
-          padding: 5px 10px;
-          background: var(--hw-surface, rgba(17, 20, 28, 0.92));
-          color: var(--hw-text, #ffffff);
-          border: 1px solid var(--hw-border-strong, rgba(255,255,255,0.16));
-          border-radius: 9px;
-          text-align: center;
-          white-space: normal;
-          line-height: 1.25;
-          box-shadow: 0 4px 14px rgba(0,0,0,0.4);
-          backdrop-filter: blur(8px);
-          pointer-events: none;
-        }
-        .leaflet-tooltip.hw-zone-label::before { display: none; }
-        .leaflet-tooltip.hw-zone-label.is-bypassed { opacity: 0.9; }
-        .hw-zone-label-title {
-          font-size: 11px;
+        /* Single-line zone label that follows the curve of the zone circle. */
+        .hw-zone-arc-label {
+          fill: #e3f2fd;
+          font-family: inherit;
           font-weight: 700;
-          letter-spacing: 0.2px;
-        }
-        .hw-zone-label-scope {
-          display: flex;
-          flex-wrap: wrap;
-          justify-content: center;
-          gap: 4px;
-        }
-        .hw-zone-chip {
-          font-size: 9.5px;
-          font-weight: 700;
+          letter-spacing: 0.4px;
           text-transform: uppercase;
-          letter-spacing: 0.3px;
-          padding: 1px 6px;
-          border-radius: 999px;
-          white-space: nowrap;
+          paint-order: stroke;
+          stroke: rgba(6, 10, 18, 0.9);
+          stroke-width: 3.5px;
+          stroke-linejoin: round;
+          stroke-linecap: round;
+          pointer-events: none;
+          -webkit-user-select: none;
+          user-select: none;
         }
-        .hw-zone-chip.is-active {
-          color: #d7ffe4;
-          background: rgba(76, 175, 80, 0.22);
-          border: 1px solid rgba(76, 175, 80, 0.55);
-        }
-        .hw-zone-chip.is-bypass {
-          color: #ffe0b2;
-          background: rgba(255, 152, 0, 0.18);
-          border: 1px solid rgba(255, 152, 0, 0.5);
-        }
+        .hw-zone-arc-label.is-bypassed { fill: #ffcc80; }
         .hw-volcano-label { border-left: 3px solid #fb8c00; }
         .hw-tornado-polygon {
           stroke: #e040fb;
           fill: rgba(224, 64, 251, 0.18);
+        }
+        .hw-travel-advisory {
+          stroke: rgba(255, 255, 255, 0.35);
+          stroke-width: 1;
+        }
+        .hw-travel-advisory.level-1 { fill: rgba(76, 175, 80, 0.42); }
+        .hw-travel-advisory.level-2 { fill: rgba(255, 241, 118, 0.48); }
+        .hw-travel-advisory.level-3 { fill: rgba(255, 152, 0, 0.5); }
+        .hw-travel-advisory.level-4 { fill: rgba(244, 67, 54, 0.55); }
+        .hw-travel-popup strong { display: block; margin-bottom: 4px; }
+        .hw-travel-popup .hw-travel-level {
+          display: inline-block;
+          font-size: 11px;
+          font-weight: 700;
+          padding: 2px 8px;
+          border-radius: 999px;
+          margin-bottom: 6px;
+        }
+        .hw-wildfire-perimeter {
+          stroke-width: 2;
+        }
+        .hw-aqi-marker {
+          border-radius: 50%;
+          border: 2px solid rgba(255,255,255,0.85);
+          box-shadow: 0 0 8px rgba(0,0,0,0.45);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 10px;
+          font-weight: 800;
+          color: #111;
+          text-shadow: 0 0 2px rgba(255,255,255,0.8);
         }
         .hw-hazard-icon-marker {
           background: transparent;
@@ -1346,20 +1364,31 @@
         }
         @media (max-width: 768px) {
           .hurricane-status {
-            top: auto;
-            left: 10px;
-            right: 10px;
-            bottom: max(10px, env(safe-area-inset-bottom, 0px));
-            width: auto;
-            max-height: min(55vh, 420px);
-            padding: 12px 14px;
-            border-radius: 16px 16px 12px 12px;
-            transition: max-height 0.2s ease, padding 0.2s ease;
+            top: 0;
+            left: auto;
+            right: 0;
+            bottom: 0;
+            width: min(300px, 88%);
+            height: 100%;
+            max-height: 100%;
+            padding: 14px;
+            border-radius: 0;
+            border-left: 1px solid var(--hw-border-strong, rgba(255,255,255,0.12));
+            transition: width 0.2s ease, padding 0.2s ease;
           }
           .hurricane-status.is-collapsed {
+            height: auto;
+            bottom: auto;
             max-height: none;
+            width: min(300px, 88%);
             overflow: hidden;
-            padding-bottom: 12px;
+            padding-bottom: 14px;
+            border-bottom: 1px solid var(--hw-border-strong, rgba(255,255,255,0.12));
+          }
+          .hurricane-status.is-collapsed .hurricane-status-header {
+            padding-bottom: 0;
+            margin-bottom: 0;
+            border-bottom: none;
           }
           .hurricane-status.is-collapsed .hurricane-status-scroll {
             display: none;
@@ -1379,15 +1408,12 @@
           .hurricane-status-toggle { display: inline-flex; align-items: center; justify-content: center; }
           .hurricane-status.is-collapsed .hurricane-status-toggle { transform: rotate(-90deg); }
           .hurricane-map-wrap .leaflet-bottom.leaflet-left {
-            left: auto;
-            right: 10px;
-            bottom: max(10px, env(safe-area-inset-bottom, 0px));
+            left: 8px;
+            bottom: max(8px, env(safe-area-inset-bottom, 0px));
           }
-          .hurricane-map-wrap.status-expanded .leaflet-bottom.leaflet-left {
-            bottom: calc(min(55vh, 420px) + 18px);
-          }
-          .hurricane-map-wrap.status-expanded .leaflet-bottom.leaflet-right {
-            bottom: max(10px, env(safe-area-inset-bottom, 0px));
+          .hurricane-map-wrap .leaflet-bottom.leaflet-right {
+            right: calc(min(300px, 88%) + 6px);
+            bottom: max(8px, env(safe-area-inset-bottom, 0px));
           }
           .leaflet-bottom.leaflet-left .leaflet-control-scale {
             max-width: min(140px, 42vw);
@@ -1399,15 +1425,18 @@
             right: 12px;
           }
           .hurricane-layout.is-embedded .hurricane-status {
-            top: auto;
-            left: 10px;
-            right: 10px;
-            bottom: max(10px, env(safe-area-inset-bottom, 0px));
-            width: auto;
-            max-height: min(55vh, 420px);
+            top: 0;
+            left: auto;
+            right: 0;
+            bottom: 0;
+            width: min(300px, 88%);
+            height: 100%;
+            max-height: 100%;
           }
-          .hurricane-layout.is-embedded .hurricane-map-wrap.status-expanded .leaflet-bottom.leaflet-left {
-            bottom: calc(min(55vh, 420px) + 18px);
+          .hurricane-layout.is-embedded .hurricane-status.is-collapsed {
+            height: auto;
+            bottom: auto;
+            max-height: none;
           }
           .hurricane-layout.is-embedded .hurricane-map-empty-banner {
             top: 10px;
@@ -1501,7 +1530,7 @@
         // (e.g. hurricanes) still lets the base map + other hazards render
         // instead of blanking the whole view.
         let hurricaneError = null;
-        const [payload, tornadoPayload, earthquakePayload, lightningPayload, volcanoPayload] = await Promise.all([
+        const [payload, tornadoPayload, earthquakePayload, lightningPayload, volcanoPayload, travelPayload, wildfirePayload, airQualityPayload] = await Promise.all([
           this._hass.callWS({
             type: "home_weather/get_hurricanes",
             force_refresh: !!forceRefresh,
@@ -1510,6 +1539,9 @@
           this._hass.callWS({ type: "home_weather/get_earthquakes" }).catch(() => null),
           this._hass.callWS({ type: "home_weather/get_lightning" }).catch(() => null),
           this._hass.callWS({ type: "home_weather/get_volcanoes" }).catch(() => null),
+          this._hass.callWS({ type: "home_weather/get_travel_advisories" }).catch(() => null),
+          this._hass.callWS({ type: "home_weather/get_wildfires" }).catch(() => null),
+          this._hass.callWS({ type: "home_weather/get_air_quality" }).catch(() => null),
         ]);
         // Preserve last-known hurricane data if this refresh failed.
         this._data = payload || this._data || { storms: [], outlook: {}, summary: {} };
@@ -1517,6 +1549,9 @@
         this._earthquakeData = earthquakePayload;
         this._backendLightning = lightningPayload;
         this._volcanoData = volcanoPayload;
+        this._travelData = travelPayload;
+        this._wildfireData = wildfirePayload;
+        this._airQualityData = airQualityPayload;
         this._error = hurricaneError ? (hurricaneError.message || String(hurricaneError)) : null;
         this._renderUI();
         this._updateLightningStatusDom();
@@ -1759,6 +1794,24 @@
         : "—";
       const volcanoDistance = this._fmtMiles(volcano.nearest_distance_miles);
 
+      const travel = this._travelData || {};
+      const travelCounts = travel.level_counts || { 1: 0, 2: 0, 3: 0, 4: 0 };
+      const travelTotal = travel.advisory_count || 0;
+      const travelHigh = (travelCounts[3] || 0) + (travelCounts[4] || 0);
+
+      const wildfire = this._wildfireData || {};
+      const wildfireCount = wildfire.incident_count || 0;
+      const wildfireActive = wildfire.active_uncontained_count || 0;
+      const wildfireNearest = wildfire.nearest_incident || {};
+      const wildfireDistance = this._fmtMiles(wildfire.nearest_distance_miles);
+
+      const airQuality = this._airQualityData || {};
+      const aqiCounts = airQuality.level_counts || {};
+      const aqiTotal = airQuality.area_count || 0;
+      const aqiUnhealthy = airQuality.unhealthy_count || 0;
+      const aqiWorst = airQuality.worst_area || {};
+      const aqiNearestBad = airQuality.nearest_unhealthy || {};
+
       const headline = this._buildStatusHeadline(summary, storms);
       const tropicalCount = (summary.disturbanceCount || 0) + storms.length;
       const tornadoCountLabel = tornadoCount;
@@ -1830,6 +1883,40 @@
                 <div class="hurricane-stat"><span>Nearest active</span><strong>${this._esc(volcanoNearestName)}</strong></div>
                 <div class="hurricane-stat"><span>Alert level</span><strong>${this._esc(volcanoNearestLevel)}</strong></div>
                 <div class="hurricane-stat"><span>Distance</span><strong>${volcanoDistance}</strong></div>
+              </div>
+            </details>
+            <details class="hurricane-status-details"${detailsOpen}>
+              <summary><span>Travel Advisories</span><span class="h-count">${travelTotal}</span><span class="h-chevron">▸</span></summary>
+              <div class="hurricane-status-details-body">
+                <div class="hurricane-stat"><span>Countries tracked</span><strong>${travelTotal}</strong></div>
+                <div class="hurricane-stat ${travelHigh > 0 ? "is-warning" : ""}"><span>Level 3–4</span><strong>${travelHigh}</strong></div>
+                <div class="hurricane-stat"><span>Level 4 (Do not travel)</span><strong>${travelCounts[4] || 0}</strong></div>
+                <div class="hurricane-stat"><span>Level 3 (Reconsider)</span><strong>${travelCounts[3] || 0}</strong></div>
+                <div class="hurricane-stat"><span>On map</span><strong>${travel.map_count || 0}</strong></div>
+                <div class="hurricane-stat"><span>Source</span><strong><a href="https://travel.state.gov/content/travel/en/rss.html" target="_blank" rel="noopener noreferrer" style="color:#90caf9">State Dept</a></strong></div>
+              </div>
+            </details>
+            <details class="hurricane-status-details"${detailsOpen}>
+              <summary><span>Wildfires</span><span class="h-count">${wildfireCount}</span><span class="h-chevron">▸</span></summary>
+              <div class="hurricane-status-details-body">
+                <div class="hurricane-stat"><span>Active incidents</span><strong>${wildfireCount}</strong></div>
+                <div class="hurricane-stat ${wildfireActive > 0 ? "is-warning" : ""}"><span>Uncontained</span><strong>${wildfireActive}</strong></div>
+                <div class="hurricane-stat"><span>Perimeters on map</span><strong>${wildfire.perimeter_count || 0}</strong></div>
+                <div class="hurricane-stat"><span>Nearest</span><strong>${this._esc(wildfireNearest.name || "—")}</strong></div>
+                <div class="hurricane-stat"><span>Distance</span><strong>${wildfireDistance}</strong></div>
+                <div class="hurricane-stat"><span>Source</span><strong><a href="https://data-nifc.opendata.arcgis.com/" target="_blank" rel="noopener noreferrer" style="color:#90caf9">NIFC WFIGS</a></strong></div>
+              </div>
+            </details>
+            <details class="hurricane-status-details"${detailsOpen}>
+              <summary><span>Air Quality</span><span class="h-count">${aqiTotal}</span><span class="h-chevron">▸</span></summary>
+              <div class="hurricane-status-details-body">
+                <div class="hurricane-stat"><span>Reporting areas</span><strong>${aqiTotal}</strong></div>
+                <div class="hurricane-stat ${aqiUnhealthy > 0 ? "is-warning" : ""}"><span>Unhealthy+</span><strong>${aqiUnhealthy}</strong></div>
+                <div class="hurricane-stat"><span>Worst AQI</span><strong>${aqiWorst.aqi != null ? aqiWorst.aqi : "—"}</strong></div>
+                <div class="hurricane-stat"><span>Worst location</span><strong>${this._esc(aqiWorst.name ? `${aqiWorst.name}, ${aqiWorst.state || ""}` : "—")}</strong></div>
+                <div class="hurricane-stat"><span>Nearest unhealthy</span><strong>${this._esc(aqiNearestBad.name ? `${aqiNearestBad.name}, ${aqiNearestBad.state || ""}` : "—")}</strong></div>
+                <div class="hurricane-stat"><span>On map</span><strong>${airQuality.map_count || 0}</strong></div>
+                <div class="hurricane-stat"><span>Source</span><strong><a href="https://www.airnow.gov/" target="_blank" rel="noopener noreferrer" style="color:#90caf9">EPA AirNow</a></strong></div>
               </div>
             </details>
             <details class="hurricane-status-details"${detailsOpen}>
@@ -2082,6 +2169,16 @@
             <div class="hw-legend-row"><img src="/local/home_weather/icons/lightning-bolt.svg" alt=""/>Live strike (Blitzortung)</div>
             <div class="hw-legend-row"><img src="/local/home_weather/icons/volcano.svg" alt="" style="opacity:0.55"/>Volcano (catalog)</div>
             <div class="hw-legend-row"><img src="/local/home_weather/icons/volcano.svg" alt=""/>Active volcano + affected area</div>
+            <div class="hw-legend-row"><span class="hw-legend-swatch" style="background:rgba(76,175,80,0.45);border-color:#4caf50"></span>Travel L1 — Normal</div>
+            <div class="hw-legend-row"><span class="hw-legend-swatch" style="background:rgba(255,241,118,0.5);border-color:#fff176"></span>Travel L2 — Caution</div>
+            <div class="hw-legend-row"><span class="hw-legend-swatch" style="background:rgba(255,152,0,0.5);border-color:#ff9800"></span>Travel L3 — Reconsider</div>
+            <div class="hw-legend-row"><span class="hw-legend-swatch" style="background:rgba(244,67,54,0.55);border-color:#f44336"></span>Travel L4 — Do not travel</div>
+            <div class="hw-legend-row"><img src="/local/home_weather/icons/fire.svg" alt=""/>Active wildfire</div>
+            <div class="hw-legend-row"><span class="hw-legend-swatch" style="background:rgba(229,57,53,0.35);border-color:#e53935"></span>Fire perimeter</div>
+            <div class="hw-legend-row"><span class="hw-legend-dot" style="background:#00e400"></span>AQI Good</div>
+            <div class="hw-legend-row"><span class="hw-legend-dot" style="background:#ffff00"></span>AQI Moderate</div>
+            <div class="hw-legend-row"><span class="hw-legend-dot" style="background:#ff7e00"></span>AQI USG</div>
+            <div class="hw-legend-row"><span class="hw-legend-dot" style="background:#ff0000"></span>AQI Unhealthy+</div>
             <div class="hw-legend-row"><img src="/local/home_weather/icons/home.svg" alt=""/>Your home</div>
           </div>
         </div>`;
@@ -2322,6 +2419,14 @@
       const bounds = [];
       const layers = this._mapLayers || { hurricane: true, tornado: true, earthquakes: true };
 
+      if (layers.travel !== false) {
+        this._drawTravelAdvisories(bounds);
+      }
+
+      if (layers.wildfire !== false) {
+        this._drawWildfires(bounds);
+      }
+
       if (layers.hurricane) {
         this._drawOutlook(outlook, bounds);
         storms.forEach((storm, idx) => {
@@ -2340,6 +2445,10 @@
 
       if (layers.volcanoes !== false) {
         this._drawVolcanoes();
+      }
+
+      if (layers.air_quality !== false) {
+        this._drawAirQuality(bounds);
       }
 
       if (home?.lat != null && home?.lon != null) {
@@ -2380,13 +2489,32 @@
     _drawZoneOverlay(home) {
       const L = global.L;
       const zones = Array.isArray(this._zoneConfig) ? this._zoneConfig : [];
+
+      // Tear down any curved labels from a previous render so we never leak
+      // orphaned <text> nodes into the shared overlay SVG.
+      (this._zoneTextEls || []).forEach((el) => el?.remove?.());
+      this._zoneTextEls = [];
+      this._zoneLabelUpdaters = [];
+
+      // Rescale every curved label whenever the zoom (and therefore the
+      // circle's pixel radius) changes. Registered once for the map's lifetime.
+      if (!this._zoneZoomHooked && this._map) {
+        this._zoneZoomHooked = true;
+        this._map.on("zoomend", () =>
+          (this._zoneLabelUpdaters || []).forEach((fn) => this._safe(fn)),
+        );
+      }
+
+      const SVGNS = "http://www.w3.org/2000/svg";
+      const XLINKNS = "http://www.w3.org/1999/xlink";
+
       zones.forEach((zone) => {
         if (!zone || !zone.enabled || !(zone.radius_miles > 0)) return;
         const sensorBypassed = zone.zone_mode === "all";
         const alertBypassed = (zone.alert_zone_mode ?? zone.zone_mode) === "all";
         const bypassed = sensorBypassed && (!zone.has_alerts || alertBypassed);
         const radiusMeters = zone.radius_miles * 1609.34;
-        L.circle([home.lat, home.lon], {
+        const circle = L.circle([home.lat, home.lon], {
           radius: radiusMeters,
           color: zone.color || "#29b6f6",
           weight: bypassed ? 1 : 2,
@@ -2398,31 +2526,47 @@
           pane: "overlayPane",
         }).addTo(this._layerGroup);
 
-        // Permanent, centered, wrapping label anchored at the zone's
-        // bottom-center (due south of home on the circle border).
-        const deltaLat = radiusMeters / 111320;
-        const southPoint = [home.lat - deltaLat, home.lon];
-        const scopeChip = (label, active) =>
-          `<span class="hw-zone-chip ${active ? "is-active" : "is-bypass"}">${label} ${active ? "Active" : "Bypassed"}</span>`;
-        const scopeLine = zone.has_alerts
-          ? `${scopeChip("Sensor", !sensorBypassed)}${scopeChip("Alerts", !alertBypassed)}`
-          : `${scopeChip("Sensor", !sensorBypassed)}`;
-        const html =
-          `<span class="hw-zone-label-title">${this._esc(zone.label || zone.key)}</span>` +
-          `<span class="hw-zone-label-scope">${scopeLine}</span>`;
-        const anchor = L.marker(southPoint, {
-          icon: L.divIcon({ className: "hw-zone-label-anchor", html: "", iconSize: [0, 0] }),
-          interactive: false,
-          keyboard: false,
-          pane: "overlayPane",
-        }).addTo(this._layerGroup);
-        anchor.bindTooltip(html, {
-          permanent: true,
-          direction: "center",
-          className: `hw-zone-label${bypassed ? " is-bypassed" : ""}`,
-          offset: [0, 0],
-          opacity: 1,
-        }).openTooltip();
+        // The SVG renderer draws the circle as a <path>; a <textPath> that
+        // references that path lets a single line of text follow the curve and
+        // reproject automatically on pan/zoom. (Canvas renderer has no _path.)
+        const path = circle._path;
+        if (!path || !path.parentNode || typeof document === "undefined") return;
+
+        const scopeWord = (b) => (b ? "bypassed" : "active");
+        const parts = [zone.label || zone.key, `sensor ${scopeWord(sensorBypassed)}`];
+        if (zone.has_alerts) parts.push(`alerts ${scopeWord(alertBypassed)}`);
+        const lineText = parts.join("  \u00b7  ");
+
+        const pathId = `hw-zone-path-${(this._zonePathSeq = (this._zonePathSeq || 0) + 1)}`;
+        path.setAttribute("id", pathId);
+
+        const textEl = document.createElementNS(SVGNS, "text");
+        textEl.setAttribute("class", `hw-zone-arc-label${bypassed ? " is-bypassed" : ""}`);
+        // Lift the baseline just off the stroke so text sits above the border.
+        textEl.setAttribute("dy", "-5");
+        const textPath = document.createElementNS(SVGNS, "textPath");
+        textPath.setAttributeNS(XLINKNS, "xlink:href", `#${pathId}`);
+        textPath.setAttribute("href", `#${pathId}`);
+        // The circle path starts due west and runs along the bottom, so 25%
+        // centers the text at the bottom (due south of home) reading upright.
+        textPath.setAttribute("startOffset", "25%");
+        textPath.setAttribute("text-anchor", "middle");
+        textPath.textContent = lineText;
+        textEl.appendChild(textPath);
+        path.parentNode.appendChild(textEl);
+        this._zoneTextEls.push(textEl);
+
+        // Size the font to the zone: bigger radius -> bigger text. Hide the
+        // label entirely when the circle is too small to read cleanly.
+        const updateFont = () => {
+          const rPx = circle._radius;
+          if (!rPx) return;
+          const fontSize = Math.max(8, Math.min(22, rPx * 0.1));
+          textEl.setAttribute("font-size", `${fontSize}px`);
+          textEl.style.display = rPx < 34 ? "none" : "";
+        };
+        updateFont();
+        this._zoneLabelUpdaters.push(updateFont);
       });
     }
 
@@ -2960,6 +3104,169 @@
         marker.bindPopup(popup);
         catalogGroup.addLayer(marker);
       });
+    }
+
+    _wildfirePopup(props) {
+      const contained = props.percent_contained;
+      const containedText = contained == null ? "Unknown" : `${Math.round(contained)}%`;
+      return [
+        `<strong>${this._esc(props.name || "Wildfire")}</strong>`,
+        this._esc(props.location || ""),
+        `Size: ${props.acres != null ? Math.round(props.acres).toLocaleString() + " acres" : "—"}`,
+        `Contained: ${containedText}`,
+        props.fire_cause ? `Cause: ${this._esc(props.fire_cause)}` : "",
+        props.discovery_time ? `Discovered: ${this._esc(this._formatEarthquakeTime(props.discovery_time))}` : "",
+        props.distance_miles != null ? `Distance: ${Math.round(props.distance_miles)} mi` : "",
+        `<span style="font-size:11px;opacity:0.8">Source: NIFC WFIGS</span>`,
+      ].filter(Boolean).join("<br/>");
+    }
+
+    _drawWildfires(bounds) {
+      const L = global.L;
+      const features = this._wildfireData?.geojson?.features;
+      if (!L || !features?.length || !this._layerGroup) return;
+
+      features.forEach((feature) => {
+        const props = feature.properties || {};
+        const geom = feature.geometry || {};
+        const color = props.color || "#ff7043";
+        const popup = this._wildfirePopup(props);
+
+        if (geom.type === "Polygon" && Array.isArray(geom.coordinates)) {
+          L.geoJSON(feature, {
+            style: {
+              color,
+              weight: 2,
+              fillColor: color,
+              fillOpacity: 0.22,
+              className: "hw-wildfire-perimeter",
+            },
+          }).bindPopup(popup).addTo(this._layerGroup);
+          try {
+            const ring = geom.coordinates[0] || [];
+            ring.forEach((pt) => {
+              if (Array.isArray(pt) && pt.length >= 2) bounds.push([pt[1], pt[0]]);
+            });
+          } catch (_) { /* ignore */ }
+          return;
+        }
+
+        const coords = geom.coordinates;
+        if (!coords || coords.length < 2) return;
+        const lon = coords[0];
+        const lat = coords[1];
+        const marker = L.marker([lat, lon], {
+          icon: L.divIcon({
+            className: "hw-hazard-icon-marker",
+            html: `<div class="hw-hazard-icon-wrap"><img src="/local/home_weather/icons/fire.svg" width="26" height="26" alt="" draggable="false"/></div>`,
+            iconSize: [26, 26],
+            iconAnchor: [13, 13],
+          }),
+          zIndexOffset: 460,
+        });
+        marker.bindPopup(popup);
+        if (props.name) {
+          marker.bindTooltip(this._esc(props.name), {
+            permanent: true,
+            direction: "top",
+            className: "hw-name-label",
+            offset: [0, -14],
+          });
+        }
+        marker.addTo(this._layerGroup);
+        bounds.push([lat, lon]);
+      });
+    }
+
+    _aqiPopup(props) {
+      return [
+        `<strong>${this._esc(props.name || "Reporting area")}, ${this._esc(props.state || "")}</strong>`,
+        `<span style="display:inline-block;background:${props.color || "#ccc"};color:#111;font-weight:700;padding:2px 8px;border-radius:999px">AQI ${props.aqi} — ${this._esc(props.category || "")}</span>`,
+        props.pollutant ? `Primary pollutant: ${this._esc(props.pollutant)}` : "",
+        props.pollutants?.length ? `Pollutants tracked: ${this._esc(props.pollutants.join(", "))}` : "",
+        props.agency ? `Agency: ${this._esc(props.agency)}` : "",
+        props.distance_miles != null ? `Distance: ${Math.round(props.distance_miles)} mi` : "",
+        `<span style="font-size:11px;opacity:0.8">Source: EPA AirNow</span>`,
+      ].filter(Boolean).join("<br/>");
+    }
+
+    _aqiMarkerSize(level) {
+      const n = Number(level) || 1;
+      return Math.min(28, 12 + n * 2);
+    }
+
+    _drawAirQuality(bounds) {
+      const L = global.L;
+      const features = this._airQualityData?.geojson?.features;
+      if (!L || !features?.length || !this._layerGroup) return;
+
+      features.forEach((feature) => {
+        const props = feature.properties || {};
+        const coords = feature.geometry?.coordinates;
+        if (!coords || coords.length < 2) return;
+        const lon = coords[0];
+        const lat = coords[1];
+        const size = this._aqiMarkerSize(props.category_level);
+        const color = props.color || "#00e400";
+        const marker = L.marker([lat, lon], {
+          icon: L.divIcon({
+            className: "hw-hazard-icon-marker",
+            html: `<div class="hw-aqi-marker" style="width:${size}px;height:${size}px;background:${color}">${props.aqi != null ? props.aqi : ""}</div>`,
+            iconSize: [size, size],
+            iconAnchor: [size / 2, size / 2],
+          }),
+          zIndexOffset: 350 + (Number(props.category_level) || 1) * 10,
+        });
+        marker.bindPopup(this._aqiPopup(props));
+        marker.addTo(this._layerGroup);
+        bounds.push([lat, lon]);
+      });
+    }
+
+    _travelPopup(props) {
+      const level = Number(props.level) || 0;
+      const color = props.color || "#9e9e9e";
+      const summary = this._esc((props.summary_text || "").slice(0, 480));
+      const link = props.link
+        ? `<p style="margin:8px 0 0"><a href="${this._esc(props.link)}" target="_blank" rel="noopener noreferrer">Full advisory on travel.state.gov</a></p>`
+        : "";
+      return `
+        <div class="hw-travel-popup">
+          <strong>${this._esc(props.country || props.name || "Country")}</strong>
+          <span class="hw-travel-level" style="background:${color};color:#111">Level ${level}: ${this._esc(props.level_label || props.level_name || "")}</span>
+          ${summary ? `<p style="margin:6px 0 0;font-size:12px;line-height:1.45">${summary}${(props.summary_text || "").length > 480 ? "…" : ""}</p>` : ""}
+          ${link}
+        </div>`;
+    }
+
+    _drawTravelAdvisories(bounds) {
+      const L = global.L;
+      const geojson = this._travelData?.geojson;
+      if (!L || !geojson?.features?.length || !this._layerGroup) return;
+
+      L.geoJSON(geojson, {
+        style: (feature) => {
+          const level = Number(feature?.properties?.level) || 1;
+          const color = feature?.properties?.color || "#9e9e9e";
+          return {
+            color: "rgba(255,255,255,0.35)",
+            weight: 1,
+            opacity: 0.85,
+            fillColor: color,
+            fillOpacity: level >= 4 ? 0.55 : level >= 3 ? 0.5 : level >= 2 ? 0.48 : 0.42,
+            className: `hw-travel-advisory level-${level}`,
+          };
+        },
+        onEachFeature: (feature, layer) => {
+          const props = feature.properties || {};
+          layer.bindPopup(this._travelPopup(props));
+          try {
+            const center = layer.getBounds?.().getCenter?.();
+            if (center) bounds.push([center.lat, center.lng]);
+          } catch (_) { /* ignore */ }
+        },
+        pane: "overlayPane",
+      }).addTo(this._layerGroup);
     }
   }
 

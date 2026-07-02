@@ -46,6 +46,7 @@ from .tts_notifications import (
     format_earthquake_alert_for_tts,
     format_tornado_warning_for_tts,
     format_tropical_alert_for_tts,
+    format_travel_advisory_for_tts,
     format_volcano_alert_for_tts,
     passes_earthquake_tts_filter,
     passes_tornado_tts_filter,
@@ -92,6 +93,8 @@ def _is_alerts_active(config: dict[str, Any]) -> bool:
     if (config.get("earthquake_alerts") or {}).get("enabled", False):
         return True
     if (config.get("volcano_alerts") or {}).get("enabled", False):
+        return True
+    if (config.get("travel_alerts") or {}).get("enabled", False):
         return True
     return False
 
@@ -247,6 +250,8 @@ class TTSTriggerManager:
             setups.append(("earthquake_alerts", self._setup_earthquake_alerts_trigger(config)))
         if (config.get("volcano_alerts") or {}).get("enabled", False):
             setups.append(("volcano_alerts", self._setup_volcano_alerts_trigger(config)))
+        if (config.get("travel_alerts") or {}).get("enabled", False):
+            setups.append(("travel_alerts", self._setup_travel_alerts_trigger(config)))
 
         successful: list[str] = []
         for name, coro in setups:
@@ -751,6 +756,32 @@ class TTSTriggerManager:
             self.hass, config, "volcano_alerts", msg, media_players,
             request_id=request_id, alert_kind="volcano_alert",
         )
+
+    async def fire_test_travel_alert(self, *, request_id: str | None = None) -> None:
+        """Play sample travel advisory TTS alert."""
+        config = self._get_config()
+        media_players = media_players_with_tts(config.get("media_players", []))
+        if not media_players:
+            _fire_tts_status(
+                self.hass, "skipped", request_id=request_id,
+                reason="No media players with TTS configured", alert_kind="travel_alert",
+            )
+            return
+        sample = {
+            "country": "Example Country",
+            "level": 3,
+            "level_name": "Reconsider Travel",
+            "summary_text": "This is a Home Weather test travel advisory.",
+        }
+        msg = format_travel_advisory_for_tts(sample)
+        await play_hazard_alert_notification(
+            self.hass, config, "travel_alerts", msg, media_players,
+            request_id=request_id, alert_kind="travel_alert",
+        )
+
+    async def fire_test_travel_siren(self, *, request_id: str | None = None) -> None:
+        """Play the configured travel advisory siren only (no TTS)."""
+        await self._fire_test_section_siren("travel_alerts", "travel_siren", request_id=request_id)
 
     async def _setup_upcoming_change_trigger(self, tts_config: dict[str, Any]) -> None:
         """Set up trigger for upcoming precipitation alerts.
@@ -1762,3 +1793,52 @@ class TTSTriggerManager:
             alert_kind="volcano_alert",
         )
         _LOGGER.info("Volcano alert TTS fired: %s", event_type)
+
+    async def _setup_travel_alerts_trigger(self, config: dict[str, Any]) -> None:
+        """Listen for travel advisory coordinator bus events."""
+        media_players = media_players_with_tts(config.get("media_players", []))
+        if not media_players:
+            _LOGGER.warning("Travel alerts enabled but no media players with TTS configured")
+            return
+
+        for event_type in (
+            "home_weather_travel_advisory_new",
+            "home_weather_travel_advisory_changed",
+        ):
+            def _make_listener(et: str) -> Callable[[Event], None]:
+                @callback
+                def _on_event(ev: Event) -> None:
+                    self.hass.async_create_task(
+                        self._handle_travel_bus_event(ev, et)
+                    )
+                return _on_event
+
+            self._unsub_callbacks.append(
+                self.hass.bus.async_listen(event_type, _make_listener(event_type))
+            )
+        _LOGGER.info("Travel alerts trigger set up (bus listeners)")
+
+    async def _handle_travel_bus_event(
+        self,
+        event: Event,
+        event_type: str,
+    ) -> None:
+        config = self._get_config()
+        travel_cfg = config.get("travel_alerts") or {}
+        if not travel_cfg.get("enabled"):
+            return
+        media_players = media_players_with_tts(config.get("media_players", []))
+        if not media_players:
+            return
+        payload = dict(event.data or {})
+        from .travel_advisory_data import passes_travel_alert_filter
+
+        if not passes_travel_alert_filter(payload, travel_cfg):
+            return
+        changed = event_type == "home_weather_travel_advisory_changed"
+        msg = format_travel_advisory_for_tts(payload, changed=changed)
+        await play_hazard_alert_notification(
+            self.hass, config, "travel_alerts", msg, media_players,
+            alert_kind="travel_alert",
+        )
+        _LOGGER.info("Travel alert TTS fired: %s", event_type)

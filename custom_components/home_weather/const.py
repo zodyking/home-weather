@@ -152,6 +152,37 @@ DEFAULT_CONFIG: Final = {
         # Plot the full worldwide catalog (subtle markers) on the hazard map
         "map_show_all_volcanoes": True,
     },
+    "wildfire_monitoring": {
+        "enabled": True,
+        "show_on_map": True,
+        "show_perimeters": True,
+        "min_acres": 100,
+        "exclude_prescribed": True,
+    },
+    "air_quality_monitoring": {
+        "enabled": True,
+        "show_on_map": True,
+        # Minimum EPA AQI category level (1=Good … 6=Hazardous) shown on map
+        "min_category_level": 1,
+    },
+    "travel_monitoring": {
+        "enabled": True,
+        "show_on_map": True,
+        # Minimum advisory level (1-4) to color countries on the hazard map
+        "min_level": 1,
+    },
+    "travel_alerts": {
+        "enabled": False,
+        "sound_file": "",
+        "sound_volume": 0.8,
+        "tts_volume": 0.9,
+        # Minimum level (1-4) to announce via TTS
+        "min_level": 3,
+        "announce_level_changes": True,
+        "announce_new_advisories": True,
+        # Empty list = all countries; otherwise State Dept category codes or country names
+        "watched_countries": [],
+    },
     # Legacy keys kept for backward compatibility during transition
     "earthquakes": {
         "enabled": True,

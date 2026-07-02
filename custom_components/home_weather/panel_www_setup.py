@@ -15,6 +15,7 @@ PANEL_JS_FILES = (
     "hurricane-tracker.js",
     "blitzortung-client.js",
     "zone-editor.js",
+    "countries.geo.json",
 )
 VERSION_MARKER = ".panel-version"
 

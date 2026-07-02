@@ -1121,7 +1121,7 @@ async def play_nws_siren(
                 },
                 blocking=True,
             )
-            await _wait_for_media_player_idle(hass, eid)
+            await _wait_for_media_player_idle(hass, eid, wait_for_start=True)
         except Exception as exc:
             _LOGGER.warning("NWS siren playback failed for %s: %s", eid, exc)
             _fire_tts_status(
@@ -1198,11 +1198,34 @@ async def _wait_for_media_player_idle(
     *,
     timeout: float = 120.0,
     poll_interval: float = 0.5,
+    wait_for_start: bool = False,
+    start_timeout: float = 10.0,
 ) -> bool:
-    """Wait until a media player finishes playing alert audio."""
+    """Wait until a media player finishes playing alert audio.
+
+    ``media_player.play_media`` returns as soon as the command is dispatched to
+    the device (even with ``blocking=True``), so the player state is frequently
+    still ``idle``/``paused`` immediately afterwards. When ``wait_for_start`` is
+    set, first wait (up to ``start_timeout``) for playback to actually begin
+    before waiting for it to finish. Without this, a following TTS announcement
+    is fired while the siren is only just starting, and the siren drops the TTS.
+    """
     loop = asyncio.get_running_loop()
     deadline = loop.time() + timeout
     await asyncio.sleep(0.3)
+
+    if wait_for_start:
+        start_deadline = min(deadline, loop.time() + start_timeout)
+        while loop.time() < start_deadline:
+            state = hass.states.get(entity_id)
+            if state is None:
+                return False
+            if state.state in ("playing", "buffering"):
+                break
+            await asyncio.sleep(poll_interval)
+        else:
+            # Playback never observed to start; nothing to wait for.
+            return True
 
     while loop.time() < deadline:
         state = hass.states.get(entity_id)
@@ -1579,7 +1602,7 @@ async def play_hazard_siren(
                 },
                 blocking=True,
             )
-            await _wait_for_media_player_idle(hass, eid)
+            await _wait_for_media_player_idle(hass, eid, wait_for_start=True)
         except Exception as exc:
             _LOGGER.warning("Hazard siren playback failed for %s: %s", eid, exc)
             _fire_tts_status(
@@ -1640,3 +1663,21 @@ async def play_hazard_alert_notification(
     await wait_for_media_players_after_tts(
         hass, media_player_entity_ids(media_players_config),
     )
+
+
+def format_travel_advisory_for_tts(
+    payload: dict[str, Any],
+    *,
+    changed: bool = False,
+) -> str:
+    """Build spoken U.S. State Department travel advisory alert."""
+    country = payload.get("country") or "A destination"
+    level = int(payload.get("level") or 0)
+    level_name = payload.get("level_name") or payload.get("level_label") or f"Level {level}"
+    prefix = "Travel advisory update." if changed else "Travel advisory."
+    parts = [prefix, f"{country} is now at {level_name}, level {level}."]
+    summary = (payload.get("summary_text") or "").strip()
+    if summary:
+        snippet = summary[:320].rsplit(" ", 1)[0] if len(summary) > 320 else summary
+        parts.append(snippet)
+    return " ".join(parts)

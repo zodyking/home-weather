@@ -105,6 +105,9 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
                     "hurricane_coordinator",
                     "lightning_coordinator",
                     "volcano_coordinator",
+                    "travel_coordinator",
+                    "wildfire_coordinator",
+                    "air_quality_coordinator",
                 ):
                     hazard = entry_data.get(key)
                     if hazard:
@@ -494,6 +497,14 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
         {"type": "home_weather/test_volcano_alert"}
     )(_make_alert_test_handler("fire_test_volcano_alert", "volcano_test_failed", require_weather=False))
 
+    handle_test_travel_alert = websocket_api.websocket_command(
+        {"type": "home_weather/test_travel_alert"}
+    )(_make_alert_test_handler("fire_test_travel_alert", "travel_test_failed", require_weather=False))
+
+    handle_test_travel_siren = websocket_api.websocket_command(
+        {"type": "home_weather/test_travel_siren"}
+    )(_make_alert_test_handler("fire_test_travel_siren", "travel_siren_test_failed", require_weather=False))
+
     @websocket_api.websocket_command(
         {
             "type": "home_weather/get_automations",
@@ -746,6 +757,93 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
         payload = coordinator.data or {}
         connection.send_result(msg["id"], payload)
 
+    @websocket_api.websocket_command(
+        {
+            vol.Required("type"): "home_weather/get_travel_advisories",
+        }
+    )
+    @websocket_api.async_response
+    async def handle_get_travel_advisories(
+        hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+    ) -> None:
+        """Return U.S. State Department travel advisories from the travel coordinator."""
+        entry_data = _get_entry_data(hass)
+        if not entry_data or not entry_data.get("travel_coordinator"):
+            connection.send_result(
+                msg["id"],
+                {
+                    "advisories": [],
+                    "advisory_count": 0,
+                    "level_counts": {1: 0, 2: 0, 3: 0, 4: 0},
+                    "geojson": {"type": "FeatureCollection", "features": []},
+                    "map_count": 0,
+                },
+            )
+            return
+
+        coordinator = entry_data["travel_coordinator"]
+        payload = coordinator.data or {}
+        connection.send_result(msg["id"], payload)
+
+    @websocket_api.websocket_command(
+        {
+            vol.Required("type"): "home_weather/get_wildfires",
+        }
+    )
+    @websocket_api.async_response
+    async def handle_get_wildfires(
+        hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+    ) -> None:
+        """Return NIFC WFIGS wildfire data from the wildfire coordinator."""
+        entry_data = _get_entry_data(hass)
+        if not entry_data or not entry_data.get("wildfire_coordinator"):
+            connection.send_result(
+                msg["id"],
+                {
+                    "incidents": [],
+                    "incident_count": 0,
+                    "perimeter_count": 0,
+                    "active_uncontained_count": 0,
+                    "map_count": 0,
+                    "geojson": {"type": "FeatureCollection", "features": []},
+                },
+            )
+            return
+
+        coordinator = entry_data["wildfire_coordinator"]
+        payload = coordinator.data or {}
+        connection.send_result(msg["id"], payload)
+
+    @websocket_api.websocket_command(
+        {
+            vol.Required("type"): "home_weather/get_air_quality",
+        }
+    )
+    @websocket_api.async_response
+    async def handle_get_air_quality(
+        hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+    ) -> None:
+        """Return EPA AirNow air quality data from the air quality coordinator."""
+        entry_data = _get_entry_data(hass)
+        if not entry_data or not entry_data.get("air_quality_coordinator"):
+            connection.send_result(
+                msg["id"],
+                {
+                    "areas": [],
+                    "area_count": 0,
+                    "filtered_count": 0,
+                    "map_count": 0,
+                    "level_counts": {i: 0 for i in range(1, 7)},
+                    "unhealthy_count": 0,
+                    "geojson": {"type": "FeatureCollection", "features": []},
+                },
+            )
+            return
+
+        coordinator = entry_data["air_quality_coordinator"]
+        payload = coordinator.data or {}
+        connection.send_result(msg["id"], payload)
+
     websocket_api.async_register_command(hass, handle_get_config)
     websocket_api.async_register_command(hass, handle_set_config)
     websocket_api.async_register_command(hass, handle_get_weather)
@@ -777,4 +875,9 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, handle_get_earthquakes)
     websocket_api.async_register_command(hass, handle_get_lightning)
     websocket_api.async_register_command(hass, handle_get_volcanoes)
+    websocket_api.async_register_command(hass, handle_get_travel_advisories)
+    websocket_api.async_register_command(hass, handle_get_wildfires)
+    websocket_api.async_register_command(hass, handle_get_air_quality)
+    websocket_api.async_register_command(hass, handle_test_travel_alert)
+    websocket_api.async_register_command(hass, handle_test_travel_siren)
 

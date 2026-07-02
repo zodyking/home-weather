@@ -288,3 +288,79 @@ def test_play_hazard_alert_notification_waits_for_tts():
         )
 
     assert order == ["siren", "send", "wait"]
+
+
+def _sequenced_hass(states):
+    """MagicMock hass whose media player state walks through ``states``."""
+    hass = MagicMock()
+    counter = {"i": 0}
+
+    def _get(_entity_id):
+        i = min(counter["i"], len(states) - 1)
+        counter["i"] += 1
+        st = MagicMock()
+        st.state = states[i]
+        return st
+
+    hass.states.get.side_effect = _get
+    return hass, counter
+
+
+def test_wait_for_media_player_idle_waits_for_playback_to_start():
+    """Regression: siren wait must not return before the siren actually plays.
+
+    ``media_player.play_media`` returns while the device is still ``idle``, so
+    ``wait_for_start`` must hold until playback begins, then until it finishes,
+    before the following TTS is sent. Otherwise the TTS races the siren and is
+    dropped.
+    """
+    from unittest.mock import AsyncMock, patch
+    import asyncio
+
+    from custom_components.home_weather.tts_notifications import (
+        _wait_for_media_player_idle,
+    )
+
+    # Just-dispatched idle frames, then the siren plays, then it finishes.
+    hass, counter = _sequenced_hass(
+        ["idle", "idle", "playing", "playing", "idle"]
+    )
+
+    with patch(
+        "custom_components.home_weather.tts_notifications.asyncio.sleep",
+        new=AsyncMock(),
+    ):
+        result = asyncio.run(
+            _wait_for_media_player_idle(
+                hass, "media_player.kitchen", wait_for_start=True, poll_interval=0
+            )
+        )
+
+    assert result is True
+    # Observed the two idle frames, the playing frames, and the final idle.
+    assert counter["i"] >= 5
+
+
+def test_wait_for_media_player_idle_without_start_returns_on_idle():
+    """Legacy behaviour (post-TTS waiter) still returns immediately when idle."""
+    from unittest.mock import AsyncMock, patch
+    import asyncio
+
+    from custom_components.home_weather.tts_notifications import (
+        _wait_for_media_player_idle,
+    )
+
+    hass, counter = _sequenced_hass(["idle"])
+
+    with patch(
+        "custom_components.home_weather.tts_notifications.asyncio.sleep",
+        new=AsyncMock(),
+    ):
+        result = asyncio.run(
+            _wait_for_media_player_idle(
+                hass, "media_player.kitchen", poll_interval=0
+            )
+        )
+
+    assert result is True
+    assert counter["i"] == 1
