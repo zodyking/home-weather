@@ -1853,6 +1853,13 @@
       this._map = L.map(mapEl, {
         zoomControl: false,
         attributionControl: true,
+        // Keep a single world copy and stop infinite horizontal repetition /
+        // panning into invalid longitudes (e.g. -375°).
+        worldCopyJump: false,
+        minZoom: 3,
+        maxZoom: 18,
+        maxBounds: L.latLngBounds([-85, -180], [85, 180]),
+        maxBoundsViscosity: 1.0,
       });
 
       // Establish a valid initial view immediately. Without a center/zoom the
@@ -1861,10 +1868,10 @@
       this._safe(() => this._map.setView([39.8283, -98.5795], 4));
 
       const baseLayers = {
-        Dark: L.tileLayer(DARK_TILE_URL, { maxZoom: 19, subdomains: "abcd", attribution: CARTO_ATTR }),
-        Light: L.tileLayer(LIGHT_TILE_URL, { maxZoom: 19, subdomains: "abcd", attribution: CARTO_ATTR }),
-        Satellite: L.tileLayer(SAT_TILE_URL, { maxZoom: 19, attribution: ESRI_ATTR }),
-        Ocean: L.tileLayer(OCEAN_TILE_URL, { maxZoom: 13, attribution: ESRI_ATTR }),
+        Dark: L.tileLayer(DARK_TILE_URL, { maxZoom: 19, subdomains: "abcd", attribution: CARTO_ATTR, noWrap: true }),
+        Light: L.tileLayer(LIGHT_TILE_URL, { maxZoom: 19, subdomains: "abcd", attribution: CARTO_ATTR, noWrap: true }),
+        Satellite: L.tileLayer(SAT_TILE_URL, { maxZoom: 19, attribution: ESRI_ATTR, noWrap: true }),
+        Ocean: L.tileLayer(OCEAN_TILE_URL, { maxZoom: 13, attribution: ESRI_ATTR, noWrap: true }),
       };
       this._baseLayers = baseLayers;
       baseLayers.Dark.addTo(this._map);
@@ -2315,8 +2322,9 @@
     }
 
     _fitMapView(stormBounds) {
+      const L = global.L;
       const usa = this._getUsaBounds();
-      if (!this._map || !usa) return;
+      if (!this._map || !usa || !L) return;
       if (this._userViewLocked) return;
 
       // Remember the requested bounds so we can retry once the container is
@@ -2328,13 +2336,55 @@
         return;
       }
 
-      if (stormBounds.length > 0) {
-        const combined = global.L.latLngBounds(stormBounds).extend(usa);
-        this._map.fitBounds(combined, { padding: [48, 48] });
+      const fitOpts = { padding: [48, 48], maxZoom: 8 };
+      const points = this._collectFitPoints(stormBounds);
+
+      if (points.length > 0) {
+        const combined = L.latLngBounds(points).extend(usa);
+        // Guard against antimeridian / bad coordinates blowing the fit out to
+        // the entire tiled world (zoom 1). If the span is near-global, a hazard
+        // is on the far side of the planet — stay anchored on the USA instead.
+        const lngSpan = combined.getEast() - combined.getWest();
+        const latSpan = combined.getNorth() - combined.getSouth();
+        if (lngSpan <= 170 && latSpan <= 120) {
+          this._map.fitBounds(combined, fitOpts);
+        } else {
+          this._map.fitBounds(usa, { padding: [24, 24], maxZoom: 8 });
+        }
       } else {
-        this._map.fitBounds(usa, { padding: [24, 24] });
+        this._map.fitBounds(usa, { padding: [24, 24], maxZoom: 8 });
       }
       this._hasInitialFit = true;
+    }
+
+    /**
+     * Normalize the mixed bounds array (which may contain [lat, lon] tuples,
+     * L.LatLng points, and L.LatLngBounds objects) into a flat list of valid
+     * [lat, lon] points, dropping anything non-finite or out of range.
+     */
+    _collectFitPoints(entries) {
+      const out = [];
+      const push = (lat, lon) => {
+        const la = Number(lat);
+        const lo = Number(lon);
+        if (!Number.isFinite(la) || !Number.isFinite(lo)) return;
+        if (la < -85 || la > 85 || lo < -180 || lo > 180) return;
+        out.push([la, lo]);
+      };
+      (Array.isArray(entries) ? entries : []).forEach((entry) => {
+        if (!entry) return;
+        if (Array.isArray(entry) && entry.length >= 2) {
+          push(entry[0], entry[1]);
+        } else if (typeof entry.getNorthEast === "function") {
+          const ne = entry.getNorthEast();
+          const sw = entry.getSouthWest();
+          if (ne) push(ne.lat, ne.lng);
+          if (sw) push(sw.lat, sw.lng);
+        } else if (entry.lat != null && (entry.lng != null || entry.lon != null)) {
+          push(entry.lat, entry.lng != null ? entry.lng : entry.lon);
+        }
+      });
+      return out;
     }
 
     _drawOutlook(outlook, bounds) {
