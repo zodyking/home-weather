@@ -657,7 +657,8 @@
             width: clamp(248px, 28vw, 300px);
             max-width: clamp(248px, 28vw, 300px);
             max-height: 100%;
-            height: auto;
+            height: 100%;
+            min-height: 0;
             align-self: stretch;
             margin: 0;
             border-radius: 0;
@@ -667,6 +668,7 @@
             border-left: 1px solid var(--hw-border-strong, #333);
             box-shadow: none;
             z-index: 20;
+            background-color: #1c1c1c;
           }
           .hurricane-map-empty-banner {
             top: 12px;
@@ -685,10 +687,11 @@
           border: 1px solid var(--hw-border-strong, #333);
           border-radius: 10px;
           overflow: hidden;
-          background: var(--hw-elevated, #282828);
+          background-color: #282828;
+          flex-shrink: 0;
         }
         .hurricane-status-details + .hurricane-status-details {
-          margin-top: 0;
+          margin-top: 8px;
         }
         .hurricane-status-details summary {
           list-style: none;
@@ -699,7 +702,7 @@
           letter-spacing: 0.1em;
           text-transform: uppercase;
           color: var(--hw-muted, #b0bec5) !important;
-          background: var(--hw-elevated, #282828);
+          background-color: #282828;
           display: flex;
           align-items: center;
           justify-content: space-between;
@@ -735,7 +738,7 @@
           display: flex;
           flex-direction: column;
           gap: 6px;
-          background: var(--hw-surface-2, #12161e);
+          background-color: #1e1e1e;
         }
         .marker-cluster-hw {
           background: rgba(255, 183, 77, 0.25);
@@ -816,15 +819,16 @@
           width: min(320px, 100%);
           height: 100%;
           max-height: 100%;
+          min-height: 0;
           overflow: hidden;
           overflow-x: hidden;
           z-index: 1100;
           pointer-events: auto;
           --primary-text-color: var(--hw-text, #e1e1e1);
           --secondary-text-color: var(--hw-muted, #9b9b9b);
-          --card-background-color: var(--hw-surface, #1c1c1c);
+          --card-background-color: #1c1c1c;
           color: var(--hw-text, #e1e1e1);
-          background: var(--hw-surface, #1c1c1c);
+          background-color: #1c1c1c;
           border: none;
           border-left: 1px solid var(--hw-border-strong, #333);
           border-radius: 0;
@@ -832,7 +836,8 @@
           display: flex;
           flex-direction: column;
           gap: 0;
-          box-shadow: none;
+          box-shadow: -4px 0 24px rgba(0, 0, 0, 0.45);
+          isolation: isolate;
         }
         .hurricane-status,
         .hurricane-status * {
@@ -858,24 +863,39 @@
           padding-bottom: 12px;
           margin-bottom: 12px;
           border-bottom: 1px solid var(--hw-border-strong, #333);
+          background-color: #1c1c1c;
         }
         .hurricane-status-scroll {
-          flex: 1;
+          flex: 1 1 auto;
           min-height: 0;
           overflow-y: auto;
           overflow-x: hidden;
           -webkit-overflow-scrolling: touch;
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-          padding-right: 8px;
-          margin-right: -8px;
+          display: block;
+          padding-right: 4px;
           padding-bottom: max(16px, env(safe-area-inset-bottom, 0px));
-          scrollbar-width: none;
-          -ms-overflow-style: none;
+          background-color: #1c1c1c;
+          scrollbar-width: thin;
+          scrollbar-color: #444 #1c1c1c;
+          -ms-overflow-style: auto;
+        }
+        .hurricane-status-scroll > .hurricane-stat,
+        .hurricane-status-scroll > .hurricane-banner {
+          flex-shrink: 0;
+        }
+        .hurricane-status-scroll > .hurricane-stat + .hurricane-status-details,
+        .hurricane-status-scroll > .hurricane-banner + .hurricane-status-details {
+          margin-top: 8px;
         }
         .hurricane-status-scroll::-webkit-scrollbar {
-          display: none;
+          width: 6px;
+        }
+        .hurricane-status-scroll::-webkit-scrollbar-thumb {
+          background: #444;
+          border-radius: 3px;
+        }
+        .hurricane-status-scroll::-webkit-scrollbar-track {
+          background: #1c1c1c;
         }
         .hurricane-status.is-threat-high {
           border-color: #f44336;
@@ -896,8 +916,9 @@
           align-items: baseline;
           gap: 12px;
           font-size: 13px;
-          line-height: 1.35;
+          line-height: 1.45;
           color: var(--hw-muted, #9b9b9b) !important;
+          flex-shrink: 0;
         }
         .hurricane-stat > span {
           flex: 1 1 auto;

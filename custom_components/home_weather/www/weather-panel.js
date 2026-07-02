@@ -2251,6 +2251,7 @@ class HomeWeatherPanel extends HTMLElement {
         .glass { background: var(--hw-surface); border: 1px solid var(--hw-border-strong); border-radius: var(--radius-xl); box-shadow: var(--shadow-md); }
         :host([data-hw-theme="light"]) .settings-card,
         :host([data-hw-theme="light"]) .settings-sidenav,
+        :host([data-hw-theme="light"]) .zone-card,
         :host([data-hw-theme="light"]) .collapsible-section--zone,
         :host([data-hw-theme="light"]) .hourly-card,
         :host([data-hw-theme="light"]) .daily-card,
@@ -4241,12 +4242,39 @@ class HomeWeatherPanel extends HTMLElement {
           .settings-sidenav button { width: auto; flex-shrink: 0; min-height: 40px; }
         }
 
-        /* Alert zone fields in settings collapsibles */
+        /* Alert zone cards + hazard monitoring collapsibles */
         .collapsible-section.is-disabled { opacity: 0.6; }
         .collapsible-section.collapsible-section--zone {
           border-left: 4px solid var(--zone-color, var(--hw-accent));
         }
+        .zone-cards {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+          gap: 12px;
+        }
+        .zone-card {
+          background: var(--hw-surface);
+          border: 1px solid var(--hw-border);
+          border-left: 4px solid var(--zone-color, var(--hw-accent));
+          border-radius: var(--radius-md);
+          padding: 14px 16px;
+          display: flex;
+          flex-direction: column;
+          gap: 0;
+          min-width: 0;
+        }
+        .zone-card-head {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          padding-bottom: 12px;
+          border-bottom: 1px solid var(--hw-border);
+        }
+        .zone-card-head img { width: 20px; height: 20px; flex-shrink: 0; }
+        .zone-card-title { font-size: 14px; font-weight: 600; color: var(--hw-text); flex: 1; }
         .zone-card-body { display: flex; flex-direction: column; gap: 0; padding-top: 4px; }
+        .zone-card-desc { margin: 10px 0 4px !important; }
+        .zone-card.is-disabled { opacity: 0.6; }
         .zone-card-field {
           display: flex;
           flex-direction: column;
@@ -4613,11 +4641,11 @@ class HomeWeatherPanel extends HTMLElement {
   _getAccordionGroup(sectionId) {
     const generalNested = ["general-weather-source", "general-about"];
     if (generalNested.includes(sectionId)) return { type: "list", ids: generalNested };
-    const zonesNested = [
-      "zone-hurricane", "zone-tornado", "zone-earthquake", "zone-lightning", "zone-volcano",
-      "zone-wildfire", "zone-air_quality",
+    const monitoringNested = [
+      "monitoring-tornado", "monitoring-earthquake", "monitoring-lightning", "monitoring-volcano",
+      "monitoring-wildfire", "monitoring-air_quality",
     ];
-    if (zonesNested.includes(sectionId)) return { type: "list", ids: zonesNested };
+    if (monitoringNested.includes(sectionId)) return { type: "list", ids: monitoringNested };
     const safetyNested = ["travel-monitoring"];
     if (safetyNested.includes(sectionId)) return { type: "list", ids: safetyNested };
     const appearanceNested = ["appearance-overview", "appearance-theme", "appearance-colors"];
@@ -4775,12 +4803,11 @@ class HomeWeatherPanel extends HTMLElement {
       });
     });
 
-    // Alert Zones: dim section when hazard disabled
+    // Alert Zones: dim card when hazard disabled
     s.querySelectorAll("[data-zone-card-enabled]").forEach((input) => {
       input.addEventListener("change", () => {
-        const key = input.dataset.zoneCardEnabled;
-        const section = s.querySelector(`.collapsible-section[data-section-id="zone-${key}"]`);
-        section?.classList.toggle("is-disabled", !input.checked);
+        const card = s.querySelector(`.zone-card[data-zone-card="${input.dataset.zoneCardEnabled}"]`);
+        card?.classList.toggle("is-disabled", !input.checked);
       });
     });
 
@@ -7168,10 +7195,18 @@ class HomeWeatherPanel extends HTMLElement {
           <select id="air-quality-min-level">${aqiLevelOptions(airQualityMonitoring.min_category_level ?? 1)}</select>
         </div>` },
     ];
-    const renderZoneSection = (z) => {
-      const sectionId = `zone-${z.key}`;
-      const body = `
+    const renderZoneCard = (z) => `
+      <div class="zone-card ${z.enabled ? "" : "is-disabled"}" data-zone-card="${z.key}" style="--zone-color:${z.color}">
+        <div class="zone-card-head">
+          <img src="/local/home_weather/icons/${z.icon}.svg" alt="" draggable="false"/>
+          <span class="zone-card-title">${z.label}</span>
+          <label class="toggle-switch" title="Enable ${z.label} monitoring">
+            <input type="checkbox" id="${z.enabledId}" data-zone-card-enabled="${z.key}" ${z.enabled ? "checked" : ""}/>
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
         <div class="zone-card-body">
+          <p class="form-hint zone-card-desc">${z.desc}</p>
           <div class="zone-card-field">
             <label for="${z.radiusId}">Zone radius (miles)</label>
             <input type="number" id="${z.radiusId}" min="${z.min}" max="${z.max}" step="1" value="${Math.round(z.radius)}"/>
@@ -7194,20 +7229,107 @@ class HomeWeatherPanel extends HTMLElement {
             </div>
             <p class="zone-card-note" data-scope-note-for="${z.key}-alert" style="${z.alertMode === "all" ? "" : "display:none"}">Bypass active — spoken alerts use all ${z.label.toLowerCase()} data regardless of distance and thresholds.</p>
           </div>` : ""}
-        </div>`;
-      return renderNestedSection(
-        sectionId,
-        z.label,
-        z.desc,
-        body,
-        true,
-        z.enabledId,
-        z.enabled,
-        `data-zone-card-enabled="${z.key}"`,
-        `collapsible-section--zone${z.enabled ? "" : " is-disabled"}`,
-        `--zone-color:${z.color}`,
-      );
-    };
+        </div>
+      </div>`;
+
+    const monitoringHazards = [
+      {
+        key: "tornado",
+        label: "Tornado",
+        color: "#e040fb",
+        desc: "Zone and alerts",
+        content: `<p class="form-hint">Tornado warnings use your home location with the radius, thresholds, and scope from <strong>Alert Zones</strong> (Use zone or Bypass). Spoken alert behavior is in <strong>Announcements</strong>.</p>`,
+      },
+      {
+        key: "earthquake",
+        label: "Earthquake",
+        color: "#ffa726",
+        desc: "USGS seismic data and map display",
+        content: `
+          <p class="form-hint">Nearby alerts and sensors always use real-time seismic data within your earthquake zone. Magnitude and radius live in <strong>Alert Zones</strong>. The settings below control the hazard map display.</p>
+          <div class="form-group">
+            <label>Map time window</label>
+            <select id="earthquake-map-window">
+              <option value="all_hour" ${eqMapWindow === "all_hour" ? "selected" : ""}>Past hour</option>
+              <option value="all_day" ${eqMapWindow === "all_day" ? "selected" : ""}>Past 24 hours</option>
+              <option value="all_week" ${eqMapWindow === "all_week" ? "selected" : ""}>Past week</option>
+              <option value="all_month" ${eqMapWindow === "all_month" ? "selected" : ""}>Past month</option>
+            </select>
+            <p class="form-hint">How far back the map shows earthquakes. Default is the past 24 hours.</p>
+          </div>
+          ${renderToggle("earthquake-map-worldwide", earthquakeMonitoring.map_show_worldwide !== false, "Show worldwide seismic activity on map")}
+          <div class="form-group">
+            <label>Map minimum magnitude</label>
+            <input type="number" id="earthquake-map-min-magnitude" min="0" max="10" step="0.1" value="${earthquakeMonitoring.map_min_magnitude ?? 4.5}"/>
+            <p class="form-hint">Hide quakes weaker than this on the map.</p>
+          </div>
+          <div class="inline-toggle">
+            <span class="inline-toggle-label">Tsunami alerts</span>
+            <label class="toggle-switch">
+              <input type="checkbox" id="earthquake-tsunami-enabled" ${earthquakeMonitoring.tsunami_alert_enabled !== false ? "checked" : ""}/>
+              <span class="toggle-slider"></span>
+            </label>
+          </div>`,
+      },
+      {
+        key: "lightning",
+        label: "Lightning",
+        color: "#ffee58",
+        desc: "Live Blitzortung strike tracking",
+        content: `
+          <p class="form-hint">Map markers require both tracking enabled (in Alert Zones) and the Lightning layer on the hazard map. Data from <a href="https://www.blitzortung.org" target="_blank" rel="noopener noreferrer">Blitzortung.org</a>.</p>
+          ${renderToggle("lightning-show-on-map", lightningMonitoring.show_on_map !== false, "Show live lightning on hazard map")}
+          <div class="form-group">
+            <label>Strike retention (minutes)</label>
+            <input type="number" id="lightning-max-age-minutes" min="5" max="240" value="${lightningMonitoring.max_age_minutes ?? 60}"/>
+            <p class="form-hint">How long strike markers stay visible on the map.</p>
+          </div>`,
+      },
+      {
+        key: "volcano",
+        label: "Volcano",
+        color: "#ff7043",
+        desc: "Worldwide activity from GVP, GDACS, and USGS",
+        content: `
+          <p class="form-hint">Sensors track active volcanoes inside your volcano zone using the min activity level set in <strong>Alert Zones</strong>. Sources: Smithsonian GVP catalog, GDACS live alerts, and USGS HANS.</p>
+          <p class="form-hint">Every worldwide volcano is plotted on the hazard map: dormant volcanoes appear as dim catalog points, while active ones glow with their alert color and show affected-area rings. Toggle the Volcano layer from the map's layer menu to hide them all.</p>`,
+      },
+      {
+        key: "wildfire",
+        label: "Wildfires",
+        color: "#ff5722",
+        desc: "NIFC WFIGS active/ongoing incidents",
+        content: `
+          <p class="form-hint">Live U.S. wildfire data from the National Interagency Fire Center <a href="https://data-nifc.opendata.arcgis.com/" target="_blank" rel="noopener noreferrer">WFIGS</a> program (no API key). Only currently active and ongoing fires are tracked. Incident points and fire perimeters appear on the hazard map; click for size, containment, and location details.</p>
+          <p class="form-hint">Zone radius, minimum fire size, and alert scope are set on the Wildfire card in <strong>Alert Zones</strong>.</p>
+          ${renderToggle("wildfire-show-on-map", wildfireMonitoring.show_on_map !== false, "Show wildfires on hazard map")}
+          ${renderToggle("wildfire-show-perimeters", wildfireMonitoring.show_perimeters !== false, "Show fire perimeters on map")}
+          ${renderToggle("wildfire-exclude-prescribed", wildfireMonitoring.exclude_prescribed !== false, "Exclude prescribed burns (RX)")}`,
+      },
+      {
+        key: "air_quality",
+        label: "Air Quality",
+        color: "#42a5f5",
+        desc: "EPA AirNow reporting-area observations",
+        content: `
+          <p class="form-hint">Real-time air quality from the EPA <a href="https://www.airnow.gov/" target="_blank" rel="noopener noreferrer">AirNow</a> reporting-area file (no API key). Colors follow the standard EPA AQI scale.</p>
+          <p class="form-hint">Zone radius, minimum category level, and alert scope are set on the Air Quality card in <strong>Alert Zones</strong>.</p>
+          ${renderToggle("air-quality-show-on-map", airQualityMonitoring.show_on_map !== false, "Show air quality on hazard map")}`,
+      },
+    ];
+
+    const renderMonitoringSection = (m) => renderNestedSection(
+      `monitoring-${m.key}`,
+      m.label,
+      m.desc,
+      `<div class="settings-form-grid">${m.content}</div>`,
+      false,
+      "",
+      false,
+      "",
+      "collapsible-section--zone",
+      `--zone-color:${m.color}`,
+    );
 
     return `
       <div class="settings-form">
@@ -7249,7 +7371,9 @@ class HomeWeatherPanel extends HTMLElement {
                 </div>
                 <button type="button" class="btn btn-primary" id="open-zone-editor-btn">Open map editor</button>
               </div>
-              ${zoneHazards.map(renderZoneSection).join("")}
+              <div class="zone-cards">
+                ${zoneHazards.map(renderZoneCard).join("")}
+              </div>
             </section>
 
             <section class="settings-pane ${activePane === "monitoring" ? "active" : ""}" data-settings-pane="monitoring">
@@ -7257,60 +7381,7 @@ class HomeWeatherPanel extends HTMLElement {
                 <div class="settings-pane-title">Hazard Monitoring</div>
                 <div class="settings-pane-sub">Data-source and map-quality filters per hazard. Zone radius, thresholds, and sensor/alert scope live in <strong>Alert Zones</strong>; spoken alert sounds and behavior live in <strong>Announcements</strong>.</div>
               </div>
-              ${renderMonitoringCard("Tornado", "Zone and alerts", `
-                <p class="form-hint">Tornado warnings use your home location with the radius, thresholds, and scope from <strong>Alert Zones</strong> (Use zone or Bypass). Spoken alert behavior is in <strong>Announcements</strong>.</p>
-              `)}
-              ${renderMonitoringCard("Earthquake", "USGS seismic data and map display", `
-                <p class="form-hint">Nearby alerts and sensors always use real-time seismic data within your earthquake zone. Magnitude and radius live in <strong>Alert Zones</strong>. The settings below control the hazard map display.</p>
-                <div class="form-group">
-                  <label>Map time window</label>
-                  <select id="earthquake-map-window">
-                    <option value="all_hour" ${eqMapWindow === "all_hour" ? "selected" : ""}>Past hour</option>
-                    <option value="all_day" ${eqMapWindow === "all_day" ? "selected" : ""}>Past 24 hours</option>
-                    <option value="all_week" ${eqMapWindow === "all_week" ? "selected" : ""}>Past week</option>
-                    <option value="all_month" ${eqMapWindow === "all_month" ? "selected" : ""}>Past month</option>
-                  </select>
-                  <p class="form-hint">How far back the map shows earthquakes. Default is the past 24 hours.</p>
-                </div>
-                ${renderToggle("earthquake-map-worldwide", earthquakeMonitoring.map_show_worldwide !== false, "Show worldwide seismic activity on map")}
-                <div class="form-group">
-                  <label>Map minimum magnitude</label>
-                  <input type="number" id="earthquake-map-min-magnitude" min="0" max="10" step="0.1" value="${earthquakeMonitoring.map_min_magnitude ?? 4.5}"/>
-                  <p class="form-hint">Hide quakes weaker than this on the map.</p>
-                </div>
-                <div class="inline-toggle">
-                  <span class="inline-toggle-label">Tsunami alerts</span>
-                  <label class="toggle-switch">
-                    <input type="checkbox" id="earthquake-tsunami-enabled" ${earthquakeMonitoring.tsunami_alert_enabled !== false ? "checked" : ""}/>
-                    <span class="toggle-slider"></span>
-                  </label>
-                </div>
-              `)}
-              ${renderMonitoringCard("Lightning", "Live Blitzortung strike tracking", `
-                <p class="form-hint">Map markers require both tracking enabled (in Alert Zones) and the Lightning layer on the hazard map. Data from <a href="https://www.blitzortung.org" target="_blank" rel="noopener noreferrer">Blitzortung.org</a>.</p>
-                ${renderToggle("lightning-show-on-map", lightningMonitoring.show_on_map !== false, "Show live lightning on hazard map")}
-                <div class="form-group">
-                  <label>Strike retention (minutes)</label>
-                  <input type="number" id="lightning-max-age-minutes" min="5" max="240" value="${lightningMonitoring.max_age_minutes ?? 60}"/>
-                  <p class="form-hint">How long strike markers stay visible on the map.</p>
-                </div>
-              `)}
-              ${renderMonitoringCard("Volcano", "Worldwide activity from GVP, GDACS, and USGS", `
-                <p class="form-hint">Sensors track active volcanoes inside your volcano zone using the min activity level set in <strong>Alert Zones</strong>. Sources: Smithsonian GVP catalog, GDACS live alerts, and USGS HANS.</p>
-                <p class="form-hint">Every worldwide volcano is plotted on the hazard map: dormant volcanoes appear as dim catalog points, while active ones glow with their alert color and show affected-area rings. Toggle the Volcano layer from the map's layer menu to hide them all.</p>
-              `)}
-              ${renderMonitoringCard("Wildfires", "NIFC WFIGS active/ongoing incidents", `
-                <p class="form-hint">Live U.S. wildfire data from the National Interagency Fire Center <a href="https://data-nifc.opendata.arcgis.com/" target="_blank" rel="noopener noreferrer">WFIGS</a> program (no API key). Only currently active and ongoing fires are tracked. Incident points and fire perimeters appear on the hazard map; click for size, containment, and location details.</p>
-                <p class="form-hint">Zone radius, minimum fire size, and alert scope are set on the Wildfire card in <strong>Alert Zones</strong>.</p>
-                ${renderToggle("wildfire-show-on-map", wildfireMonitoring.show_on_map !== false, "Show wildfires on hazard map")}
-                ${renderToggle("wildfire-show-perimeters", wildfireMonitoring.show_perimeters !== false, "Show fire perimeters on map")}
-                ${renderToggle("wildfire-exclude-prescribed", wildfireMonitoring.exclude_prescribed !== false, "Exclude prescribed burns (RX)")}
-              `)}
-              ${renderMonitoringCard("Air Quality", "EPA AirNow reporting-area observations", `
-                <p class="form-hint">Real-time air quality from the EPA <a href="https://www.airnow.gov/" target="_blank" rel="noopener noreferrer">AirNow</a> reporting-area file (no API key). Colors follow the standard EPA AQI scale.</p>
-                <p class="form-hint">Zone radius, minimum category level, and alert scope are set on the Air Quality card in <strong>Alert Zones</strong>.</p>
-                ${renderToggle("air-quality-show-on-map", airQualityMonitoring.show_on_map !== false, "Show air quality on hazard map")}
-              `)}
+              ${monitoringHazards.map(renderMonitoringSection).join("")}
             </section>
 
             <section class="settings-pane ${activePane === "safety" ? "active" : ""}" data-settings-pane="safety">
