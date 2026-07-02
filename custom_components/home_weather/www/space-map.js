@@ -1,5 +1,5 @@
 /**
- * Space Map — simplified Three.js solar system + NOAA sun weather view.
+ * Space Map — interactive top-down solar system + NOAA sun weather view.
  */
 (function (global) {
   const BODY_COLORS = {
@@ -12,10 +12,23 @@
     comet: 0x22d3ee,
   };
 
+  const PLANET_COLORS = {
+    Mercury: 0x9ca3af,
+    Venus: 0xe8cda0,
+    Earth: 0x3b82f6,
+    Mars: 0xc14436,
+    Jupiter: 0xd4a574,
+    Saturn: 0xe8d5a3,
+    Uranus: 0x7dd3fc,
+    Neptune: 0x6366f1,
+    Pluto: 0xbfa094,
+    Sun: 0xffdd44,
+  };
+
   const BODY_SIZES = {
-    sun: 1.6,
-    planet: 0.42,
-    dwarf_planet: 0.32,
+    sun: 1.85,
+    planet: 0.44,
+    dwarf_planet: 0.34,
     moon: 0.1,
     spacecraft: 0.12,
     asteroid: 0.07,
@@ -23,6 +36,126 @@
   };
 
   const LABEL_TYPES = new Set(["sun", "planet", "dwarf_planet", "spacecraft"]);
+
+  /** Top-down pan + zoom camera controller (no OrbitControls dependency). */
+  class SpaceViewport {
+    constructor(camera, domElement) {
+      this.camera = camera;
+      this.dom = domElement;
+      this.targetX = 0;
+      this.targetZ = 0;
+      this.baseHeight = 28;
+      this.zoom = 1;
+      this.minZoom = 0.35;
+      this.maxZoom = 6;
+      this._dragging = false;
+      this._moved = false;
+      this._lastX = 0;
+      this._lastY = 0;
+      this._onPointerDown = this._handlePointerDown.bind(this);
+      this._onPointerMove = this._handlePointerMove.bind(this);
+      this._onPointerUp = this._handlePointerUp.bind(this);
+      this._onWheel = this._handleWheel.bind(this);
+      this._onContextMenu = (e) => e.preventDefault();
+      domElement.addEventListener("pointerdown", this._onPointerDown);
+      domElement.addEventListener("pointermove", this._onPointerMove);
+      domElement.addEventListener("pointerup", this._onPointerUp);
+      domElement.addEventListener("pointerleave", this._onPointerUp);
+      domElement.addEventListener("wheel", this._onWheel, { passive: false });
+      domElement.addEventListener("contextmenu", this._onContextMenu);
+      domElement.style.cursor = "grab";
+      domElement.style.touchAction = "none";
+    }
+
+    destroy() {
+      if (!this.dom) return;
+      this.dom.removeEventListener("pointerdown", this._onPointerDown);
+      this.dom.removeEventListener("pointermove", this._onPointerMove);
+      this.dom.removeEventListener("pointerup", this._onPointerUp);
+      this.dom.removeEventListener("pointerleave", this._onPointerUp);
+      this.dom.removeEventListener("wheel", this._onWheel);
+      this.dom.removeEventListener("contextmenu", this._onContextMenu);
+      this.dom.style.cursor = "";
+      this.dom.style.touchAction = "";
+      this.dom = null;
+    }
+
+    get height() {
+      return this.baseHeight / this.zoom;
+    }
+
+    setBaseHeight(value) {
+      this.baseHeight = Math.max(12, value);
+      this.apply();
+    }
+
+    reset() {
+      this.targetX = 0;
+      this.targetZ = 0;
+      this.zoom = 1;
+      this.apply();
+    }
+
+    zoomBy(factor) {
+      this.zoom = Math.min(this.maxZoom, Math.max(this.minZoom, this.zoom * factor));
+      this.apply();
+    }
+
+    apply() {
+      if (!this.camera) return;
+      const h = this.height;
+      this.camera.position.set(this.targetX, h, this.targetZ);
+      this.camera.up.set(0, 0, -1);
+      this.camera.lookAt(this.targetX, 0, this.targetZ);
+    }
+
+    panPixels(dx, dy) {
+      const h = this.height;
+      const scale = (h * 0.0018) / this.zoom;
+      this.targetX -= dx * scale;
+      this.targetZ -= dy * scale;
+      this.apply();
+    }
+
+    consumeMoved() {
+      const moved = this._moved;
+      this._moved = false;
+      return moved;
+    }
+
+    _handlePointerDown(event) {
+      if (event.button !== 0) return;
+      this._dragging = true;
+      this._moved = false;
+      this._lastX = event.clientX;
+      this._lastY = event.clientY;
+      this.dom.setPointerCapture?.(event.pointerId);
+      this.dom.style.cursor = "grabbing";
+    }
+
+    _handlePointerMove(event) {
+      if (!this._dragging) return;
+      const dx = event.clientX - this._lastX;
+      const dy = event.clientY - this._lastY;
+      if (Math.abs(dx) > 2 || Math.abs(dy) > 2) this._moved = true;
+      this._lastX = event.clientX;
+      this._lastY = event.clientY;
+      this.panPixels(dx, dy);
+    }
+
+    _handlePointerUp(event) {
+      if (!this._dragging) return;
+      this._dragging = false;
+      this.dom.releasePointerCapture?.(event.pointerId);
+      this.dom.style.cursor = "grab";
+    }
+
+    _handleWheel(event) {
+      event.preventDefault();
+      const factor = event.deltaY > 0 ? 0.9 : 1.1;
+      this.zoomBy(factor);
+    }
+  }
 
   class SpaceMap {
     constructor(options = {}) {
@@ -39,20 +172,22 @@
         comets: true,
       }, options.layers || {});
       this._logScale = options.logScale !== false;
-      this._autoRotate = true;
       this._mapData = null;
       this._solarData = null;
       this._lastUpdated = null;
       this._renderer = null;
       this._scene = null;
+      this._sceneGroup = null;
       this._camera = null;
+      this._viewport = null;
+      this._sunGroup = null;
+      this._sunPulse = 0;
       this._animationId = null;
       this._bodyMeshes = [];
       this._raycaster = null;
       this._pointer = null;
-      this._selectedBody = null;
       this._onResize = this._handleResize.bind(this);
-      this._onPointerMove = this._handlePointerMove.bind(this);
+      this._onPointerMovePick = this._handlePointerMovePick.bind(this);
       this._onClick = this._handleClick.bind(this);
     }
 
@@ -138,19 +273,19 @@
         <div class="space-map-page">
           <div class="space-canvas-wrap" id="space-canvas-wrap">
             <div class="space-loading">Loading space map…</div>
+            <div class="space-map-hint">Drag to pan · Scroll to zoom · Click a body for details</div>
           </div>
           <div class="space-info-card" id="space-info-card" hidden></div>
           <div class="space-controls">
-            <button type="button" class="space-ctrl-btn" data-space-action="toggle-rotate" title="Pause rotation">⏸</button>
+            <button type="button" class="space-ctrl-btn" data-space-action="zoom-in" title="Zoom in">+</button>
+            <button type="button" class="space-ctrl-btn" data-space-action="zoom-out" title="Zoom out">−</button>
             <button type="button" class="space-ctrl-btn" data-space-action="reset-camera" title="Reset view">⟲</button>
           </div>
         </div>`;
-      this._root.querySelector('[data-space-action="toggle-rotate"]')
-        ?.addEventListener("click", () => {
-          this._autoRotate = !this._autoRotate;
-          const btn = this._root.querySelector('[data-space-action="toggle-rotate"]');
-          if (btn) btn.textContent = this._autoRotate ? "⏸" : "▶";
-        });
+      this._root.querySelector('[data-space-action="zoom-in"]')
+        ?.addEventListener("click", () => this._viewport?.zoomBy(1.25));
+      this._root.querySelector('[data-space-action="zoom-out"]')
+        ?.addEventListener("click", () => this._viewport?.zoomBy(0.8));
       this._root.querySelector('[data-space-action="reset-camera"]')
         ?.addEventListener("click", () => this._resetCamera());
     }
@@ -162,7 +297,10 @@
         if (wrap) wrap.innerHTML = `<div class="space-error">Three.js failed to load.</div>`;
         return;
       }
+      const hint = wrap.querySelector(".space-map-hint");
       wrap.innerHTML = "";
+      if (hint) wrap.appendChild(hint);
+
       const width = Math.max(wrap.clientWidth || 0, 320);
       const height = Math.max(wrap.clientHeight || 0, 240);
       if (width < 10 || height < 10) {
@@ -172,32 +310,32 @@
       }
 
       try {
-      this._scene = new THREE.Scene();
-      this._scene.background = new THREE.Color(0x000000);
+        this._scene = new THREE.Scene();
+        this._scene.background = new THREE.Color(0x000000);
+        this._sceneGroup = new THREE.Group();
+        this._scene.add(this._sceneGroup);
 
-      this._camera = new THREE.PerspectiveCamera(55, width / height, 0.01, 500);
-      this._camera.position.set(0, 10, 18);
-      this._camera.lookAt(0, 0, 0);
-      this._raycaster = new THREE.Raycaster();
-      this._pointer = new THREE.Vector2();
+        this._camera = new THREE.PerspectiveCamera(50, width / height, 0.05, 800);
+        this._raycaster = new THREE.Raycaster();
+        this._pointer = new THREE.Vector2();
 
-      this._renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
-      this._renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-      this._renderer.setSize(width, height);
-      wrap.appendChild(this._renderer.domElement);
+        this._renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+        this._renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+        this._renderer.setSize(width, height);
+        wrap.insertBefore(this._renderer.domElement, wrap.firstChild);
 
-      const ambient = new THREE.AmbientLight(0x445566, 0.55);
-      this._scene.add(ambient);
-      const sunLight = new THREE.PointLight(0xffdd88, 3.2, 200);
-      sunLight.position.set(0, 0, 0);
-      this._scene.add(sunLight);
+        this._viewport = new SpaceViewport(this._camera, this._renderer.domElement);
+        this._viewport.apply();
 
-      this._renderer.domElement.addEventListener("pointermove", this._onPointerMove);
-      this._renderer.domElement.addEventListener("click", this._onClick);
+        const ambient = new THREE.AmbientLight(0x1a2030, 0.35);
+        this._scene.add(ambient);
 
-      this._rebuildBodies();
-      this._updateEmptyState();
-      this._animate();
+        this._renderer.domElement.addEventListener("pointermove", this._onPointerMovePick);
+        this._renderer.domElement.addEventListener("click", this._onClick);
+
+        this._rebuildBodies();
+        this._updateEmptyState();
+        this._animate();
       } catch (err) {
         console.warn("[space-map] WebGL init failed", err);
         wrap.innerHTML = `<div class="space-error">WebGL is unavailable in this browser. Try Sun Weather mode from the View menu.</div>`;
@@ -209,15 +347,81 @@
         cancelAnimationFrame(this._animationId);
         this._animationId = null;
       }
+      if (this._viewport) {
+        this._viewport.destroy();
+        this._viewport = null;
+      }
       if (this._renderer) {
-        this._renderer.domElement.removeEventListener("pointermove", this._onPointerMove);
+        this._renderer.domElement.removeEventListener("pointermove", this._onPointerMovePick);
         this._renderer.domElement.removeEventListener("click", this._onClick);
         this._renderer.dispose();
         this._renderer = null;
       }
-      this._bodyMeshes = [];
+      this._disposeMeshes();
+      this._sunGroup = null;
       this._scene = null;
+      this._sceneGroup = null;
       this._camera = null;
+    }
+
+    _disposeMeshes() {
+      if (this._sunGroup) {
+        this._sunGroup.traverse((obj) => {
+          if (obj.geometry) obj.geometry.dispose();
+          const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+          mats.forEach((mat) => {
+            if (!mat) return;
+            if (mat.map) mat.map.dispose();
+            mat.dispose();
+          });
+        });
+        this._sceneGroup?.remove(this._sunGroup);
+        this._sunGroup = null;
+      }
+      this._bodyMeshes.forEach((mesh) => {
+        if (mesh.material) {
+          if (Array.isArray(mesh.material)) {
+            mesh.material.forEach((m) => {
+              if (m.map) m.map.dispose();
+              m.dispose();
+            });
+          } else {
+            if (mesh.material.map) mesh.material.map.dispose();
+            mesh.material.dispose();
+          }
+        }
+        if (mesh.geometry) mesh.geometry.dispose();
+        mesh.parent?.remove(mesh);
+      });
+      this._bodyMeshes = [];
+    }
+
+    _bodyColor(body, type) {
+      const byName = PLANET_COLORS[body.name];
+      if (byName != null) return byName;
+      return BODY_COLORS[type] || 0xffffff;
+    }
+
+    _bodyPosition(body, type) {
+      if (type === "sun") return { x: 0, y: 0, z: 0 };
+      return {
+        x: this._scaleDistance(body.x_au),
+        y: 0,
+        z: this._scaleDistance(body.y_au),
+      };
+    }
+
+    _fitCameraToBodies(all) {
+      let maxOrbit = 6;
+      all.forEach((body) => {
+        if ((body.type || "planet") === "sun") return;
+        const pos = this._bodyPosition(body, body.type || "planet");
+        maxOrbit = Math.max(maxOrbit, Math.hypot(pos.x, pos.z));
+      });
+      if (this._viewport) {
+        this._viewport.setBaseHeight(Math.max(20, maxOrbit * 1.55));
+        this._viewport.reset();
+      }
     }
 
     _scaleDistance(au) {
@@ -236,6 +440,109 @@
       return true;
     }
 
+    _createSunTexture() {
+      const size = 512;
+      const canvas = document.createElement("canvas");
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext("2d");
+      const cx = size / 2;
+      const grad = ctx.createRadialGradient(cx, cx, 0, cx, cx, cx);
+      grad.addColorStop(0, "#fffef5");
+      grad.addColorStop(0.12, "#fff3b0");
+      grad.addColorStop(0.35, "#ffb300");
+      grad.addColorStop(0.62, "#ff6f00");
+      grad.addColorStop(0.88, "#e65100");
+      grad.addColorStop(1, "#bf360c");
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, size, size);
+      for (let i = 0; i < 40; i += 1) {
+        const angle = Math.random() * Math.PI * 2;
+        const dist = Math.random() * cx * 0.85;
+        const px = cx + Math.cos(angle) * dist;
+        const py = cx + Math.sin(angle) * dist;
+        const r = 4 + Math.random() * 18;
+        ctx.fillStyle = `rgba(255, ${180 + Math.random() * 40 | 0}, 0, ${0.08 + Math.random() * 0.12})`;
+        ctx.beginPath();
+        ctx.arc(px, py, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.needsUpdate = true;
+      return texture;
+    }
+
+    _createSunGroup(size) {
+      const group = new THREE.Group();
+      group.userData.isSun = true;
+
+      const core = new THREE.Mesh(
+        new THREE.SphereGeometry(size, 48, 48),
+        new THREE.MeshBasicMaterial({
+          map: this._createSunTexture(),
+        }),
+      );
+      group.add(core);
+
+      const glowLayers = [
+        { scale: 1.35, color: 0xffcc33, opacity: 0.22 },
+        { scale: 1.75, color: 0xff9900, opacity: 0.14 },
+        { scale: 2.35, color: 0xff6600, opacity: 0.08 },
+        { scale: 3.1, color: 0xff3300, opacity: 0.04 },
+      ];
+      glowLayers.forEach((layer) => {
+        const glow = new THREE.Mesh(
+          new THREE.SphereGeometry(size * layer.scale, 32, 32),
+          new THREE.MeshBasicMaterial({
+            color: layer.color,
+            transparent: true,
+            opacity: layer.opacity,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+          }),
+        );
+        glow.userData.sunGlow = true;
+        glow.userData.baseOpacity = layer.opacity;
+        group.add(glow);
+      });
+
+      const rayCount = 20;
+      for (let i = 0; i < rayCount; i += 1) {
+        const angle = (i / rayCount) * Math.PI * 2;
+        const rayLen = size * (3.5 + (i % 3) * 0.6);
+        const ray = new THREE.Mesh(
+          new THREE.PlaneGeometry(size * 0.22, rayLen),
+          new THREE.MeshBasicMaterial({
+            color: i % 2 === 0 ? 0xffdd66 : 0xff9933,
+            transparent: true,
+            opacity: 0.07,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            side: THREE.DoubleSide,
+          }),
+        );
+        ray.rotation.x = -Math.PI / 2;
+        ray.rotation.z = angle;
+        ray.position.set(
+          Math.cos(angle) * size * 0.35,
+          0.02,
+          Math.sin(angle) * size * 0.35,
+        );
+        ray.userData.sunRay = true;
+        group.add(ray);
+      }
+
+      const sunLight = new THREE.PointLight(0xffdd99, 4.5, 220, 1.4);
+      sunLight.position.set(0, 0, 0);
+      group.add(sunLight);
+
+      const fillLight = new THREE.PointLight(0x6688cc, 0.35, 180);
+      fillLight.position.set(0, 40, 0);
+      group.add(fillLight);
+
+      return group;
+    }
+
     _createLabel(text) {
       const canvas = document.createElement("canvas");
       const ctx = canvas.getContext("2d");
@@ -243,19 +550,18 @@
       canvas.height = 64;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.font = "600 22px system-ui, sans-serif";
-      ctx.fillStyle = "#e2e8f0";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
+      ctx.fillStyle = "rgba(0,0,0,0.45)";
+      ctx.fillText(String(text).slice(0, 18), 130, 34);
+      ctx.fillStyle = "#f1f5f9";
       ctx.fillText(String(text).slice(0, 18), 128, 32);
       const texture = new THREE.CanvasTexture(canvas);
       texture.needsUpdate = true;
-      const material = new THREE.SpriteMaterial({
+      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
         map: texture,
         transparent: true,
         depthTest: false,
-      });
-      const sprite = new THREE.Sprite(material);
-      sprite.scale.set(2.6, 0.65, 1);
+      }));
+      sprite.scale.set(2.8, 0.7, 1);
       return sprite;
     }
 
@@ -283,86 +589,92 @@
     }
 
     _rebuildBodies() {
-      if (!this._scene) return;
-      this._bodyMeshes.forEach((mesh) => {
-        if (mesh.material) {
-          if (mesh.material.map) mesh.material.map.dispose();
-          mesh.material.dispose();
-        }
-        if (mesh.geometry) mesh.geometry.dispose();
-        this._scene.remove(mesh);
-      });
-      this._bodyMeshes = [];
+      if (!this._scene || !this._sceneGroup) return;
+      this._disposeMeshes();
+      this._sunGroup = null;
+
       const bodies = (this._mapData && this._mapData.bodies) || [];
       const small = (this._mapData && this._mapData.small_bodies) || [];
-      const all = bodies.concat(
-        small.filter((b) => b.position_available !== false && b.x_au != null)
+      let all = bodies.concat(
+        small.filter((b) => b.position_available !== false && b.x_au != null),
       );
+      if (!all.some((b) => b.type === "sun")) {
+        all = [{
+          id: "10", name: "Sun", type: "sun",
+          x_au: 0, y_au: 0, z_au: 0, distance_au: 0,
+        }, ...all];
+      }
+
+      this._sunGroup = this._createSunGroup(BODY_SIZES.sun);
+      this._sunGroup.userData = { name: "Sun", type: "sun", id: "10" };
+      this._sceneGroup.add(this._sunGroup);
+      const sunLabel = this._createLabel("Sun");
+      sunLabel.position.set(0, 0.1, -BODY_SIZES.sun - 0.55);
+      this._sceneGroup.add(sunLabel);
+      this._bodyMeshes.push(sunLabel);
 
       all.forEach((body) => {
         const type = body.type || "planet";
-        if (!this._layerVisible(type)) return;
-        const x = type === "sun" ? 0 : this._scaleDistance(body.x_au);
-        const y = type === "sun" ? 0 : (Number(body.z_au) || 0) * (this._logScale ? 0.4 : 2);
-        const z = type === "sun" ? 0 : this._scaleDistance(body.y_au);
+        if (type === "sun" || !this._layerVisible(type)) return;
+
+        const pos = this._bodyPosition(body, type);
+        const { x, y, z } = pos;
         const size = BODY_SIZES[type] || 0.15;
-        const color = BODY_COLORS[type] || 0xffffff;
-        const geo = new THREE.SphereGeometry(size, 20, 20);
+        const color = this._bodyColor(body, type);
         const mat = new THREE.MeshStandardMaterial({
           color,
-          emissive: type === "sun" ? 0xffaa00 : 0x111111,
-          emissiveIntensity: type === "sun" ? 1.4 : 0.08,
-          metalness: type === "sun" ? 0 : 0.15,
-          roughness: type === "sun" ? 0.35 : 0.7,
+          emissive: color,
+          emissiveIntensity: type === "planet" || type === "dwarf_planet" ? 0.12 : 0.06,
+          metalness: 0.08,
+          roughness: 0.82,
         });
-        const mesh = new THREE.Mesh(geo, mat);
+        const mesh = new THREE.Mesh(new THREE.SphereGeometry(size, 24, 24), mat);
         mesh.position.set(x, y, z);
         mesh.userData = body;
-        this._scene.add(mesh);
+        this._sceneGroup.add(mesh);
         this._bodyMeshes.push(mesh);
-
-        if (type === "sun") {
-          const glowGeo = new THREE.SphereGeometry(size * 1.45, 20, 20);
-          const glowMat = new THREE.MeshBasicMaterial({
-            color: 0xffcc66,
-            transparent: true,
-            opacity: 0.14,
-          });
-          const glow = new THREE.Mesh(glowGeo, glowMat);
-          glow.position.set(0, 0, 0);
-          this._scene.add(glow);
-          this._bodyMeshes.push(glow);
-        }
 
         if (body.name && LABEL_TYPES.has(type)) {
           const label = this._createLabel(body.name);
-          label.position.set(x, y + size + 0.28, z);
-          this._scene.add(label);
+          label.position.set(x, 0.08, z - size - 0.38);
+          this._sceneGroup.add(label);
           this._bodyMeshes.push(label);
         }
 
-        if ((type === "planet" || type === "dwarf_planet") && x > 0.05) {
-          const orbit = new THREE.RingGeometry(x * 0.985, x * 1.015, 96);
-          const orbitMat = new THREE.MeshBasicMaterial({
-            color: 0x334155,
-            side: THREE.DoubleSide,
-            transparent: true,
-            opacity: 0.14,
-          });
-          const orbitMesh = new THREE.Mesh(orbit, orbitMat);
-          orbitMesh.rotation.x = Math.PI / 2;
-          this._scene.add(orbitMesh);
-          this._bodyMeshes.push(orbitMesh);
+        const orbitR = Math.hypot(x, z);
+        if ((type === "planet" || type === "dwarf_planet") && orbitR > 0.05) {
+          const orbit = new THREE.Mesh(
+            new THREE.RingGeometry(orbitR * 0.992, orbitR * 1.008, 128),
+            new THREE.MeshBasicMaterial({
+              color: 0x3d4f63,
+              side: THREE.DoubleSide,
+              transparent: true,
+              opacity: 0.18,
+            }),
+          );
+          orbit.rotation.x = Math.PI / 2;
+          this._sceneGroup.add(orbit);
+          this._bodyMeshes.push(orbit);
         }
       });
+
+      this._fitCameraToBodies(all);
       this._updateEmptyState();
     }
 
     _animate() {
       if (!this._renderer || !this._scene || !this._camera) return;
-      if (this._autoRotate) {
-        this._camera.position.applyAxisAngle(new THREE.Vector3(0, 1, 0), 0.0015);
-        this._camera.lookAt(0, 0, 0);
+      this._sunPulse += 0.025;
+      if (this._sunGroup) {
+        this._sunGroup.children.forEach((child) => {
+          if (child.userData?.sunGlow && child.material) {
+            child.material.opacity = child.userData.baseOpacity + Math.sin(this._sunPulse) * 0.04;
+          }
+          if (child.userData?.sunRay && child.material) {
+            child.material.opacity = 0.05 + Math.sin(this._sunPulse + child.rotation.z) * 0.025;
+            child.scale.y = 0.85 + Math.sin(this._sunPulse) * 0.15;
+          }
+        });
       }
       this._renderer.render(this._scene, this._camera);
       this._animationId = requestAnimationFrame(() => this._animate());
@@ -379,12 +691,10 @@
     }
 
     _resetCamera() {
-      if (!this._camera) return;
-      this._camera.position.set(0, 10, 18);
-      this._camera.lookAt(0, 0, 0);
+      if (this._viewport) this._viewport.reset();
     }
 
-    _handlePointerMove(event) {
+    _handlePointerMovePick(event) {
       if (!this._renderer || !this._camera) return;
       const rect = this._renderer.domElement.getBoundingClientRect();
       this._pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
@@ -393,13 +703,24 @@
 
     _handleClick() {
       if (!this._renderer || !this._camera || !this._scene) return;
+      if (this._viewport?.consumeMoved()) return;
       this._raycaster.setFromCamera(this._pointer, this._camera);
-      const hits = this._raycaster.intersectObjects(this._bodyMeshes.filter((m) => m.userData?.name));
+      const pickables = this._bodyMeshes.filter((m) => m.userData?.name && !m.userData?.sunGlow && !m.userData?.sunRay);
+      const hits = this._raycaster.intersectObjects(pickables, true);
       if (!hits.length) {
+        const sunHit = this._raycaster.intersectObject(this._sunGroup, true);
+        if (sunHit.length) {
+          this._showInfo(this._sunGroup.userData);
+          return;
+        }
         this._hideInfo();
         return;
       }
-      this._showInfo(hits[0].object.userData);
+      let target = hits[0].object;
+      while (target && !target.userData?.name && target.parent) {
+        target = target.parent;
+      }
+      this._showInfo(target.userData?.name ? target.userData : hits[0].object.userData);
     }
 
     _showInfo(body) {

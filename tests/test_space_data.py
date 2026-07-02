@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from custom_components.home_weather.space_data import (
     _detect_overhead_passes,
+    _fallback_heliocentric_vector,
     _first_float,
     _k_index_to_g_scale,
     _parse_horizons_vectors,
@@ -49,6 +50,15 @@ def test_parse_horizons_vectors_labeled_format():
     assert abs(parsed["x_au"] - 0.1879416337620361) < 1e-6
     assert abs(parsed["y_au"] - (-0.9990904625815881)) < 1e-6
     assert parsed["velocity_kms"] is not None
+
+
+def test_fallback_heliocentric_vector():
+    sun = _fallback_heliocentric_vector("10")
+    assert sun is not None
+    assert sun["distance_au"] == 0.0
+    earth = _fallback_heliocentric_vector("399")
+    assert earth is not None
+    assert abs(earth["distance_au"] - 1.0) < 0.01
 
 
 def test_k_index_to_g_scale():

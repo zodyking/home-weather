@@ -214,7 +214,6 @@ DEFAULT_CONFIG: Final = {
         "show_spacecraft": True,
         "show_asteroids": True,
         "show_comets": True,
-        "max_small_bodies": 50,
         "small_body_min_diameter_km": 0,
         "log_scale_orbits": True,
     },

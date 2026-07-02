@@ -43,6 +43,33 @@ PLANET_BODIES: list[tuple[str, str, str]] = [
     ("999", "Pluto", "dwarf_planet"),
 ]
 
+# Mean orbital radius (AU) for fallback map positions when Horizons is unavailable.
+MEAN_ORBIT_AU: dict[str, float] = {
+    "10": 0.0,
+    "199": 0.39,
+    "299": 0.72,
+    "399": 1.0,
+    "499": 1.52,
+    "599": 5.2,
+    "699": 9.54,
+    "799": 19.2,
+    "899": 30.07,
+    "999": 39.48,
+}
+
+# Fixed phase offsets so fallback planets do not stack on one line.
+PLANET_PHASE: dict[str, float] = {
+    "199": 0.0,
+    "299": 0.9,
+    "399": 1.8,
+    "499": 2.6,
+    "599": 0.6,
+    "699": 1.4,
+    "799": 2.2,
+    "899": 3.0,
+    "999": 3.8,
+}
+
 # Default ISS Horizons ID
 DEFAULT_ISS_ID = "-255544"
 
@@ -97,16 +124,11 @@ def get_space_config(config: dict[str, Any] | None) -> dict[str, Any]:
         "show_spacecraft": True,
         "show_asteroids": True,
         "show_comets": True,
-        "max_small_bodies": 50,
         "small_body_min_diameter_km": 0,
         "log_scale_orbits": True,
     }
     monitoring = (config or {}).get("space_monitoring") or {}
     merged = {**defaults, **monitoring}
-    try:
-        merged["max_small_bodies"] = max(1, min(200, int(merged.get("max_small_bodies") or 50)))
-    except (TypeError, ValueError):
-        merged["max_small_bodies"] = 50
     return merged
 
 
@@ -433,7 +455,7 @@ async def _fetch_horizons_catalog(
         return _catalog_cache.get(cache_key, [])
 
 
-async def _fetch_small_body_candidates(session: Any, max_count: int) -> list[dict[str, Any]]:
+async def _fetch_small_body_candidates(session: Any) -> list[dict[str, Any]]:
     """Collect NEO/comet candidates from Scout, Sentry, and CAD."""
     candidates: dict[str, dict[str, Any]] = {}
 
@@ -476,7 +498,7 @@ async def _fetch_small_body_candidates(session: Any, max_count: int) -> list[dic
             today = dt_util.utcnow().strftime("%Y-%m-%d")
             url = (
                 f"{CAD_API}?body=Earth&date-min={today}&sort=date"
-                f"&dist-max=50&limit={max_count}"
+                f"&dist-max=50&limit=500"
             )
             data = await _fetch_json(session, url)
             fields = data.get("fields") or []
@@ -503,7 +525,7 @@ async def _fetch_small_body_candidates(session: Any, max_count: int) -> list[dic
             _LOGGER.debug("CAD fetch failed: %s", err)
 
     await asyncio.gather(_load_scout(), _load_sentry(), _load_cad())
-    return list(candidates.values())[: max_count * 2]
+    return list(candidates.values())
 
 
 async def _fetch_swpc_solar_weather(session: Any) -> dict[str, Any]:
@@ -615,12 +637,40 @@ async def _fetch_swpc_solar_weather(session: Any) -> dict[str, Any]:
     return result
 
 
+def _fallback_heliocentric_vector(body_id: str) -> dict[str, float] | None:
+    """Approximate heliocentric position on the ecliptic plane."""
+    if body_id == "10":
+        return {
+            "x_au": 0.0,
+            "y_au": 0.0,
+            "z_au": 0.0,
+            "distance_au": 0.0,
+            "velocity_kms": None,
+        }
+    mean_au = MEAN_ORBIT_AU.get(body_id)
+    if mean_au is None:
+        return None
+    day = dt_util.utcnow().timetuple().tm_yday
+    angle = (day / 365.25) * (2 * math.pi) + PLANET_PHASE.get(body_id, 0.0)
+    return {
+        "x_au": mean_au * math.cos(angle),
+        "y_au": mean_au * math.sin(angle),
+        "z_au": 0.0,
+        "distance_au": mean_au,
+        "velocity_kms": None,
+    }
+
+
 def _build_body_record(
     body_id: str,
     name: str,
     body_type: str,
     vector: dict[str, float] | None,
+    *,
+    allow_fallback: bool = False,
 ) -> dict[str, Any] | None:
+    if not vector and allow_fallback:
+        vector = _fallback_heliocentric_vector(body_id)
     if not vector:
         return None
     return {
@@ -847,27 +897,39 @@ async def async_fetch_space(hass: HomeAssistant, config: dict[str, Any]) -> dict
 
         async def _load_planets() -> None:
             async def _one(bid: str, bname: str, btype: str) -> None:
+                if bid == "10" or btype == "sun":
+                    rec = _build_body_record(
+                        bid, bname, "sun", _fallback_heliocentric_vector("10")
+                    )
+                    if rec:
+                        bodies.append(rec)
+                    return
                 vec = await _fetch_horizons_vector(session, bid, semaphore)
-                rec = _build_body_record(bid, bname, btype if btype != "sun" else "sun", vec)
+                rec = _build_body_record(
+                    bid,
+                    bname,
+                    btype if btype != "sun" else "sun",
+                    vec,
+                    allow_fallback=True,
+                )
                 if rec:
                     bodies.append(rec)
 
             await asyncio.gather(*[_one(b, n, t) for b, n, t in planet_targets])
 
-        fetch_tasks.append(_load_planets())
+        await _load_planets()
 
         async def _load_moons() -> None:
             if not space_cfg.get("show_moons", True):
                 return
             catalog = await _fetch_horizons_catalog(session, "sat")
-            moon_targets = catalog[:120]
             async def _one(entry: dict[str, str]) -> None:
                 vec = await _fetch_horizons_vector(session, entry["id"], semaphore)
                 rec = _build_body_record(entry["id"], entry["name"], "moon", vec)
                 if rec:
                     bodies.append(rec)
 
-            await asyncio.gather(*[_one(e) for e in moon_targets])
+            await asyncio.gather(*[_one(e) for e in catalog])
 
         async def _load_spacecraft() -> None:
             if not space_cfg.get("show_spacecraft", True):
@@ -875,20 +937,18 @@ async def async_fetch_space(hass: HomeAssistant, config: dict[str, Any]) -> dict
             nonlocal spacecraft_catalog
             catalog = await _fetch_horizons_catalog(session, "sct")
             spacecraft_catalog = catalog
-            craft_targets = catalog[:80]
             async def _one(entry: dict[str, str]) -> None:
                 vec = await _fetch_horizons_vector(session, entry["id"], semaphore)
                 rec = _build_body_record(entry["id"], entry["name"], "spacecraft", vec)
                 if rec:
                     bodies.append(rec)
 
-            await asyncio.gather(*[_one(e) for e in craft_targets])
+            await asyncio.gather(*[_one(e) for e in catalog])
 
         async def _load_small_bodies() -> None:
             if not space_cfg.get("show_asteroids", True) and not space_cfg.get("show_comets", True):
                 return
-            max_count = int(space_cfg.get("max_small_bodies") or 50)
-            candidates = await _fetch_small_body_candidates(session, max_count)
+            candidates = await _fetch_small_body_candidates(session)
             min_diam = float(space_cfg.get("small_body_min_diameter_km") or 0)
             filtered = []
             for cand in candidates:
@@ -900,7 +960,6 @@ async def async_fetch_space(hass: HomeAssistant, config: dict[str, Any]) -> dict
                 if min_diam > 0 and diam is not None and diam < min_diam:
                     continue
                 filtered.append(cand)
-            filtered = filtered[:max_count]
 
             async def _one(cand: dict[str, Any]) -> None:
                 body_id = str(cand.get("id") or cand.get("name"))

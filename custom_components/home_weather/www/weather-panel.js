@@ -2957,6 +2957,25 @@ class HomeWeatherPanel extends HTMLElement {
           display: block;
           width: 100% !important;
           height: 100% !important;
+          cursor: grab;
+        }
+        .space-canvas-wrap canvas:active {
+          cursor: grabbing;
+        }
+        .space-map-hint {
+          position: absolute;
+          left: var(--space-3);
+          bottom: var(--space-3);
+          z-index: 2;
+          pointer-events: none;
+          font-size: var(--fs-xs);
+          color: var(--hw-muted);
+          background: rgba(0, 0, 0, 0.55);
+          border: 1px solid var(--hw-border);
+          border-radius: var(--radius-sm);
+          padding: 6px 10px;
+          max-width: min(320px, 90%);
+          line-height: 1.35;
         }
         .space-loading, .space-error, .space-sun-loading, .space-empty-banner {
           position: absolute;
@@ -6919,7 +6938,7 @@ class HomeWeatherPanel extends HTMLElement {
     const defaultSpaceMonitoring = {
       enabled: true, show_planets: true, show_dwarf_planets: true, show_moons: true,
       show_spacecraft: true, show_asteroids: true, show_comets: true,
-      max_small_bodies: 50, small_body_min_diameter_km: 0, log_scale_orbits: true,
+      small_body_min_diameter_km: 0, log_scale_orbits: true,
     };
     const spaceMonitoring = { ...defaultSpaceMonitoring, ...(this._settings.space_monitoring || {}) };
     const defaultSolarWeatherMonitoring = { enabled: true, show_sunspot_regions: true, show_flare_events: true };
@@ -7382,10 +7401,6 @@ class HomeWeatherPanel extends HTMLElement {
           ${renderToggle("space-show-asteroids", spaceMonitoring.show_asteroids !== false, "Show asteroids / NEOs")}
           ${renderToggle("space-show-comets", spaceMonitoring.show_comets !== false, "Show comets")}
           ${renderToggle("space-log-scale", spaceMonitoring.log_scale_orbits !== false, "Log-scale orbits (easier to see inner planets)")}
-          <div class="form-group">
-            <label for="space-max-small-bodies">Max small bodies</label>
-            <input type="number" id="space-max-small-bodies" min="1" max="200" step="1" value="${spaceMonitoring.max_small_bodies ?? 50}"/>
-          </div>
           <div class="form-group">
             <label for="space-min-diameter-km">Min small-body diameter (km, 0 = all)</label>
             <input type="number" id="space-min-diameter-km" min="0" max="1000" step="0.1" value="${spaceMonitoring.small_body_min_diameter_km ?? 0}"/>
@@ -8738,7 +8753,7 @@ class HomeWeatherPanel extends HTMLElement {
     const defaults = {
       enabled: true, show_planets: true, show_dwarf_planets: true, show_moons: true,
       show_spacecraft: true, show_asteroids: true, show_comets: true,
-      max_small_bodies: 50, small_body_min_diameter_km: 0, log_scale_orbits: true,
+      small_body_min_diameter_km: 0, log_scale_orbits: true,
     };
     if (!s) return { ...defaults, ...existing };
     const getVal = (id, def) => (s.getElementById(id)?.value ?? def);
@@ -8753,7 +8768,6 @@ class HomeWeatherPanel extends HTMLElement {
       show_asteroids: getChecked("space-show-asteroids"),
       show_comets: getChecked("space-show-comets"),
       log_scale_orbits: getChecked("space-log-scale"),
-      max_small_bodies: Math.min(200, Math.max(1, parseInt(getVal("space-max-small-bodies", String(existing.max_small_bodies ?? defaults.max_small_bodies)), 10) || defaults.max_small_bodies)),
       small_body_min_diameter_km: Math.max(0, parseFloat(getVal("space-min-diameter-km", String(existing.small_body_min_diameter_km ?? 0))) || 0),
     };
   }

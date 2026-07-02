@@ -668,8 +668,8 @@
             border-left: 1px solid var(--hw-border-strong, #333);
             box-shadow: none;
             z-index: 20;
-            background: #282828;
-            background-color: #282828;
+            background: var(--hw-surface, #1c1c1c);
+            background-color: var(--hw-surface, #1c1c1c);
           }
           .hurricane-map-empty-banner {
             top: 12px;
@@ -688,7 +688,7 @@
           border: 1px solid var(--hw-border-strong, #333);
           border-radius: 10px;
           overflow: hidden;
-          background-color: #282828;
+          background-color: var(--hw-surface, #1c1c1c);
           flex-shrink: 0;
         }
         .hurricane-status-details + .hurricane-status-details {
@@ -703,7 +703,7 @@
           letter-spacing: 0.1em;
           text-transform: uppercase;
           color: var(--hw-muted, #b0bec5) !important;
-          background-color: #282828;
+          background-color: var(--hw-surface, #1c1c1c);
           display: flex;
           align-items: center;
           justify-content: space-between;
@@ -739,7 +739,7 @@
           display: flex;
           flex-direction: column;
           gap: 6px;
-          background-color: #1e1e1e;
+          background-color: var(--hw-bg, #111111);
         }
         .marker-cluster-hw {
           background: rgba(255, 183, 77, 0.25);
@@ -813,8 +813,8 @@
         .hurricane-map-empty-banner { display: none; }
         :host aside.hurricane-status,
         aside.hurricane-status {
-          background: #282828;
-          background-color: #282828;
+          background: var(--hw-surface, #1c1c1c);
+          background-color: var(--hw-surface, #1c1c1c);
         }
         .hurricane-status {
           position: absolute;
@@ -832,10 +832,10 @@
           pointer-events: auto;
           --primary-text-color: var(--hw-text, #e1e1e1);
           --secondary-text-color: var(--hw-muted, #9b9b9b);
-          --card-background-color: #282828;
+          --card-background-color: var(--hw-surface, #1c1c1c);
           color: var(--hw-text, #e1e1e1);
-          background: #282828;
-          background-color: #282828;
+          background: var(--hw-surface, #1c1c1c);
+          background-color: var(--hw-surface, #1c1c1c);
           border: none;
           border-left: 1px solid var(--hw-border-strong, #333);
           border-radius: 0;
@@ -870,8 +870,8 @@
           padding: 12px 12px 12px;
           margin-bottom: 0;
           border-bottom: 1px solid var(--hw-border-strong, #333);
-          background: #282828;
-          background-color: #282828;
+          background: var(--hw-surface, #1c1c1c);
+          background-color: var(--hw-surface, #1c1c1c);
         }
         .hurricane-status-scroll {
           flex: 1 1 auto;
@@ -882,10 +882,10 @@
           display: block;
           padding: 12px 8px 12px 12px;
           padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
-          background: #282828;
-          background-color: #282828;
+          background: var(--hw-surface, #1c1c1c);
+          background-color: var(--hw-surface, #1c1c1c);
           scrollbar-width: thin;
-          scrollbar-color: #444 #282828;
+          scrollbar-color: #444 var(--hw-surface, #1c1c1c);
           -ms-overflow-style: auto;
         }
         .hurricane-status-scroll > .hurricane-stat,
@@ -904,7 +904,7 @@
           border-radius: 3px;
         }
         .hurricane-status-scroll::-webkit-scrollbar-track {
-          background: #282828;
+          background: var(--hw-surface, #1c1c1c);
         }
         .hurricane-status.is-threat-high {
           border-color: #f44336;
