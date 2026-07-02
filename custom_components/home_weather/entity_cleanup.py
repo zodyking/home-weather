@@ -44,6 +44,22 @@ async def async_remove_legacy_entities(hass: HomeAssistant, entry: ConfigEntry) 
     entity_registry = er.async_get(hass)
     removed: list[str] = []
 
+    superseded_space_suffixes = (
+        "_space_tracked_bodies",
+        "_space_moons_tracked",
+        "_space_spacecraft_tracked",
+        "_space_neos_tracked",
+        "_space_comets_tracked",
+        "_space_closest_neo_name",
+    )
+    for entity in er.async_entries_for_config_entry(entity_registry, entry.entry_id):
+        if entity.platform != DOMAIN:
+            continue
+        uid = entity.unique_id or ""
+        if any(uid.endswith(suffix) for suffix in superseded_space_suffixes):
+            entity_registry.async_remove(entity.entity_id)
+            removed.append(entity.entity_id)
+
     for unique_id in LEGACY_UNIQUE_IDS:
         entity_id = entity_registry.async_get_entity_id(
             "sensor", DOMAIN, unique_id

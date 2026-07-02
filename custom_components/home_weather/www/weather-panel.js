@@ -2799,10 +2799,27 @@ class HomeWeatherPanel extends HTMLElement {
         .atmosphere-card.skeleton-card .atmosphere-bg__veil { opacity: 0.2; animation: none; }
 
         /* Hourly snap strip */
-        .hourly-card { display: flex; flex-direction: column; min-width: 0; }
-        .hourly-strip { display: flex; flex-direction: row; flex-wrap: nowrap; gap: var(--space-2); overflow-x: auto; overflow-y: hidden; padding: var(--space-2) 0 var(--space-3); -webkit-overflow-scrolling: touch; scrollbar-width: none; min-width: 0; scroll-snap-type: x proximity; position: relative; }
-        .hourly-strip::-webkit-scrollbar { height: 0; display: none; }
-        .hourly-strip::before { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, var(--panel-accent-dim), transparent 30%); pointer-events: none; border-radius: var(--radius-md); }
+        .hourly-card { display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+        .hourly-card .card-head { flex-shrink: 0; }
+        .hourly-strip {
+          display: flex;
+          flex-direction: row;
+          flex-wrap: nowrap;
+          gap: var(--space-2);
+          overflow-x: auto;
+          overflow-y: hidden;
+          margin-inline: calc(-1 * var(--space-4));
+          padding: var(--space-2) var(--space-4) var(--space-3);
+          scroll-padding-inline: var(--space-4);
+          -webkit-overflow-scrolling: touch;
+          scrollbar-width: thin;
+          scrollbar-color: var(--hw-border-strong) transparent;
+          min-width: 0;
+          scroll-snap-type: x proximity;
+        }
+        .hourly-strip::-webkit-scrollbar { height: 6px; }
+        .hourly-strip::-webkit-scrollbar-thumb { background: var(--hw-border-strong); border-radius: 3px; }
+        .hourly-strip::-webkit-scrollbar-track { background: transparent; }
 
         /* Forecast card (hourly strip item) */
         .forecast-card { background: var(--hw-surface); border: 1px solid var(--hw-border); border-top: 3px solid transparent; border-radius: var(--radius-md); padding: var(--space-3) var(--space-2); display: flex; flex-direction: column; align-items: center; justify-content: space-between; min-height: 120px; text-align: center; width: clamp(68px, 18vw, 84px); flex: 0 0 auto; box-sizing: border-box; cursor: pointer; transition: background var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease); scroll-snap-align: start; }
@@ -4487,7 +4504,13 @@ class HomeWeatherPanel extends HTMLElement {
                   <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M20.5 3l-.16.03L15 5.1 9 3 3.36 4.9c-.21.07-.36.25-.36.48V20.5c0 .28.22.5.5.5l.16-.03L9 18.9l6 2.1 5.64-1.9c.21-.07.36-.25.36-.48V3.5c0-.28-.22-.5-.5-.5zM15 19l-6-2.11V5l6 2.11V19z"/></svg>
                 </button>
                 <button class="icon-btn" id="space-map-btn" aria-label="Space Map" title="Space Map">
-                  <img src="/local/home_weather/icons/space-map.svg" width="20" height="20" alt="" draggable="false"/>
+                  <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20" aria-hidden="true">
+                    <circle cx="12" cy="12" r="3"/>
+                    <ellipse cx="12" cy="12" rx="9" ry="4" fill="none" stroke="currentColor" stroke-width="1.5"/>
+                    <ellipse cx="12" cy="12" rx="6.5" ry="2.5" fill="none" stroke="currentColor" stroke-width="1.2" opacity="0.75" transform="rotate(-25 12 12)"/>
+                    <circle cx="19" cy="10" r="1.1"/>
+                    <circle cx="5.5" cy="14.5" r="0.85"/>
+                  </svg>
                 </button>
                 <button class="icon-btn" id="gear-btn" aria-label="Settings">
                   <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.488.488 0 00-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 00-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94 0 .31.02.64.07.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
@@ -4646,6 +4669,10 @@ class HomeWeatherPanel extends HTMLElement {
       "monitoring-wildfire", "monitoring-air_quality",
     ];
     if (monitoringNested.includes(sectionId)) return { type: "list", ids: monitoringNested };
+    const spaceNested = [
+      "space-map-layers", "space-solar-display", "space-spacecraft-tracking", "space-neo-monitoring",
+    ];
+    if (spaceNested.includes(sectionId)) return { type: "list", ids: spaceNested };
     const safetyNested = ["travel-monitoring"];
     if (safetyNested.includes(sectionId)) return { type: "list", ids: safetyNested };
     const appearanceNested = ["appearance-overview", "appearance-theme", "appearance-colors"];
@@ -4653,7 +4680,9 @@ class HomeWeatherPanel extends HTMLElement {
     const alertsNested = [
       "general", "media-players", "time-based", "current-change", "upcoming-change",
       "sun-alerts", "nws-alerts", "tropical-alerts", "tornado-alerts", "earthquake-alerts",
-      "volcano-alerts", "wildfire-alerts", "air-quality-alerts", "sensor-triggered", "webhook", "voice-satellite",
+      "volcano-alerts", "wildfire-alerts", "air-quality-alerts", "travel-alerts",
+      "spacecraft-alerts", "solar-weather-alerts", "neo-alerts",
+      "sensor-triggered", "webhook", "voice-satellite",
     ];
     if (alertsNested.includes(sectionId)) return { type: "list", ids: alertsNested };
     const advancedNested = ["forecast-settings", "ai-rewrite"];
@@ -7331,6 +7360,91 @@ class HomeWeatherPanel extends HTMLElement {
       `--zone-color:${m.color}`,
     );
 
+    const spaceSections = [
+      {
+        key: "map-layers",
+        label: "Space Map",
+        color: "#64b5f6",
+        desc: "3D solar system layers and map display",
+        content: `
+          <p class="form-hint">Open the Space Map from the top bar. Layer toggles also appear in the Space Map menubar.</p>
+          ${renderToggle("space-monitoring-enabled", spaceMonitoring.enabled !== false, "Enable Space Map data")}
+          ${renderToggle("space-show-planets", spaceMonitoring.show_planets !== false, "Show planets")}
+          ${renderToggle("space-show-dwarf-planets", spaceMonitoring.show_dwarf_planets !== false, "Show dwarf planets")}
+          ${renderToggle("space-show-moons", spaceMonitoring.show_moons !== false, "Show natural moons")}
+          ${renderToggle("space-show-spacecraft", spaceMonitoring.show_spacecraft !== false, "Show spacecraft")}
+          ${renderToggle("space-show-asteroids", spaceMonitoring.show_asteroids !== false, "Show asteroids / NEOs")}
+          ${renderToggle("space-show-comets", spaceMonitoring.show_comets !== false, "Show comets")}
+          ${renderToggle("space-log-scale", spaceMonitoring.log_scale_orbits !== false, "Log-scale orbits (easier to see inner planets)")}
+          <div class="form-group">
+            <label for="space-max-small-bodies">Max small bodies</label>
+            <input type="number" id="space-max-small-bodies" min="1" max="200" step="1" value="${spaceMonitoring.max_small_bodies ?? 50}"/>
+          </div>
+          <div class="form-group">
+            <label for="space-min-diameter-km">Min small-body diameter (km, 0 = all)</label>
+            <input type="number" id="space-min-diameter-km" min="0" max="1000" step="0.1" value="${spaceMonitoring.small_body_min_diameter_km ?? 0}"/>
+          </div>`,
+      },
+      {
+        key: "solar-display",
+        label: "Solar Weather View",
+        color: "#ffb74d",
+        desc: "Sun disk overlays from NOAA SWPC",
+        content: `
+          <p class="form-hint">Sunspot regions, K-index, flux, and imagery from <a href="https://www.swpc.noaa.gov/" target="_blank" rel="noopener noreferrer">NOAA SWPC</a>. Live values also appear as Home Assistant sensors.</p>
+          ${renderToggle("solar-weather-monitoring-enabled", solarWeatherMonitoring.enabled !== false, "Enable solar weather data")}
+          ${renderToggle("solar-show-regions", solarWeatherMonitoring.show_sunspot_regions !== false, "Show active sunspot regions")}
+          ${renderToggle("solar-show-flares", solarWeatherMonitoring.show_flare_events !== false, "Show flare events")}`,
+      },
+      {
+        key: "spacecraft-tracking",
+        label: "Spacecraft Tracking",
+        color: "#81c784",
+        desc: "Overhead pass detection for sensors and automations",
+        content: `
+          <p class="form-hint">Controls the <strong>Spacecraft Overhead</strong> binary sensor and pass elevation/azimuth sensors. Spoken pass alerts are in <strong>Announcements</strong>.</p>
+          <div class="form-group">
+            <label for="spacecraft-min-elevation">Minimum elevation (°)</label>
+            <input type="number" id="spacecraft-min-elevation" min="0" max="90" step="1" value="${spacecraftAlerts.min_elevation_deg ?? 10}"/>
+            <p class="form-hint">Passes below this elevation are ignored.</p>
+          </div>
+          <div class="form-group">
+            <label for="spacecraft-craft-ids">Horizons craft IDs (comma-separated)</label>
+            <input type="text" id="spacecraft-craft-ids" placeholder="-255544" value="${(spacecraftAlerts.craft_ids || ["-255544"]).join(", ")}"/>
+            <p class="form-hint">Default <code>-255544</code> is the International Space Station.</p>
+          </div>`,
+      },
+      {
+        key: "neo-monitoring",
+        label: "NEO Close Approaches",
+        color: "#ce93d8",
+        desc: "Proximity thresholds for NEO sensors",
+        content: `
+          <p class="form-hint">Controls the <strong>NEO Close Approach Soon</strong> binary sensor and closest-NEO sensors. Spoken flyby alerts are in <strong>Announcements</strong>.</p>
+          <div class="form-group">
+            <label for="neo-max-lunar-distances">Maximum lunar distances (LD)</label>
+            <input type="number" id="neo-max-lunar-distances" min="0.1" max="100" step="0.1" value="${neoAlerts.max_lunar_distances ?? 5}"/>
+          </div>
+          <div class="form-group">
+            <label for="neo-min-diameter-m">Minimum diameter (m)</label>
+            <input type="number" id="neo-min-diameter-m" min="0" max="100000" step="1" value="${neoAlerts.min_diameter_m ?? 100}"/>
+          </div>`,
+      },
+    ];
+
+    const renderSpaceSection = (section) => renderNestedSection(
+      `space-${section.key}`,
+      section.label,
+      section.desc,
+      `<div class="settings-form-grid">${section.content}</div>`,
+      false,
+      "",
+      false,
+      "",
+      "collapsible-section--zone",
+      `--zone-color:${section.color}`,
+    );
+
     return `
       <div class="settings-form">
         <div class="settings-shell">
@@ -7409,101 +7523,15 @@ class HomeWeatherPanel extends HTMLElement {
             <section class="settings-pane ${activePane === "space" ? "active" : ""}" data-settings-pane="space">
               <div class="settings-pane-head">
                 <div class="settings-pane-title">Space Map</div>
-                <div class="settings-pane-sub">Solar system visualization and NOAA sun weather. Data from NASA JPL Horizons and NOAA SWPC (no API keys).</div>
+                <div class="settings-pane-sub">Map layers, solar weather display, and sensor thresholds. Spoken space alerts are configured in <strong>Announcements</strong>.</div>
               </div>
-              ${renderMonitoringCard("Space Map", "Layers and display", `
-                <p class="form-hint">Open the Space Map from the top bar to view live positions. Layer toggles also appear in the Space Map menubar.</p>
-                ${renderToggle("space-monitoring-enabled", spaceMonitoring.enabled !== false, "Enable Space Map data")}
-                ${renderToggle("space-show-planets", spaceMonitoring.show_planets !== false, "Show planets")}
-                ${renderToggle("space-show-dwarf-planets", spaceMonitoring.show_dwarf_planets !== false, "Show dwarf planets")}
-                ${renderToggle("space-show-moons", spaceMonitoring.show_moons !== false, "Show natural moons")}
-                ${renderToggle("space-show-spacecraft", spaceMonitoring.show_spacecraft !== false, "Show spacecraft")}
-                ${renderToggle("space-show-asteroids", spaceMonitoring.show_asteroids !== false, "Show asteroids / NEOs")}
-                ${renderToggle("space-show-comets", spaceMonitoring.show_comets !== false, "Show comets")}
-                ${renderToggle("space-log-scale", spaceMonitoring.log_scale_orbits !== false, "Log-scale orbits (easier to see inner planets)")}
-                <div class="form-group">
-                  <label for="space-max-small-bodies">Max small bodies</label>
-                  <input type="number" id="space-max-small-bodies" min="1" max="200" step="1" value="${spaceMonitoring.max_small_bodies ?? 50}"/>
-                </div>
-                <div class="form-group">
-                  <label for="space-min-diameter-km">Min small-body diameter (km, 0 = all)</label>
-                  <input type="number" id="space-min-diameter-km" min="0" max="1000" step="0.1" value="${spaceMonitoring.small_body_min_diameter_km ?? 0}"/>
-                </div>
-              `)}
-              ${renderMonitoringCard("Solar Weather", "Sun view data", `
-                <p class="form-hint">Sunspot regions, K-index, flux, and imagery from <a href="https://www.swpc.noaa.gov/" target="_blank" rel="noopener noreferrer">NOAA SWPC</a>.</p>
-                ${renderToggle("solar-weather-monitoring-enabled", solarWeatherMonitoring.enabled !== false, "Enable solar weather data")}
-                ${renderToggle("solar-show-regions", solarWeatherMonitoring.show_sunspot_regions !== false, "Show active sunspot regions")}
-                ${renderToggle("solar-show-flares", solarWeatherMonitoring.show_flare_events !== false, "Show flare events")}
-              `)}
-              ${renderNestedSection("spacecraft-alerts", "Spacecraft Overhead Alerts", "Announce when selected craft pass overhead", `
-                ${renderAlertAudioSection("spacecraft-alerts", spacecraftAlerts, {
-                  sirenBtnId: "test-spacecraft-siren-btn",
-                  alertBtnId: "test-spacecraft-alert-btn",
-                  behaviorTitle: "Behavior",
-                  behaviorContent: `
-                    <div class="form-group">
-                      <label for="spacecraft-min-elevation">Minimum elevation (°)</label>
-                      <input type="number" id="spacecraft-min-elevation" min="0" max="90" step="1" value="${spacecraftAlerts.min_elevation_deg ?? 10}"/>
-                    </div>
-                    <div class="form-group">
-                      <label for="spacecraft-craft-ids">Horizons craft IDs (comma-separated)</label>
-                      <input type="text" id="spacecraft-craft-ids" placeholder="-255544" value="${(spacecraftAlerts.craft_ids || ["-255544"]).join(", ")}"/>
-                      <p class="form-hint">Default <code>-255544</code> is the International Space Station.</p>
-                    </div>
-                    ${renderToggle("spacecraft-announce-pass-start", spacecraftAlerts.announce_pass_start !== false, "Announce pass start")}
-                    ${renderToggle("spacecraft-announce-pass-peak", spacecraftAlerts.announce_pass_peak === true, "Announce pass peak")}
-                  `,
-                })}
-              `, true, "spacecraft-alerts-enabled", spacecraftAlerts.enabled)}
-              ${renderNestedSection("solar-weather-alerts", "Solar Weather Alerts", "Geomagnetic storms and solar flares", `
-                ${renderAlertAudioSection("solar-weather-alerts", solarWeatherAlerts, {
-                  sirenBtnId: "test-solar-weather-siren-btn",
-                  alertBtnId: "test-solar-weather-alert-btn",
-                  behaviorTitle: "Thresholds",
-                  behaviorContent: `
-                    <div class="form-group">
-                      <label for="solar-min-k-index">Minimum K-index</label>
-                      <input type="number" id="solar-min-k-index" min="0" max="9" step="1" value="${solarWeatherAlerts.min_k_index ?? 5}"/>
-                    </div>
-                    <div class="form-group">
-                      <label for="solar-min-g-scale">Minimum G-scale</label>
-                      <input type="number" id="solar-min-g-scale" min="0" max="5" step="1" value="${solarWeatherAlerts.min_g_scale ?? 1}"/>
-                    </div>
-                    <div class="form-group">
-                      <label for="solar-min-xray-class">Minimum X-ray class</label>
-                      <select id="solar-min-xray-class">
-                        ${["C", "M", "X"].map((c) => `<option value="${c}" ${String(solarWeatherAlerts.min_xray_class || "M").toUpperCase() === c ? "selected" : ""}>Class ${c}</option>`).join("")}
-                      </select>
-                    </div>
-                    ${renderToggle("solar-announce-flares", solarWeatherAlerts.announce_flare_events !== false, "Announce solar flares")}
-                    ${renderToggle("solar-announce-storms", solarWeatherAlerts.announce_geomagnetic_storm !== false, "Announce geomagnetic storms")}
-                  `,
-                })}
-              `, true, "solar-weather-alerts-enabled", solarWeatherAlerts.enabled)}
-              ${renderNestedSection("neo-alerts", "NEO Close Approach Alerts", "Near-Earth object flybys", `
-                ${renderAlertAudioSection("neo-alerts", neoAlerts, {
-                  sirenBtnId: "test-neo-siren-btn",
-                  alertBtnId: "test-neo-alert-btn",
-                  behaviorTitle: "Thresholds",
-                  behaviorContent: `
-                    <div class="form-group">
-                      <label for="neo-max-lunar-distances">Maximum lunar distances (LD)</label>
-                      <input type="number" id="neo-max-lunar-distances" min="0.1" max="100" step="0.1" value="${neoAlerts.max_lunar_distances ?? 5}"/>
-                    </div>
-                    <div class="form-group">
-                      <label for="neo-min-diameter-m">Minimum diameter (m)</label>
-                      <input type="number" id="neo-min-diameter-m" min="0" max="100000" step="1" value="${neoAlerts.min_diameter_m ?? 100}"/>
-                    </div>
-                  `,
-                })}
-              `, true, "neo-alerts-enabled", neoAlerts.enabled)}
+              ${spaceSections.map(renderSpaceSection).join("")}
             </section>
 
             <section class="settings-pane ${activePane === "announcements" ? "active" : ""}" data-settings-pane="announcements">
               <div class="settings-pane-head">
                 <div class="settings-pane-title">Announcements</div>
-                <div class="settings-pane-sub">Spoken forecasts and hazard alerts. Configure media players and enable alert types below.</div>
+                <div class="settings-pane-sub">Spoken forecasts and hazard alerts, including space and travel advisories. Configure media players and enable alert types below.</div>
               </div>
 
           ${renderNestedSection("general", "Message Intro", "Opening phrase spoken before forecasts", `
@@ -7739,6 +7767,53 @@ class HomeWeatherPanel extends HTMLElement {
               `,
             })}
           `, true, "travel-alerts-enabled", travelAlerts.enabled)}
+
+          ${renderNestedSection("spacecraft-alerts", "Spacecraft Overhead Alerts", "Announce when tracked craft pass overhead", `
+            ${renderAlertAudioSection("spacecraft-alerts", spacecraftAlerts, {
+              sirenBtnId: "test-spacecraft-siren-btn",
+              alertBtnId: "test-spacecraft-alert-btn",
+              hintHtml: `<p class="form-hint">Craft IDs and minimum elevation are configured under <strong>Space Map → Spacecraft Tracking</strong>.</p>`,
+              behaviorTitle: "Behavior",
+              behaviorContent: `
+                ${renderToggle("spacecraft-announce-pass-start", spacecraftAlerts.announce_pass_start !== false, "Announce pass start")}
+                ${renderToggle("spacecraft-announce-pass-peak", spacecraftAlerts.announce_pass_peak === true, "Announce pass peak")}
+              `,
+            })}
+          `, true, "spacecraft-alerts-enabled", spacecraftAlerts.enabled)}
+
+          ${renderNestedSection("solar-weather-alerts", "Solar Weather Alerts", "Geomagnetic storms and solar flares", `
+            ${renderAlertAudioSection("solar-weather-alerts", solarWeatherAlerts, {
+              sirenBtnId: "test-solar-weather-siren-btn",
+              alertBtnId: "test-solar-weather-alert-btn",
+              behaviorTitle: "Announce when",
+              behaviorContent: `
+                <div class="form-group">
+                  <label for="solar-min-k-index">Minimum K-index</label>
+                  <input type="number" id="solar-min-k-index" min="0" max="9" step="1" value="${solarWeatherAlerts.min_k_index ?? 5}"/>
+                </div>
+                <div class="form-group">
+                  <label for="solar-min-g-scale">Minimum G-scale</label>
+                  <input type="number" id="solar-min-g-scale" min="0" max="5" step="1" value="${solarWeatherAlerts.min_g_scale ?? 1}"/>
+                </div>
+                <div class="form-group">
+                  <label for="solar-min-xray-class">Minimum X-ray class</label>
+                  <select id="solar-min-xray-class">
+                    ${["C", "M", "X"].map((c) => `<option value="${c}" ${String(solarWeatherAlerts.min_xray_class || "M").toUpperCase() === c ? "selected" : ""}>Class ${c}</option>`).join("")}
+                  </select>
+                </div>
+                ${renderToggle("solar-announce-flares", solarWeatherAlerts.announce_flare_events !== false, "Announce solar flares")}
+                ${renderToggle("solar-announce-storms", solarWeatherAlerts.announce_geomagnetic_storm !== false, "Announce geomagnetic storms")}
+              `,
+            })}
+          `, true, "solar-weather-alerts-enabled", solarWeatherAlerts.enabled)}
+
+          ${renderNestedSection("neo-alerts", "NEO Close Approach Alerts", "Near-Earth object flybys", `
+            ${renderAlertAudioSection("neo-alerts", neoAlerts, {
+              sirenBtnId: "test-neo-siren-btn",
+              alertBtnId: "test-neo-alert-btn",
+              hintHtml: `<p class="form-hint">Proximity thresholds are configured under <strong>Space Map → NEO Close Approaches</strong>.</p>`,
+            })}
+          `, true, "neo-alerts-enabled", neoAlerts.enabled)}
 
           ${renderNestedSection("sensor-triggered", "Sensor Triggers", "Announce when entity state changes", `
             <p class="form-hint">Add entities and define the state that triggers a TTS announcement.</p>

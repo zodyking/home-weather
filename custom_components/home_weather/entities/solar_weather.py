@@ -20,6 +20,7 @@ def create_solar_weather_entities(
     return [
         SolarWeatherSunspotNumberSensor(coordinator, entry),
         SolarWeatherKIndexSensor(coordinator, entry),
+        SolarWeatherGScaleSensor(coordinator, entry),
         SolarWeatherF107FluxSensor(coordinator, entry),
         SolarWeatherXrayClassSensor(coordinator, entry),
     ]
@@ -44,6 +45,9 @@ class _SolarWeatherBinaryEntity(CoordinatorEntity, BinarySensorEntity):
         super().__init__(coordinator)
         self._entry = entry
         self._attr_device_info = hazard_device_info(entry, "solar_weather")
+
+    def _solar(self) -> dict[str, Any]:
+        return (self.coordinator.data or {}).get("solar_weather") or {}
 
 
 class SolarWeatherGeomagneticStormBinarySensor(_SolarWeatherBinaryEntity):
@@ -98,6 +102,20 @@ class SolarWeatherKIndexSensor(_SolarWeatherEntity):
     def native_value(self) -> float | None:
         val = self._solar().get("k_index")
         return float(val) if val is not None else None
+
+
+class SolarWeatherGScaleSensor(_SolarWeatherEntity):
+    _attr_icon = "mdi:weather-lightning"
+    _attr_name = "Geomagnetic Storm G-scale"
+
+    @property
+    def unique_id(self) -> str:
+        return f"{self._entry.entry_id}_solar_weather_g_scale"
+
+    @property
+    def native_value(self) -> int | None:
+        val = self._solar().get("g_scale")
+        return int(val) if val is not None else None
 
 
 class SolarWeatherF107FluxSensor(_SolarWeatherEntity):
