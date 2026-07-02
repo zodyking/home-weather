@@ -219,7 +219,12 @@
 
     _loadStylesheet(href) {
       return new Promise((resolve) => {
-        if (document.querySelector(`link[href="${href}"]`)) {
+        // The map renders inside the panel's shadow DOM, so Leaflet's stylesheet
+        // must be injected into the shadow root (document.head styles do not
+        // penetrate shadow boundaries). Without this, tiles lose their absolute
+        // positioning and render as scattered "splotches".
+        const target = this._shadow || document.head;
+        if (target.querySelector(`link[href="${href}"]`)) {
           resolve();
           return;
         }
@@ -228,7 +233,7 @@
         link.href = href;
         link.onload = () => resolve();
         link.onerror = () => resolve();
-        document.head.appendChild(link);
+        target.appendChild(link);
       });
     }
 
@@ -717,6 +722,10 @@
           this._fitToZones();
         });
       });
+      // Extra delayed pass: the shadow-DOM container may still be settling its
+      // final size after styles/layout apply, which otherwise leaves tile gaps.
+      setTimeout(() => this._map?.invalidateSize?.(), 200);
+      setTimeout(() => this._map?.invalidateSize?.(), 500);
     }
 
     _createHazardLayers(hazard) {

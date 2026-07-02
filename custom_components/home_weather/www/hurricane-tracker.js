@@ -68,6 +68,7 @@
       this._zoomHandlerBound = false;
       this._viewLockHandlerBound = false;
       this._hasInitialFit = false;
+      this._lastFitBounds = null;
       this._userViewLocked = false;
       this._mapLayers = { hurricane: true, tornado: true, earthquakes: true, lightning: true, volcanoes: true };
       this._mapSort = "newest";
@@ -1381,12 +1382,14 @@
     _loadStylesheet(href) {
       const existing = this._shadow.querySelector(`link[href="${href}"]`);
       if (existing) return Promise.resolve();
-      return new Promise((resolve, reject) => {
+      return new Promise((resolve) => {
         const link = document.createElement("link");
         link.rel = "stylesheet";
         link.href = href;
         link.onload = () => resolve();
-        link.onerror = () => reject(new Error(`Failed to load ${href}`));
+        // Resolve (not reject) on error so a flaky non-critical stylesheet
+        // (e.g. marker cluster CSS) can't abort map initialization entirely.
+        link.onerror = () => resolve();
         this._shadow.appendChild(link);
       });
     }
@@ -1414,21 +1417,27 @@
       this._loading = true;
       this._error = null;
       try {
+        // Each endpoint is independently guarded so that one backend failure
+        // (e.g. hurricanes) still lets the base map + other hazards render
+        // instead of blanking the whole view.
+        let hurricaneError = null;
         const [payload, tornadoPayload, earthquakePayload, lightningPayload, volcanoPayload] = await Promise.all([
           this._hass.callWS({
             type: "home_weather/get_hurricanes",
             force_refresh: !!forceRefresh,
-          }),
+          }).catch((err) => { hurricaneError = err; return null; }),
           this._hass.callWS({ type: "home_weather/get_tornadoes" }).catch(() => null),
           this._hass.callWS({ type: "home_weather/get_earthquakes" }).catch(() => null),
           this._hass.callWS({ type: "home_weather/get_lightning" }).catch(() => null),
           this._hass.callWS({ type: "home_weather/get_volcanoes" }).catch(() => null),
         ]);
-        this._data = payload;
+        // Preserve last-known hurricane data if this refresh failed.
+        this._data = payload || this._data || { storms: [], outlook: {}, summary: {} };
         this._tornadoData = tornadoPayload;
         this._earthquakeData = earthquakePayload;
         this._backendLightning = lightningPayload;
         this._volcanoData = volcanoPayload;
+        this._error = hurricaneError ? (hurricaneError.message || String(hurricaneError)) : null;
         this._renderUI();
         this._updateLightningStatusDom();
       } catch (err) {
@@ -1845,6 +1854,11 @@
         zoomControl: false,
         attributionControl: true,
       });
+
+      // Establish a valid initial view immediately. Without a center/zoom the
+      // map has no view and tiles never load (blank map); fitBounds runs later
+      // once the container has a real size.
+      this._safe(() => this._map.setView([39.8283, -98.5795], 4));
 
       const baseLayers = {
         Dark: L.tileLayer(DARK_TILE_URL, { maxZoom: 19, subdomains: "abcd", attribution: CARTO_ATTR }),
@@ -2267,7 +2281,15 @@
       if (fitView || !this._hasInitialFit) {
         this._fitMapView(bounds);
       }
-      setTimeout(() => this._map?.invalidateSize(), 100);
+      const settleFit = () => {
+        if (!this._map) return;
+        this._map.invalidateSize();
+        // If the initial fit was skipped because the container wasn't sized
+        // yet, apply it now that the map has real dimensions.
+        if (!this._hasInitialFit) this._fitMapView(this._lastFitBounds || bounds);
+      };
+      setTimeout(settleFit, 100);
+      setTimeout(settleFit, 350);
     }
 
     /** Draw the configured alert-zone circles around home (My zones overlay). */
@@ -2296,6 +2318,15 @@
       const usa = this._getUsaBounds();
       if (!this._map || !usa) return;
       if (this._userViewLocked) return;
+
+      // Remember the requested bounds so we can retry once the container is
+      // actually sized (fitBounds on a 0x0 container produces a broken view).
+      this._lastFitBounds = stormBounds;
+      const size = this._map.getSize?.();
+      if (size && (size.x < 1 || size.y < 1)) {
+        // Container not laid out yet — keep the default view and retry later.
+        return;
+      }
 
       if (stormBounds.length > 0) {
         const combined = global.L.latLngBounds(stormBounds).extend(usa);

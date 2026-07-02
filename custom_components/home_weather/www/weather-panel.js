@@ -1941,7 +1941,10 @@ class HomeWeatherPanel extends HTMLElement {
           --hw-border: rgba(255, 255, 255, 0.08);
           --hw-border-strong: rgba(255, 255, 255, 0.12);
           --hw-hover: rgba(255, 255, 255, 0.04);
-          --hw-menubar-height: 36px;
+          /* Match Home Assistant's header/sidebar bar height so the panel's
+             menu bar lines up with the "Home Assistant" section on the left.
+             Fallback matches the Dashboard topbar so every page is consistent. */
+          --hw-menubar-height: var(--header-height, 64px);
           --hw-appbar-height: var(--hw-menubar-height);
           --hw-toolbar-height: 0px;
 
@@ -3476,7 +3479,7 @@ class HomeWeatherPanel extends HTMLElement {
         }
         .hw-menubar .hw-menu { position: relative; display: flex; align-items: stretch; }
         @media (max-width: 768px) {
-          .hw-menubar { height: 44px; min-height: 44px; --hw-menubar-height: 44px; }
+          /* Keep the bar the same height as HA's header on every page. */
           .hw-menubar-menus { display: none; }
         }
         .narrow .hw-menubar-menus { display: none; }
@@ -3602,11 +3605,9 @@ class HomeWeatherPanel extends HTMLElement {
         .hw-menubar-back:hover { background: var(--hw-hover); }
         .hw-menubar-back:focus-visible { outline: 2px solid var(--hw-accent); outline-offset: -2px; }
         .hw-menubar-back svg { flex-shrink: 0; opacity: 0.8; }
-        .hw-menubar-back + .hw-menu { margin-left: 4px; }
-        @media (max-width: 768px) {
-          .hw-menubar-back { display: none; }
-        }
-        .narrow .hw-menubar-back { display: none; }
+        .hw-menubar-back + .hw-menubar-menus > .hw-menu:first-child { margin-left: 4px; }
+        /* Back button stays visible on every breakpoint — it is the primary
+           way back to the Dashboard on sub-pages. */
         .hw-menu-back-item { font-weight: 600; color: var(--hw-accent); }
         /* Mobile menu sheet */
         .hw-menusheet-backdrop {
@@ -4552,22 +4553,6 @@ class HomeWeatherPanel extends HTMLElement {
 
   /* ===================== Desktop-app menubar ===================== */
 
-  _menubarNavMenu() {
-    const view = this._currentView;
-    return {
-      id: "navigate",
-      label: "Navigate",
-      items: [
-        { type: "radio", action: "nav", value: "forecast", label: "Dashboard", checked: view === "forecast" },
-        { type: "radio", action: "nav", value: "alerts", label: "NWS Alerts", checked: view === "alerts" },
-        { type: "radio", action: "nav", value: "hurricanes", label: "Maps & Weather", checked: view === "hurricanes" },
-        { type: "radio", action: "nav", value: "settings", label: "Settings", checked: view === "settings" },
-        { type: "divider" },
-        { type: "action", action: "edit-zones", label: "Alert Zones editor…", checked: view === "zones" },
-      ],
-    };
-  }
-
   _renderMenubarItem(item) {
     if (item.type === "divider") return `<hr class="hw-menu-divider"/>`;
     if (item.type === "label") return `<div class="hw-menu-group-label">${item.label}</div>`;
@@ -4603,7 +4588,8 @@ class HomeWeatherPanel extends HTMLElement {
         </div>
       </div>`;
     }).join("");
-    const sheetHtml = `
+    const hasMenus = menus.length > 0;
+    const sheetHtml = hasMenus ? `
       <div class="hw-menusheet-backdrop" data-menusheet-close></div>
       <aside class="hw-menusheet" role="dialog" aria-label="Menu">
         <div class="hw-menusheet-head">
@@ -4622,26 +4608,28 @@ class HomeWeatherPanel extends HTMLElement {
             ${menu.items.map((item) => this._renderMenubarItem(item)).join("")}
           `).join("")}
         </div>
-      </aside>`;
+      </aside>` : "";
     return `
       <header class="hw-menubar">
+        ${backBtnHtml}
         <nav class="hw-menubar-menus" role="menubar" aria-label="Application menu">
-          ${backBtnHtml}
           ${menusHtml}
         </nav>
-        <div class="hw-menubar-end">
+        ${hasMenus ? `<div class="hw-menubar-end">
           <button type="button" class="hw-menubar-mobile-trigger" data-menusheet-open aria-label="Open menu">
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h16v2H4z"/></svg>
             <span>Menu</span>
           </button>
-        </div>
+        </div>` : ""}
       </header>
       ${sheetHtml}`;
   }
 
   _renderAlertsMenubar() {
     return this._renderMenubar({
-      menus: [this._menubarNavMenu()],
+      menus: [],
+      backAction: "nav",
+      backLabel: "Back",
     });
   }
 
@@ -4696,7 +4684,7 @@ class HomeWeatherPanel extends HTMLElement {
         { type: "radio", action: "chart-metric", value: "humidity", label: "Humidity", checked: this._chartMetric === "humidity" },
       ],
     };
-    const menus = [this._menubarNavMenu(), viewMenu];
+    const menus = [viewMenu];
     if (this._mapsMode === "storms") {
       menus.push(layersMenu, toolsMenu);
     } else if (this._mapsMode === "trends") {
@@ -4704,12 +4692,14 @@ class HomeWeatherPanel extends HTMLElement {
     } else {
       menus.push(toolsMenu);
     }
-    return this._renderMenubar({ menus });
+    return this._renderMenubar({ menus, backAction: "nav", backLabel: "Back" });
   }
 
   _renderSettingsMenubar() {
     return this._renderMenubar({
-      menus: [this._menubarNavMenu()],
+      menus: [],
+      backAction: "nav",
+      backLabel: "Back",
     });
   }
 
@@ -4727,7 +4717,7 @@ class HomeWeatherPanel extends HTMLElement {
       ],
     };
     return this._renderMenubar({
-      menus: [this._menubarNavMenu(), zonesMenu],
+      menus: [zonesMenu],
       backAction: "close-zones",
       backLabel,
     });
