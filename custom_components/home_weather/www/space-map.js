@@ -155,14 +155,20 @@
     _initThree() {
       this._destroyThree();
       const wrap = this._root?.querySelector("#space-canvas-wrap");
-      if (!wrap || typeof THREE === "undefined") {
+      if (!wrap || typeof THREE === "undefined" || !THREE.WebGLRenderer) {
         if (wrap) wrap.innerHTML = `<div class="space-error">Three.js failed to load.</div>`;
         return;
       }
       wrap.innerHTML = "";
-      const width = wrap.clientWidth || 640;
-      const height = wrap.clientHeight || 480;
+      const width = Math.max(wrap.clientWidth || 0, 320);
+      const height = Math.max(wrap.clientHeight || 0, 240);
+      if (width < 10 || height < 10) {
+        wrap.innerHTML = `<div class="space-loading">Preparing canvas…</div>`;
+        requestAnimationFrame(() => this._initThree());
+        return;
+      }
 
+      try {
       this._scene = new THREE.Scene();
       this._scene.background = new THREE.Color(0x020617);
 
@@ -192,6 +198,10 @@
 
       this._rebuildBodies();
       this._animate();
+      } catch (err) {
+        console.warn("[space-map] WebGL init failed", err);
+        wrap.innerHTML = `<div class="space-error">WebGL is unavailable in this browser. Try Sun Weather mode from the View menu.</div>`;
+      }
     }
 
     _destroyThree() {

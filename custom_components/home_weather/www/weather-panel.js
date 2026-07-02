@@ -2946,10 +2946,20 @@ class HomeWeatherPanel extends HTMLElement {
           position: absolute;
           inset: 0;
           display: flex;
+          flex-direction: column;
           align-items: center;
           justify-content: center;
+          gap: var(--space-2);
+          padding: var(--space-4);
+          text-align: center;
           color: var(--hw-muted);
           font-size: var(--fs-body);
+        }
+        .space-error-detail {
+          font-size: var(--fs-xs);
+          color: var(--hw-muted);
+          max-width: 420px;
+          line-height: 1.4;
         }
         .space-controls {
           position: absolute;
@@ -5773,7 +5783,9 @@ class HomeWeatherPanel extends HTMLElement {
     return `
       <section class="maps-page">
         <div class="maps-stage">
-          <div id="space-map-root"></div>
+          <div class="maps-view-panel active" data-maps-mode="space">
+            <div id="space-map-root"></div>
+          </div>
         </div>
       </section>`;
   }
@@ -5837,29 +5849,65 @@ class HomeWeatherPanel extends HTMLElement {
   }
 
   _loadSpaceMapScript() {
-    if (window.SpaceMap && window.THREE) return Promise.resolve();
+    if (window.SpaceMap && window.THREE?.WebGLRenderer) return Promise.resolve();
     if (this._spaceMapPromise) return this._spaceMapPromise;
     const version = this._version || Date.now();
-    const loadScript = (src, globalName) => new Promise((resolve, reject) => {
-      if (globalName && window[globalName]) {
+    const loadScript = (src, globalName, verify) => new Promise((resolve, reject) => {
+      if (globalName && window[globalName] && (!verify || verify(window[globalName]))) {
         resolve();
         return;
       }
-      const existing = document.querySelector(`script[src="${src}"]`);
+      const existing = document.querySelector(`script[data-hw-src="${src}"]`);
       if (existing) {
-        existing.addEventListener("load", () => resolve(), { once: true });
-        existing.addEventListener("error", () => reject(new Error(`Failed to load ${src}`)), { once: true });
-        if (!globalName || window[globalName]) resolve();
-        return;
+        if (globalName && window[globalName] && (!verify || verify(window[globalName]))) {
+          resolve();
+          return;
+        }
+        if (existing.dataset.hwFailed === "1") {
+          existing.remove();
+        } else if (existing.readyState === "complete" || existing.readyState === "loaded") {
+          reject(new Error(`Failed to load ${src}`));
+          return;
+        } else {
+          existing.addEventListener("load", () => {
+            if (globalName && window[globalName] && (!verify || verify(window[globalName]))) resolve();
+            else reject(new Error(`Failed to load ${src}`));
+          }, { once: true });
+          existing.addEventListener("error", () => reject(new Error(`Failed to load ${src}`)), { once: true });
+          return;
+        }
       }
       const script = document.createElement("script");
       script.src = src;
-      script.onload = () => resolve();
-      script.onerror = () => reject(new Error(`Failed to load ${src}`));
+      script.dataset.hwSrc = src;
+      script.onload = () => {
+        if (globalName && window[globalName] && (!verify || verify(window[globalName]))) {
+          resolve();
+          return;
+        }
+        script.dataset.hwFailed = "1";
+        reject(new Error(`Failed to load ${src}`));
+      };
+      script.onerror = () => {
+        script.dataset.hwFailed = "1";
+        reject(new Error(`Failed to load ${src}`));
+      };
       document.head.appendChild(script);
     });
-    this._spaceMapPromise = loadScript(`/local/home_weather/three.min.js?v=${version}`, "THREE")
-      .then(() => loadScript(`/local/home_weather/space-map.js?v=${version}`, "SpaceMap"));
+    this._spaceMapPromise = loadScript(
+      `/local/home_weather/three.min.js?v=${version}`,
+      "THREE",
+      (three) => !!three?.WebGLRenderer,
+    )
+      .then(() => loadScript(
+        `/local/home_weather/space-map.js?v=${version}`,
+        "SpaceMap",
+        (spaceMap) => typeof spaceMap === "function",
+      ))
+      .catch((err) => {
+        this._spaceMapPromise = null;
+        throw err;
+      });
     return this._spaceMapPromise;
   }
 
@@ -5892,6 +5940,9 @@ class HomeWeatherPanel extends HTMLElement {
         asteroids: spaceMonitoring.show_asteroids !== false,
         comets: spaceMonitoring.show_comets !== false,
       };
+      if (typeof window.SpaceMap !== "function") {
+        throw new Error("SpaceMap module unavailable");
+      }
       this._spaceMap = new window.SpaceMap({
         hass: this._hass,
         shadowRoot: s,
@@ -5908,7 +5959,15 @@ class HomeWeatherPanel extends HTMLElement {
       }
     } catch (err) {
       console.error("Failed to init space map:", err);
-      root.innerHTML = `<div class="space-error">Failed to load space map.</div>`;
+      const detail = String(err?.message || err || "Unknown error")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+      root.innerHTML = `
+        <div class="space-error">
+          <p>Failed to load space map.</p>
+          <p class="space-error-detail">${detail}</p>
+          <p class="space-error-detail">Try reloading the Home Weather integration, then hard-refresh the panel (Ctrl+F5).</p>
+        </div>`;
     }
   }
 
