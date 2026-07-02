@@ -2812,14 +2812,12 @@ class HomeWeatherPanel extends HTMLElement {
           padding: var(--space-2) var(--space-4) var(--space-3);
           scroll-padding-inline: var(--space-4);
           -webkit-overflow-scrolling: touch;
-          scrollbar-width: thin;
-          scrollbar-color: var(--hw-border-strong) transparent;
+          scrollbar-width: none;
+          -ms-overflow-style: none;
           min-width: 0;
           scroll-snap-type: x proximity;
         }
-        .hourly-strip::-webkit-scrollbar { height: 6px; }
-        .hourly-strip::-webkit-scrollbar-thumb { background: var(--hw-border-strong); border-radius: 3px; }
-        .hourly-strip::-webkit-scrollbar-track { background: transparent; }
+        .hourly-strip::-webkit-scrollbar { display: none; }
 
         /* Forecast card (hourly strip item) */
         .forecast-card { background: var(--hw-surface); border: 1px solid var(--hw-border); border-top: 3px solid transparent; border-radius: var(--radius-md); padding: var(--space-3) var(--space-2); display: flex; flex-direction: column; align-items: center; justify-content: space-between; min-height: 120px; text-align: center; width: clamp(68px, 18vw, 84px); flex: 0 0 auto; box-sizing: border-box; cursor: pointer; transition: background var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease); scroll-snap-align: start; }

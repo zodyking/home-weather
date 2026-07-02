@@ -1,7 +1,7 @@
 /**
  * Space Map — simplified Three.js solar system + NOAA sun weather view.
  */
-(function () {
+(function (global) {
   const BODY_COLORS = {
     sun: 0xffcc33,
     planet: 0x60a5fa,
@@ -384,4 +384,4 @@
   }
 
   global.SpaceMap = SpaceMap;
-})();
+})(typeof window !== "undefined" ? window : globalThis);

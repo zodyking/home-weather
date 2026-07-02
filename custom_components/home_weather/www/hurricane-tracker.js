@@ -668,7 +668,7 @@
             border-left: 1px solid var(--hw-border-strong, #333);
             box-shadow: none;
             z-index: 20;
-            background-color: #1c1c1c;
+            background: #282828;
           }
           .hurricane-map-empty-banner {
             top: 12px;
@@ -826,13 +826,13 @@
           pointer-events: auto;
           --primary-text-color: var(--hw-text, #e1e1e1);
           --secondary-text-color: var(--hw-muted, #9b9b9b);
-          --card-background-color: #1c1c1c;
+          --card-background-color: #282828;
           color: var(--hw-text, #e1e1e1);
-          background-color: #1c1c1c;
+          background: #282828;
           border: none;
           border-left: 1px solid var(--hw-border-strong, #333);
           border-radius: 0;
-          padding: 16px;
+          padding: 12px;
           display: flex;
           flex-direction: column;
           gap: 0;
@@ -863,7 +863,7 @@
           padding-bottom: 12px;
           margin-bottom: 12px;
           border-bottom: 1px solid var(--hw-border-strong, #333);
-          background-color: #1c1c1c;
+          background: #282828;
         }
         .hurricane-status-scroll {
           flex: 1 1 auto;
@@ -873,10 +873,10 @@
           -webkit-overflow-scrolling: touch;
           display: block;
           padding-right: 4px;
-          padding-bottom: max(16px, env(safe-area-inset-bottom, 0px));
-          background-color: #1c1c1c;
+          padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
+          background: #282828;
           scrollbar-width: thin;
-          scrollbar-color: #444 #1c1c1c;
+          scrollbar-color: #444 #282828;
           -ms-overflow-style: auto;
         }
         .hurricane-status-scroll > .hurricane-stat,
@@ -895,7 +895,7 @@
           border-radius: 3px;
         }
         .hurricane-status-scroll::-webkit-scrollbar-track {
-          background: #1c1c1c;
+          background: #282828;
         }
         .hurricane-status.is-threat-high {
           border-color: #f44336;
