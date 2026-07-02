@@ -23,6 +23,10 @@ from custom_components.home_weather.tornado_data import (
     get_tornado_geofield_config,
     parse_tornado_features,
 )
+from custom_components.home_weather.volcano_data import (
+    get_volcano_config,
+    passes_volcano_filters,
+)
 
 HOME = {"lat": 35.1, "lon": -96.1}
 
@@ -258,3 +262,52 @@ def test_lightning_zone_mode_zone_filters_radius(monkeypatch):
     }
     payload = build_lightning_payload(_strikes(now_ms), HOME, config)
     assert payload["geofield_count"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Volcano
+# ---------------------------------------------------------------------------
+
+def _volcano_event(level: str = "watch", distance: float | None = 3000.0) -> dict:
+    return {
+        "id": "321050",
+        "name": "Test Volcano",
+        "activity_level": level,
+        "distance_miles": distance,
+    }
+
+
+def test_volcano_zone_mode_defaults_to_zone():
+    cfg = get_volcano_config({"volcano_monitoring": {"enabled": True}})
+    assert cfg["zone_mode"] == "zone"
+
+
+def test_volcano_bypass_ignores_radius_but_keeps_min_level():
+    cfg = get_volcano_config(
+        {
+            "volcano_monitoring": {
+                "zone_mode": "all",
+                "radius_miles": 500,
+                "min_alert_level": "watch",
+            }
+        }
+    )
+    assert passes_volcano_filters(_volcano_event("watch", 3000.0), cfg)
+    assert passes_volcano_filters(_volcano_event("warning", None), cfg)
+    # min level still applies in bypass mode
+    assert not passes_volcano_filters(_volcano_event("advisory", 10.0), cfg)
+
+
+def test_volcano_zone_mode_zone_filters_radius():
+    cfg = get_volcano_config(
+        {
+            "volcano_monitoring": {
+                "zone_mode": "zone",
+                "radius_miles": 500,
+                "min_alert_level": "advisory",
+            }
+        }
+    )
+    assert passes_volcano_filters(_volcano_event("watch", 300.0), cfg)
+    assert not passes_volcano_filters(_volcano_event("watch", 3000.0), cfg)
+    assert not passes_volcano_filters(_volcano_event("watch", None), cfg)

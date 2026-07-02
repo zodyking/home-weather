@@ -9,8 +9,10 @@ from custom_components.home_weather.tts_notifications import (
     format_earthquake_alert_for_tts,
     format_tornado_warning_for_tts,
     format_tropical_alert_for_tts,
+    format_volcano_alert_for_tts,
     passes_earthquake_tts_filter,
     passes_tornado_tts_filter,
+    passes_volcano_tts_filter,
 )
 
 
@@ -143,3 +145,47 @@ def test_format_earthquake_alert_message():
     assert "4.2" in msg or "Magnitude 4.2" in msg
     assert "San Jose" in msg
     assert "45" in msg
+
+
+def test_volcano_filter_min_level():
+    cfg = {"min_alert_level": "watch", "announce_cleared": False}
+    assert passes_volcano_tts_filter(
+        {"activity_level": "watch"}, cfg, "home_weather_volcano_activity_detected"
+    )
+    assert passes_volcano_tts_filter(
+        {"activity_level": "warning"}, cfg, "home_weather_volcano_activity_updated"
+    )
+    assert not passes_volcano_tts_filter(
+        {"activity_level": "advisory"}, cfg, "home_weather_volcano_activity_detected"
+    )
+
+
+def test_volcano_filter_cleared_toggle():
+    payload = {"activity_level": "warning", "name": "Test"}
+    assert not passes_volcano_tts_filter(
+        payload, {"min_alert_level": "watch", "announce_cleared": False},
+        "home_weather_volcano_activity_cleared",
+    )
+    assert passes_volcano_tts_filter(
+        payload, {"min_alert_level": "watch", "announce_cleared": True},
+        "home_weather_volcano_activity_cleared",
+    )
+
+
+def test_format_volcano_alert_message():
+    msg = format_volcano_alert_for_tts({
+        "name": "Mount St. Helens",
+        "activity_level": "watch",
+        "distance_miles": 52,
+        "synopsis": "Elevated seismicity detected.",
+    })
+    assert "Mount St. Helens" in msg
+    assert "watch" in msg
+    assert "52" in msg
+    assert "Elevated seismicity" in msg
+
+
+def test_format_volcano_cleared_message():
+    msg = format_volcano_alert_for_tts({"name": "Mount Test"}, cleared=True)
+    assert "Mount Test" in msg
+    assert "cleared" in msg.lower()

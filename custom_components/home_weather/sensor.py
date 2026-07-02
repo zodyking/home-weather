@@ -10,6 +10,7 @@ from .entities.earthquake import create_earthquake_entities
 from .entities.hurricane import create_hurricane_entities
 from .entities.lightning import create_lightning_entities
 from .entities.tornado import create_tornado_entities
+from .entities.volcano import create_volcano_entities
 
 
 async def async_setup_entry(
@@ -29,5 +30,8 @@ async def async_setup_entry(
     )
     entities.extend(
         create_lightning_entities(entry_data["lightning_coordinator"], entry)
+    )
+    entities.extend(
+        create_volcano_entities(entry_data["volcano_coordinator"], entry)
     )
     async_add_entities(entities)

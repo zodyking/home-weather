@@ -60,6 +60,17 @@
       max: 500,
       hint: "Live strikes inside this radius feed lightning sensors.",
     },
+    {
+      key: "volcano",
+      configKey: "volcano_monitoring",
+      radiusKey: "radius_miles",
+      label: "Volcano",
+      icon: "volcano",
+      color: "#ff7043",
+      min: 1,
+      max: 5000,
+      hint: "Active volcanoes inside this radius count as nearby for sensors.",
+    },
   ];
 
   function clamp(value, min, max) {
@@ -130,7 +141,7 @@
           || this._settings[hazard.key === "earthquake" ? "earthquakes" : hazard.key]
           || {};
         const radiusRaw = Number(block[hazard.radiusKey]);
-        const defaults = { hurricane: 500, tornado: 25, earthquake: 500, lightning: 100 };
+        const defaults = { hurricane: 500, tornado: 25, earthquake: 500, lightning: 100, volcano: 500 };
         const radius = Number.isFinite(radiusRaw) && radiusRaw > 0
           ? clamp(radiusRaw, hazard.min, hazard.max)
           : defaults[hazard.key];
@@ -176,6 +187,7 @@
       this._initMap();
       this._bindPanel();
       this._bindLayoutObserver();
+      this._syncPanelLayout();
       this._syncPanelDom();
     }
 
@@ -221,22 +233,33 @@
     }
 
     _loadScript(src, globalName) {
+      const SCRIPT_TIMEOUT_MS = 15000;
       return new Promise((resolve, reject) => {
         if (globalName && global[globalName]) {
           resolve();
           return;
         }
+        let settled = false;
+        const finish = (fn, arg) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          fn(arg);
+        };
+        const timer = setTimeout(() => {
+          finish(reject, new Error(`Timed out loading ${src}`));
+        }, SCRIPT_TIMEOUT_MS);
         const existing = document.querySelector(`script[src="${src}"]`);
         if (existing) {
-          existing.addEventListener("load", () => resolve(), { once: true });
-          existing.addEventListener("error", () => reject(new Error(`Failed to load ${src}`)), { once: true });
-          if (globalName && global[globalName]) resolve();
+          existing.addEventListener("load", () => finish(resolve), { once: true });
+          existing.addEventListener("error", () => finish(reject, new Error(`Failed to load ${src}`)), { once: true });
+          if (globalName && global[globalName]) finish(resolve);
           return;
         }
         const script = document.createElement("script");
         script.src = src;
-        script.onload = () => resolve();
-        script.onerror = () => reject(new Error(`Failed to load ${src}`));
+        script.onload = () => finish(resolve);
+        script.onerror = () => finish(reject, new Error(`Failed to load ${src}`));
         document.head.appendChild(script);
       });
     }
@@ -554,6 +577,18 @@
           .hw-zone-panel.is-collapsed .hw-zone-panel-body,
           .hw-zone-panel.is-collapsed .hw-zone-panel-footer { display: none; }
           .hw-zone-panel.is-collapsed .hw-zone-panel-toggle { transform: rotate(180deg); }
+          .hw-zone-layout .leaflet-bottom.leaflet-left {
+            left: auto;
+            right: 10px;
+            bottom: max(10px, env(safe-area-inset-bottom, 0px));
+          }
+          .hw-zone-layout.panel-expanded .leaflet-bottom.leaflet-left {
+            bottom: calc(min(52vh, 420px) + 18px);
+          }
+          .hw-zone-layout.panel-expanded .leaflet-top.leaflet-left {
+            bottom: calc(min(52vh, 420px) + 18px);
+            top: auto;
+          }
         }
       `;
       this._shadow.appendChild(style);
@@ -592,8 +627,9 @@
           </div>`;
       }).join("");
 
+      const layoutClass = this._isCompactLayout() && !this._panelCollapsed ? " panel-expanded" : "";
       this._root.innerHTML = `
-        <div class="hw-zone-layout">
+        <div class="hw-zone-layout${layoutClass}">
           <div class="hw-zone-map" id="hw-zone-map"></div>
           <aside class="hw-zone-panel ${this._isCompactLayout() && this._panelCollapsed ? "is-collapsed" : ""}">
             <div class="hw-zone-panel-header">
@@ -614,12 +650,41 @@
         </div>`;
     }
 
+    _safeFitCircle(circle, padding = [40, 40]) {
+      if (!this._map || !circle) return;
+      try {
+        const bounds = circle.getBounds();
+        if (bounds?.isValid?.()) {
+          this._map.fitBounds(bounds, { padding });
+          return;
+        }
+      } catch {
+        /* Leaflet Circle.getBounds() can fail before map projection is ready */
+      }
+      this._map.setView([this._home.lat, this._home.lon], 8);
+    }
+
+    _syncPanelLayout() {
+      const layout = this._root?.querySelector(".hw-zone-layout");
+      const panel = this._root?.querySelector(".hw-zone-panel");
+      if (!layout || !panel) return;
+      const expanded = this._isCompactLayout() && !this._panelCollapsed;
+      layout.classList.toggle("panel-expanded", expanded);
+      panel.classList.toggle("is-collapsed", this._isCompactLayout() && this._panelCollapsed);
+    }
+
     _initMap() {
       const L = global.L;
       const mapEl = this._root.querySelector("#hw-zone-map");
       if (!L || !mapEl) return;
 
-      this._map = L.map(mapEl, { zoomControl: true, attributionControl: true });
+      const home = this._home;
+      this._map = L.map(mapEl, {
+        zoomControl: true,
+        attributionControl: true,
+        center: [home.lat, home.lon],
+        zoom: 8,
+      });
       const baseLayers = {
         Dark: L.tileLayer(DARK_TILE_URL, { maxZoom: 19, subdomains: "abcd", attribution: CARTO_ATTR }),
         Light: L.tileLayer(LIGHT_TILE_URL, { maxZoom: 19, subdomains: "abcd", attribution: CARTO_ATTR }),
@@ -629,7 +694,6 @@
       L.control.layers(baseLayers, null, { position: "topleft" }).addTo(this._map);
       L.control.scale({ imperial: true, metric: false }).addTo(this._map);
 
-      const home = this._home;
       const homeIcon = L.divIcon({
         className: "hw-zone-home-marker",
         html: `<img src="/local/home_weather/icons/home.svg" width="28" height="28" alt="Home" />`,
@@ -645,7 +709,14 @@
         this._createHazardLayers(hazard);
       });
 
-      this._fitToZones();
+      this._map.invalidateSize();
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (!this._map) return;
+          this._map.invalidateSize();
+          this._fitToZones();
+        });
+      });
     }
 
     _createHazardLayers(hazard) {
@@ -759,11 +830,12 @@
       HAZARDS.forEach((hazard) => this._applyHazardStyle(hazard.key));
       this._syncPanelDom();
       if (fit && this._circles[key] && this._state[key].enabled) {
-        this._map.fitBounds(this._circles[key].getBounds(), { padding: [40, 40] });
+        this._safeFitCircle(this._circles[key]);
       }
     }
 
     _fitToZones() {
+      if (!this._map) return;
       const enabled = HAZARDS.filter((h) => this._state[h.key].enabled);
       if (!enabled.length) {
         this._map.setView([this._home.lat, this._home.lon], 8);
@@ -774,7 +846,7 @@
         this._state[h.key].radius < this._state[acc.key].radius ? h : acc
       ));
       const circle = this._circles[smallest.key];
-      if (circle) this._map.fitBounds(circle.getBounds(), { padding: [40, 40] });
+      if (circle) this._safeFitCircle(circle);
     }
 
     _bindPanel() {
@@ -784,7 +856,7 @@
       panel.querySelector(".hw-zone-panel-toggle")?.addEventListener("click", (ev) => {
         ev.stopPropagation();
         this._panelCollapsed = !this._panelCollapsed;
-        panel.classList.toggle("is-collapsed", this._panelCollapsed);
+        this._syncPanelLayout();
         requestAnimationFrame(() => this._map?.invalidateSize?.());
       });
 
@@ -859,6 +931,7 @@
     _bindLayoutObserver() {
       if (this._layoutObserver || !this._root) return;
       this._layoutObserver = new ResizeObserver(() => {
+        this._syncPanelLayout();
         this._map?.invalidateSize?.();
       });
       this._layoutObserver.observe(this._root);

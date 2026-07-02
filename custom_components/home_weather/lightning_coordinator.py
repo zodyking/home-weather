@@ -8,14 +8,18 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
+from homeassistant.util import dt as dt_util
+
 from .const import DOMAIN
 from .hurricane_data import get_home_coordinates
 from .lightning_data import (
     BlitzortungListener,
+    LightningHourlyCounter,
     LightningStrikeBuffer,
     build_lightning_payload,
     empty_lightning_payload,
     get_lightning_config,
+    strike_in_monitoring_zone,
 )
 from .storage import HomeWeatherStorage
 
@@ -38,10 +42,14 @@ class LightningCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         self.storage = storage
         self._buffer = LightningStrikeBuffer(max_strikes=500)
+        self._hourly_counter = LightningHourlyCounter()
+        self._cached_home: dict[str, float] | None = None
+        self._cached_config: dict[str, Any] | None = None
+        self._hourly_seeded = False
         self._listener = BlitzortungListener(
             hass,
             self._buffer,
-            on_strike=lambda: hass.async_create_task(self.async_request_refresh()),
+            on_strike=self._on_strike,
             on_status=self._on_listener_status,
         )
         self._listener_started = False
@@ -49,6 +57,13 @@ class LightningCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def _on_listener_status(self, status: str) -> None:
         self._feed_status = status
+        self.hass.async_create_task(self.async_request_refresh())
+
+    def _on_strike(self, strike: dict[str, Any]) -> None:
+        home = self._cached_home
+        config = self._cached_config
+        if home and strike_in_monitoring_zone(strike, home, config):
+            self.hass.async_create_task(self._hourly_counter.record(strike["time_ms"]))
         self.hass.async_create_task(self.async_request_refresh())
 
     async def _sync_listener(self, enabled: bool) -> None:
@@ -82,8 +97,23 @@ class LightningCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             self._buffer.set_max_strikes(int(lightning_config.get("max_strikes", 500)))
             home = get_home_coordinates(self.hass, config)
+            self._cached_home = home
+            self._cached_config = config
             strikes = await self._buffer.get_strikes()
-            payload = build_lightning_payload(strikes, home, config)
+            if not self._hourly_seeded and strikes:
+                one_hour_ms = int(dt_util.utcnow().timestamp() * 1000) - 3600 * 1000
+                for strike in strikes:
+                    time_ms = strike.get("time_ms") or 0
+                    if time_ms >= one_hour_ms and strike_in_monitoring_zone(strike, home, config):
+                        await self._hourly_counter.record(time_ms)
+                self._hourly_seeded = True
+            hourly_count = await self._hourly_counter.count()
+            payload = build_lightning_payload(
+                strikes,
+                home,
+                config,
+                strikes_last_hour=hourly_count,
+            )
             if self._feed_status in ("connecting", "reconnecting", "error"):
                 payload["feed_status"] = self._feed_status
             elif payload.get("feed_status") == "live" and self._listener_started:

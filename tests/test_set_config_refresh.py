@@ -15,6 +15,7 @@ async def _refresh_coordinators_after_save(entry_data: dict, coordinator) -> Non
             "tornado_coordinator",
             "hurricane_coordinator",
             "lightning_coordinator",
+            "volcano_coordinator",
         ):
             hazard = entry_data.get(key)
             if hazard:
@@ -33,12 +34,15 @@ def test_set_config_refreshes_hazard_coordinators():
         hurricane.async_request_refresh = AsyncMock()
         lightning = MagicMock()
         lightning.async_request_refresh = AsyncMock()
+        volcano = MagicMock()
+        volcano.async_request_refresh = AsyncMock()
 
         entry_data = {
             "earthquake_coordinator": earthquake,
             "tornado_coordinator": tornado,
             "hurricane_coordinator": hurricane,
             "lightning_coordinator": lightning,
+            "volcano_coordinator": volcano,
         }
 
         await _refresh_coordinators_after_save(entry_data, weather)
@@ -48,5 +52,6 @@ def test_set_config_refreshes_hazard_coordinators():
         tornado.async_request_refresh.assert_awaited_once()
         hurricane.async_request_refresh.assert_awaited_once()
         lightning.async_request_refresh.assert_awaited_once()
+        volcano.async_request_refresh.assert_awaited_once()
 
     asyncio.run(run())

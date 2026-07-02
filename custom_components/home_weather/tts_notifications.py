@@ -1361,6 +1361,54 @@ def passes_earthquake_tts_filter(
     return mag is not None and mag >= min_mag
 
 
+_VOLCANO_LEVEL_RANK = {"advisory": 1, "watch": 2, "warning": 3}
+
+
+def format_volcano_alert_for_tts(
+    payload: dict[str, Any],
+    *,
+    cleared: bool = False,
+    updated: bool = False,
+) -> str:
+    """Build spoken volcano activity alert."""
+    name = payload.get("name") or "A volcano"
+    if cleared:
+        return (
+            f"Volcano update. Activity at {name} has cleared and it is "
+            "no longer at an elevated alert level."
+        )
+    level = str(payload.get("activity_level") or "advisory").lower()
+    dist = payload.get("distance_miles")
+    prefix = "Volcano update." if updated else "Volcano alert."
+    parts = [prefix, f"{name} is now at {level} level"]
+    if dist is not None:
+        parts[-1] += f", {_round_miles(dist)} from home"
+    parts[-1] += "."
+    synopsis = (payload.get("synopsis") or "").strip()
+    if synopsis:
+        parts.append(synopsis[:200])
+    return " ".join(parts)
+
+
+def passes_volcano_tts_filter(
+    payload: dict[str, Any],
+    volcano_config: dict[str, Any],
+    event_type: str,
+) -> bool:
+    """Return True when volcano payload meets TTS announce criteria.
+
+    Zone filtering already happened upstream (bus events fire only for
+    geofield events), so this checks the announce level and cleared toggle.
+    """
+    if event_type == "home_weather_volcano_activity_cleared":
+        return bool(volcano_config.get("announce_cleared", False))
+    level = str(payload.get("activity_level") or "").lower()
+    min_level = str(volcano_config.get("min_alert_level", "watch")).lower()
+    rank = _VOLCANO_LEVEL_RANK.get(level)
+    min_rank = _VOLCANO_LEVEL_RANK.get(min_level, 2)
+    return rank is not None and rank >= min_rank
+
+
 async def play_hazard_siren(
     hass: HomeAssistant,
     section: dict[str, Any],

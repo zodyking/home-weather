@@ -28,6 +28,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     from .earthquake_coordinator import EarthquakeCoordinator
     from .hurricane_coordinator import HurricaneCoordinator
     from .lightning_coordinator import LightningCoordinator
+    from .volcano_coordinator import VolcanoCoordinator
 
     storage = HomeWeatherStorage(hass)
     await storage.async_load()
@@ -46,6 +47,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     lightning_coordinator = LightningCoordinator(hass, storage)
     await lightning_coordinator.async_config_entry_first_refresh()
+
+    volcano_coordinator = VolcanoCoordinator(hass, storage)
+    await volcano_coordinator.async_config_entry_first_refresh()
 
     # Set up TTS trigger manager
     def get_config():
@@ -72,6 +76,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "earthquake_coordinator": earthquake_coordinator,
         "hurricane_coordinator": hurricane_coordinator,
         "lightning_coordinator": lightning_coordinator,
+        "volcano_coordinator": volcano_coordinator,
         "trigger_manager": trigger_manager,
     }
 

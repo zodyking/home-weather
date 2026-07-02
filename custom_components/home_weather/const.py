@@ -85,6 +85,15 @@ DEFAULT_CONFIG: Final = {
         "announce_updated": False,
         "announce_cleared": False,
     },
+    "volcano_alerts": {
+        "enabled": False,
+        "sound_file": "",
+        "sound_volume": 0.8,
+        "tts_volume": 0.9,
+        # Minimum unified activity level to announce: advisory | watch | warning
+        "min_alert_level": "watch",
+        "announce_cleared": False,
+    },
     # Optional NWS forecast zone (e.g. NYZ072) for tornado alert filtering
     "nws_zone": "",
     "hurricane_monitoring": {
@@ -118,6 +127,15 @@ DEFAULT_CONFIG: Final = {
         "max_age_minutes": 60,
         "max_strikes": 500,
         "geofield_radius_miles": 100,
+    },
+    "volcano_monitoring": {
+        "enabled": True,
+        "zone_mode": "zone",
+        "radius_miles": 500,
+        # Minimum unified activity level tracked by sensors: advisory | watch | warning
+        "min_alert_level": "advisory",
+        # Plot the full worldwide catalog (subtle markers) on the hazard map
+        "map_show_all_volcanoes": True,
     },
     # Legacy keys kept for backward compatibility during transition
     "earthquakes": {

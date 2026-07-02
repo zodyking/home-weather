@@ -38,6 +38,8 @@
   /** Ignore replayed/historical strikes older than this when flashing on the map. */
   const LIGHTNING_MAP_MAX_STRIKE_AGE_MS = 90 * 1000;
   const LIGHTNING_HISTORY_MS = 60 * 60 * 1000;
+  /** Poll server lightning stats (hour count, nearest) without full map reload. */
+  const LIGHTNING_POLL_MS = 60 * 1000;
 
   class HurricaneTracker {
     constructor(options) {
@@ -51,11 +53,14 @@
       this._data = null;
       this._tornadoData = null;
       this._earthquakeData = null;
+      this._volcanoData = null;
+      this._volcanoClusterGroup = null;
       this._backendLightning = null;
       this._loading = false;
       this._error = null;
       this._showWindRadii = false;
       this._refreshTimer = null;
+      this._lightningPollTimer = null;
       this._mapInitialized = false;
       this._earthquakeClusterGroup = null;
       this._lastDetailTier = null;
@@ -64,7 +69,7 @@
       this._viewLockHandlerBound = false;
       this._hasInitialFit = false;
       this._userViewLocked = false;
-      this._mapLayers = { hurricane: true, tornado: true, earthquakes: true, lightning: true };
+      this._mapLayers = { hurricane: true, tornado: true, earthquakes: true, lightning: true, volcanoes: true };
       this._mapSort = "newest";
       this._lightningSettings = {
         enabled: true,
@@ -163,6 +168,12 @@
       this._map?.invalidateSize?.();
     }
 
+    collapseStatusPanel() {
+      if (!this._isCompactLayout()) return;
+      this._statusCollapsed = true;
+      this._syncStatusPanelLayout();
+    }
+
     async init(rootEl) {
       this._root = rootEl;
       this._injectStyles();
@@ -172,7 +183,32 @@
       this._bindLayoutObserver();
       await this.loadData();
       this._refreshTimer = setInterval(() => this.loadData(), REFRESH_MS);
+      this._startLightningPoll();
     }
+
+    _startLightningPoll() {
+      this._stopLightningPoll();
+      if (!this._hass) return;
+      this._lightningPollTimer = setInterval(() => this._pollLightningStats(), LIGHTNING_POLL_MS);
+    }
+
+    _stopLightningPoll() {
+      if (this._lightningPollTimer) {
+        clearInterval(this._lightningPollTimer);
+        this._lightningPollTimer = null;
+      }
+    }
+
+    async _pollLightningStats() {
+      if (!this._hass) return;
+      try {
+        const payload = await this._hass.callWS({ type: "home_weather/get_lightning" });
+        if (!payload) return;
+        this._backendLightning = payload;
+        this._updateLightningStatusDom();
+      } catch (_) {
+        /* keep last known server stats */
+      }
 
     _bindLayoutObserver() {
       if (this._layoutObserver || !this._root) return;
@@ -201,6 +237,7 @@
         clearInterval(this._refreshTimer);
         this._refreshTimer = null;
       }
+      this._stopLightningPoll();
       this._layoutObserver?.disconnect();
       this._layoutObserver = null;
       this._stopLightning(true);
@@ -285,30 +322,17 @@
       }
 
       const browserFeedActive = this._lightningEnabled() && this._lightningStatus === "live";
-      if (browserFeedActive) {
-        const now = Date.now();
-        const hourAgo = now - LIGHTNING_HISTORY_MS;
-        const recent = this._lightningStrikes.filter((e) => e.strike.timeMs >= hourAgo);
-        const lastHour = recent;
-        let nearest = null;
-        recent.forEach((e) => {
-          const d = this._distanceFromHomeMiles(e.strike.lat, e.strike.lon);
-          if (d != null && (nearest == null || d < nearest)) nearest = d;
-        });
-        return {
-          visibleCount: this._lightningStrikes.filter((e) => e.marker).length,
-          hourCount: lastHour.length,
-          nearestMiles: nearest,
-          status: this._lightningStatus,
-        };
-      }
+      const visibleCount = browserFeedActive
+        ? this._lightningStrikes.filter((e) => e.marker).length
+        : (backend?.geofield_count ?? this._lightningStrikes.filter((e) => e.marker).length);
 
+      // Hour count and nearest distance come from the HA server (rolling counter, not client buffer).
       if (backend && backend.feed_status && backend.feed_status !== "off") {
         return {
-          visibleCount: backend.geofield_count ?? 0,
+          visibleCount,
           hourCount: backend.strikes_last_hour ?? 0,
           nearestMiles: backend.nearest_distance_miles ?? null,
-          status: backend.feed_status,
+          status: browserFeedActive ? this._lightningStatus : backend.feed_status,
         };
       }
 
@@ -321,7 +345,7 @@
         if (d != null && (nearest == null || d < nearest)) nearest = d;
       });
       return {
-        visibleCount: this._lightningStrikes.filter((e) => e.marker).length,
+        visibleCount,
         hourCount: recent.length,
         nearestMiles: nearest,
         status: this._lightningStatus,
@@ -589,7 +613,12 @@
             border-bottom: none;
             border-left: 1px solid rgba(255,255,255,0.12);
             box-shadow: none;
-            z-index: 2;
+            z-index: 10;
+            background: #141820;
+            color: #e1e1e1;
+          }
+          .hurricane-map-wrap {
+            background: #111111;
           }
           .hurricane-map-empty-banner {
             top: 12px;
@@ -608,7 +637,7 @@
           border: 1px solid rgba(255,255,255,0.08);
           border-radius: 10px;
           overflow: hidden;
-          background: rgba(255,255,255,0.03);
+          background: rgba(255,255,255,0.04);
         }
         .hurricane-status-details + .hurricane-status-details {
           margin-top: 4px;
@@ -621,7 +650,8 @@
           font-weight: 700;
           letter-spacing: 0.1em;
           text-transform: uppercase;
-          color: #b0bec5;
+          color: #b0bec5 !important;
+          background: rgba(255,255,255,0.04);
           display: flex;
           align-items: center;
           justify-content: space-between;
@@ -657,6 +687,7 @@
           display: flex;
           flex-direction: column;
           gap: 6px;
+          background: #12161e;
         }
         .marker-cluster-hw {
           background: rgba(255, 183, 77, 0.25);
@@ -681,7 +712,7 @@
           font-size: 14px;
           font-weight: 600;
           line-height: 1.45;
-          color: #e1e1e1;
+          color: #e1e1e1 !important;
         }
         .hurricane-status-headline.is-watch { color: #ffb74d; }
         .hurricane-status-headline.is-danger { color: #ef5350; }
@@ -726,19 +757,54 @@
           bottom: 12px;
           width: min(280px, calc(100% - 24px));
           max-height: calc(100% - 24px);
-          overflow-y: auto;
+          overflow: hidden;
           overflow-x: hidden;
-          z-index: 600;
-          background: rgba(17, 20, 28, 0.88);
+          z-index: 10;
+          color-scheme: dark;
+          --primary-text-color: #e1e1e1;
+          --secondary-text-color: #9b9b9b;
+          --card-background-color: #141820;
+          background: #141820;
           border: 1px solid rgba(255,255,255,0.12);
           border-radius: 14px;
           padding: 16px;
           display: flex;
           flex-direction: column;
-          gap: 12px;
-          backdrop-filter: blur(14px);
+          gap: 0;
           box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+        }
+        .hurricane-status,
+        .hurricane-status * {
+          -webkit-font-smoothing: antialiased;
+        }
+        .hurricane-status span,
+        .hurricane-status summary,
+        .hurricane-status h3,
+        .hurricane-status p {
+          color: inherit;
+        }
+        .hurricane-status a {
+          color: #90caf9;
+        }
+        .hurricane-status a:visited {
+          color: #90caf9;
+        }
+        .hurricane-status-header {
+          flex-shrink: 0;
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+        .hurricane-status-scroll {
+          flex: 1;
+          min-height: 0;
+          overflow-y: auto;
+          overflow-x: hidden;
           -webkit-overflow-scrolling: touch;
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+          padding-bottom: max(4px, env(safe-area-inset-bottom, 0px));
         }
         .hurricane-status.is-threat-high {
           border-color: rgba(244,67,54,0.55);
@@ -751,17 +817,17 @@
           margin: 0;
           font-size: 16px;
           font-weight: 600;
-          color: #e1e1e1;
+          color: #e1e1e1 !important;
         }
         .hurricane-stat {
           display: flex;
           justify-content: space-between;
           gap: 8px;
           font-size: 13px;
-          color: #9b9b9b;
+          color: #9b9b9b !important;
         }
         .hurricane-stat strong {
-          color: #e1e1e1;
+          color: #e1e1e1 !important;
           font-weight: 600;
           text-align: right;
         }
@@ -885,7 +951,7 @@
           position: absolute;
           top: calc(100% + 6px);
           left: 0;
-          z-index: 1000;
+          z-index: 30;
           min-width: 148px;
           padding: 4px;
           background: rgba(17, 20, 28, 0.96);
@@ -1033,6 +1099,48 @@
           70% { transform: scale(1.15); opacity: 1; }
           100% { transform: scale(1); opacity: 1; }
         }
+        /* Volcano markers: catalog points blend into the basemap */
+        .hw-hazard-icon-wrap.hw-volcano-catalog {
+          opacity: 0.45;
+          filter: grayscale(0.55) drop-shadow(0 1px 3px rgba(0,0,0,0.45));
+        }
+        .hw-hazard-icon-wrap.hw-volcano-catalog:hover {
+          opacity: 0.9;
+          filter: grayscale(0) drop-shadow(0 2px 6px rgba(0,0,0,0.5));
+        }
+        /* Active volcanoes pulse with their alert color */
+        .hw-hazard-icon-wrap.hw-volcano-active {
+          animation: hw-volcano-pulse 1.6s ease-in-out infinite;
+        }
+        @keyframes hw-volcano-pulse {
+          0%, 100% {
+            transform: scale(1);
+            filter: drop-shadow(0 0 4px var(--volcano-color, #fb8c00)) drop-shadow(0 2px 8px rgba(0,0,0,0.5));
+          }
+          50% {
+            transform: scale(1.18);
+            filter: drop-shadow(0 0 14px var(--volcano-color, #fb8c00)) drop-shadow(0 2px 8px rgba(0,0,0,0.5));
+          }
+        }
+        .marker-cluster-hw-volcano {
+          background: rgba(120, 124, 134, 0.35);
+          border: 1px solid rgba(255,255,255,0.25);
+          border-radius: 50%;
+          color: #e6e9ef;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 11px;
+          font-weight: 600;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        }
+        .marker-cluster-hw-volcano div {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 100%;
+          height: 100%;
+        }
         .hurricane-stat strong.is-live { color: #ffc107; }
         /* Scientific map controls */
         .hw-coords {
@@ -1161,7 +1269,7 @@
             right: 10px;
             bottom: max(10px, env(safe-area-inset-bottom, 0px));
             width: auto;
-            max-height: min(46vh, 360px);
+            max-height: min(55vh, 420px);
             padding: 12px 14px;
             border-radius: 16px 16px 12px 12px;
             transition: max-height 0.2s ease, padding 0.2s ease;
@@ -1170,6 +1278,9 @@
             max-height: none;
             overflow: hidden;
             padding-bottom: 12px;
+          }
+          .hurricane-status.is-collapsed .hurricane-status-scroll {
+            display: none;
           }
           .hurricane-status.is-collapsed .hurricane-banner,
           .hurricane-status.is-collapsed .hurricane-stat,
@@ -1191,7 +1302,7 @@
             bottom: max(10px, env(safe-area-inset-bottom, 0px));
           }
           .hurricane-map-wrap.status-expanded .leaflet-bottom.leaflet-left {
-            bottom: calc(min(46vh, 360px) + 18px);
+            bottom: calc(min(55vh, 420px) + 18px);
           }
           .hurricane-map-wrap.status-expanded .leaflet-bottom.leaflet-right {
             bottom: max(10px, env(safe-area-inset-bottom, 0px));
@@ -1211,10 +1322,10 @@
             right: 10px;
             bottom: max(10px, env(safe-area-inset-bottom, 0px));
             width: auto;
-            max-height: min(42vh, 300px);
+            max-height: min(55vh, 420px);
           }
           .hurricane-layout.is-embedded .hurricane-map-wrap.status-expanded .leaflet-bottom.leaflet-left {
-            bottom: calc(min(42vh, 300px) + 18px);
+            bottom: calc(min(55vh, 420px) + 18px);
           }
           .hurricane-layout.is-embedded .hurricane-map-empty-banner {
             top: 10px;
@@ -1302,7 +1413,7 @@
       this._loading = true;
       this._error = null;
       try {
-        const [payload, tornadoPayload, earthquakePayload, lightningPayload] = await Promise.all([
+        const [payload, tornadoPayload, earthquakePayload, lightningPayload, volcanoPayload] = await Promise.all([
           this._hass.callWS({
             type: "home_weather/get_hurricanes",
             force_refresh: !!forceRefresh,
@@ -1310,11 +1421,13 @@
           this._hass.callWS({ type: "home_weather/get_tornadoes" }).catch(() => null),
           this._hass.callWS({ type: "home_weather/get_earthquakes" }).catch(() => null),
           this._hass.callWS({ type: "home_weather/get_lightning" }).catch(() => null),
+          this._hass.callWS({ type: "home_weather/get_volcanoes" }).catch(() => null),
         ]);
         this._data = payload;
         this._tornadoData = tornadoPayload;
         this._earthquakeData = earthquakePayload;
         this._backendLightning = lightningPayload;
+        this._volcanoData = volcanoPayload;
         this._renderUI();
         this._updateLightningStatusDom();
       } catch (err) {
@@ -1546,6 +1659,16 @@
       const eqPlace = eqPrimary.place || "—";
       const eqTsunami = eqPrimary.tsunami === 1 ? "Yes" : "No";
 
+      const volcano = this._volcanoData || {};
+      const volcanoPrimary = volcano.primary_geofield || {};
+      const volcanoActiveCount = volcano.active_count || 0;
+      const volcanoZoneCount = volcano.geofield_count || 0;
+      const volcanoNearestName = volcanoPrimary.name || "—";
+      const volcanoNearestLevel = volcanoPrimary.activity_level
+        ? String(volcanoPrimary.activity_level).toUpperCase()
+        : "—";
+      const volcanoDistance = this._fmtMiles(volcano.nearest_distance_miles);
+
       const headline = this._buildStatusHeadline(summary, storms);
       const tropicalCount = (summary.disturbanceCount || 0) + storms.length;
       const tornadoCountLabel = tornadoCount;
@@ -1574,47 +1697,61 @@
 
       return `
         <aside class="hurricane-status ${threatClass}${collapsedClass}" data-status-expanded="${statusExpanded ? "true" : "false"}">
-          <h3 class="hurricane-status-head">
-            Hazard Status
-            <button type="button" class="hurricane-status-toggle" aria-expanded="${statusExpanded ? "true" : "false"}" aria-label="${statusExpanded ? "Collapse hazard status" : "Expand hazard status"}">▾</button>
-          </h3>
-          <p class="hurricane-status-headline ${headline.className}">${this._esc(headline.text)}</p>
-          ${staleBanner}
-          <div class="hurricane-stat"><span>Overall hurricane threat</span><strong>${this._esc(summary.threatLevel || "none")}</strong></div>
-          <details class="hurricane-status-details"${detailsOpen}>
-            <summary><span>Hurricanes</span><span class="h-count">${tropicalCount}</span><span class="h-chevron">▸</span></summary>
-            <div class="hurricane-status-details-body">${tropicalBody}</div>
-          </details>
-          <details class="hurricane-status-details"${detailsOpen}>
-            <summary><span>Tornado Warnings</span><span class="h-count">${tornadoCountLabel}</span><span class="h-chevron">▸</span></summary>
-            <div class="hurricane-status-details-body">
-              <div class="hurricane-stat"><span>Active warnings</span><strong>${tornadoCount}</strong></div>
-              <div class="hurricane-stat ${tornado.affecting_home ? "is-danger" : ""}"><span>Affecting home</span><strong>${tornadoAffecting}</strong></div>
-              <div class="hurricane-stat"><span>Nearest warning</span><strong>${tornadoDistance}</strong></div>
-              <div class="hurricane-stat"><span>Primary alert</span><strong>${this._esc(tornadoHeadline)}</strong></div>
-            </div>
-          </details>
-          <details class="hurricane-status-details"${detailsOpen}>
-            <summary><span>Earthquakes</span><span class="h-count">${eqCountLabel}</span><span class="h-chevron">▸</span></summary>
-            <div class="hurricane-status-details-body">
-              <div class="hurricane-stat"><span>Worldwide on map</span><strong>${eqMapCount}</strong></div>
-              <div class="hurricane-stat"><span>Nearby (live feed)</span><strong>${eqCount}</strong></div>
-              <div class="hurricane-stat ${earthquake.nearby_active ? "is-warning" : ""}"><span>Nearest</span><strong>${this._esc(eqPlace)}</strong></div>
-              <div class="hurricane-stat"><span>Magnitude</span><strong>${eqMag}</strong></div>
-              <div class="hurricane-stat"><span>Distance</span><strong>${eqDistance}</strong></div>
-              <div class="hurricane-stat"><span>Depth</span><strong>${eqDepth}</strong></div>
-              <div class="hurricane-stat ${eqPrimary.tsunami === 1 ? "is-danger" : ""}"><span>Tsunami flag</span><strong>${eqTsunami}</strong></div>
-            </div>
-          </details>
-          <details class="hurricane-status-details"${detailsOpen}>
-            <summary><span>Lightning</span><span class="h-count" id="hw-lightning-badge">${lightningStats.visibleCount}</span><span class="h-chevron">▸</span></summary>
-            <div class="hurricane-status-details-body">
-              <div class="hurricane-stat"><span>Strikes (last hour)</span><strong id="hw-lightning-count">${lightningStats.hourCount}</strong></div>
-              <div class="hurricane-stat"><span>Nearest strike</span><strong id="hw-lightning-nearest">${lightningStats.nearestMiles != null ? this._fmtMiles(lightningStats.nearestMiles) : "—"}</strong></div>
-              <div class="hurricane-stat"><span>Feed status</span><strong id="hw-lightning-status" class="${lightningStats.status === "live" ? "is-live" : lightningStats.status === "error" ? "is-danger" : ""}">${this._formatLightningStatus(lightningStats.status)}</strong></div>
-              <div class="hurricane-stat"><span>Data source</span><strong><a href="https://www.blitzortung.org" target="_blank" rel="noopener noreferrer" style="color:#90caf9">Blitzortung</a></strong></div>
-            </div>
-          </details>
+          <div class="hurricane-status-header">
+            <h3 class="hurricane-status-head">
+              Hazard Status
+              <button type="button" class="hurricane-status-toggle" aria-expanded="${statusExpanded ? "true" : "false"}" aria-label="${statusExpanded ? "Collapse hazard status" : "Expand hazard status"}">▾</button>
+            </h3>
+            <p class="hurricane-status-headline ${headline.className}">${this._esc(headline.text)}</p>
+          </div>
+          <div class="hurricane-status-scroll">
+            ${staleBanner}
+            <div class="hurricane-stat"><span>Overall hurricane threat</span><strong>${this._esc(summary.threatLevel || "none")}</strong></div>
+            <details class="hurricane-status-details"${detailsOpen}>
+              <summary><span>Hurricanes</span><span class="h-count">${tropicalCount}</span><span class="h-chevron">▸</span></summary>
+              <div class="hurricane-status-details-body">${tropicalBody}</div>
+            </details>
+            <details class="hurricane-status-details"${detailsOpen}>
+              <summary><span>Tornado Warnings</span><span class="h-count">${tornadoCountLabel}</span><span class="h-chevron">▸</span></summary>
+              <div class="hurricane-status-details-body">
+                <div class="hurricane-stat"><span>Active warnings</span><strong>${tornadoCount}</strong></div>
+                <div class="hurricane-stat ${tornado.affecting_home ? "is-danger" : ""}"><span>Affecting home</span><strong>${tornadoAffecting}</strong></div>
+                <div class="hurricane-stat"><span>Nearest warning</span><strong>${tornadoDistance}</strong></div>
+                <div class="hurricane-stat"><span>Primary alert</span><strong>${this._esc(tornadoHeadline)}</strong></div>
+              </div>
+            </details>
+            <details class="hurricane-status-details"${detailsOpen}>
+              <summary><span>Earthquakes</span><span class="h-count">${eqCountLabel}</span><span class="h-chevron">▸</span></summary>
+              <div class="hurricane-status-details-body">
+                <div class="hurricane-stat"><span>Worldwide on map</span><strong>${eqMapCount}</strong></div>
+                <div class="hurricane-stat"><span>Nearby (live feed)</span><strong>${eqCount}</strong></div>
+                <div class="hurricane-stat ${earthquake.nearby_active ? "is-warning" : ""}"><span>Nearest</span><strong>${this._esc(eqPlace)}</strong></div>
+                <div class="hurricane-stat"><span>Magnitude</span><strong>${eqMag}</strong></div>
+                <div class="hurricane-stat"><span>Distance</span><strong>${eqDistance}</strong></div>
+                <div class="hurricane-stat"><span>Depth</span><strong>${eqDepth}</strong></div>
+                <div class="hurricane-stat ${eqPrimary.tsunami === 1 ? "is-danger" : ""}"><span>Tsunami flag</span><strong>${eqTsunami}</strong></div>
+              </div>
+            </details>
+            <details class="hurricane-status-details"${detailsOpen}>
+              <summary><span>Volcanoes</span><span class="h-count">${volcanoActiveCount}</span><span class="h-chevron">▸</span></summary>
+              <div class="hurricane-status-details-body">
+                <div class="hurricane-stat"><span>Active worldwide</span><strong>${volcanoActiveCount}</strong></div>
+                <div class="hurricane-stat ${volcano.in_geofield ? "is-warning" : ""}"><span>Active in your zone</span><strong>${volcanoZoneCount}</strong></div>
+                <div class="hurricane-stat"><span>Nearest active</span><strong>${this._esc(volcanoNearestName)}</strong></div>
+                <div class="hurricane-stat"><span>Alert level</span><strong>${this._esc(volcanoNearestLevel)}</strong></div>
+                <div class="hurricane-stat"><span>Distance</span><strong>${volcanoDistance}</strong></div>
+              </div>
+            </details>
+            <details class="hurricane-status-details"${detailsOpen}>
+              <summary><span>Lightning</span><span class="h-count" id="hw-lightning-badge">${lightningStats.visibleCount}</span><span class="h-chevron">▸</span></summary>
+              <div class="hurricane-status-details-body">
+                <div class="hurricane-stat"><span>Strikes (last hour)</span><strong id="hw-lightning-count">${lightningStats.hourCount}</strong></div>
+                <div class="hurricane-stat"><span>Nearest strike</span><strong id="hw-lightning-nearest">${lightningStats.nearestMiles != null ? this._fmtMiles(lightningStats.nearestMiles) : "—"}</strong></div>
+                <div class="hurricane-stat"><span>Feed status</span><strong id="hw-lightning-status" class="${lightningStats.status === "live" ? "is-live" : lightningStats.status === "error" ? "is-danger" : ""}">${this._formatLightningStatus(lightningStats.status)}</strong></div>
+                <div class="hurricane-stat"><span>Data source</span><strong><a href="https://www.blitzortung.org" target="_blank" rel="noopener noreferrer" style="color:#90caf9">Blitzortung</a></strong></div>
+              </div>
+            </details>
+          </div>
         </aside>`;
     }
 
@@ -1736,6 +1873,18 @@
           }),
         });
         this._map.addLayer(this._earthquakeClusterGroup);
+        this._volcanoClusterGroup = global.L.markerClusterGroup({
+          maxClusterRadius: 48,
+          disableClusteringAtZoom: 7,
+          spiderfyOnMaxZoom: true,
+          showCoverageOnHover: false,
+          iconCreateFunction: (cluster) => global.L.divIcon({
+            html: `<div>${cluster.getChildCount()}</div>`,
+            className: "marker-cluster-hw-volcano",
+            iconSize: global.L.point(34, 34),
+          }),
+        });
+        this._map.addLayer(this._volcanoClusterGroup);
       }
       this._lightningLayerGroup = L.layerGroup();
       if (this._lightningEnabled()) {
@@ -1832,6 +1981,8 @@
             <div class="hw-legend-row"><img src="/local/home_weather/icons/disturbance.svg" alt=""/>NHC disturbance</div>
             <div class="hw-legend-row"><span class="hw-legend-swatch" style="background:rgba(255,167,38,0.25);border-color:#ffa726;border-style:dashed"></span>Development area</div>
             <div class="hw-legend-row"><img src="/local/home_weather/icons/lightning-bolt.svg" alt=""/>Live strike (Blitzortung)</div>
+            <div class="hw-legend-row"><img src="/local/home_weather/icons/volcano.svg" alt="" style="opacity:0.55"/>Volcano (catalog)</div>
+            <div class="hw-legend-row"><img src="/local/home_weather/icons/volcano.svg" alt=""/>Active volcano + affected area</div>
             <div class="hw-legend-row"><img src="/local/home_weather/icons/home.svg" alt=""/>Your home</div>
           </div>
         </div>`;
@@ -2066,6 +2217,7 @@
 
       this._layerGroup.clearLayers();
       if (this._earthquakeClusterGroup) this._earthquakeClusterGroup.clearLayers();
+      if (this._volcanoClusterGroup) this._volcanoClusterGroup.clearLayers();
       this._homeMarker = null;
 
       const bounds = [];
@@ -2085,6 +2237,10 @@
 
       if (layers.earthquakes) {
         this._drawEarthquakes(bounds);
+      }
+
+      if (layers.volcanoes !== false) {
+        this._drawVolcanoes();
       }
 
       if (home?.lat != null && home?.lon != null) {
@@ -2516,6 +2672,88 @@
           }).addTo(this._layerGroup);
         }
 
+      });
+    }
+
+    _volcanoLevelColor(level) {
+      if (level === "warning") return "#e53935";
+      if (level === "watch") return "#fb8c00";
+      return "#fdd835";
+    }
+
+    _volcanoPopup(props) {
+      const rows = [
+        `<strong>${this._esc(props.name || "Volcano")}</strong>`,
+        this._esc(props.country || ""),
+      ];
+      if (props.type) rows.push(`Type: ${this._esc(props.type)}`);
+      if (props.elevation_m != null) rows.push(`Elevation: ${Math.round(props.elevation_m)} m`);
+      if (props.last_eruption_year) rows.push(`Last eruption: ${this._esc(props.last_eruption_year)}`);
+      if (props.distance_miles != null) rows.push(`Distance: ${Math.round(props.distance_miles)} mi`);
+      if (props.active) {
+        const level = String(props.activity_level || "").toUpperCase();
+        rows.push(`<span style="color:${this._volcanoLevelColor(props.activity_level)};font-weight:700">Activity: ${this._esc(level)}</span>`);
+        if (props.color_code) rows.push(`Aviation color: ${this._esc(props.color_code)}`);
+        if (props.synopsis) rows.push(this._esc(String(props.synopsis).slice(0, 220)));
+        if (props.url) rows.push(`<a href="${this._esc(props.url)}" target="_blank" rel="noopener noreferrer">Details</a>`);
+      }
+      return rows.filter(Boolean).join("<br/>");
+    }
+
+    _drawVolcanoes() {
+      const L = global.L;
+      const features = this._volcanoData?.geojson?.features;
+      if (!L || !features?.length) return;
+      const catalogGroup = this._volcanoClusterGroup || this._layerGroup;
+
+      features.forEach((feature) => {
+        const props = feature.properties || {};
+        const coords = feature.geometry?.coordinates;
+        if (!coords || coords.length < 2) return;
+        const lon = coords[0];
+        const lat = coords[1];
+        if (lat == null || lon == null) return;
+        const popup = this._volcanoPopup(props);
+
+        if (props.active) {
+          const color = this._volcanoLevelColor(props.activity_level);
+          const marker = L.marker([lat, lon], {
+            icon: L.divIcon({
+              className: "hw-hazard-icon-marker",
+              html: `<div class="hw-hazard-icon-wrap hw-volcano-active" style="--volcano-color:${color}"><img src="/local/home_weather/icons/volcano.svg" width="30" height="30" alt="" draggable="false"/></div>`,
+              iconSize: [30, 30],
+              iconAnchor: [15, 15],
+            }),
+            zIndexOffset: 470,
+          });
+          marker.bindPopup(popup);
+          marker.addTo(this._layerGroup);
+
+          const ringMiles = Number(props.ring_radius_miles);
+          if (Number.isFinite(ringMiles) && ringMiles > 0) {
+            L.circle([lat, lon], {
+              radius: ringMiles * 1609.34,
+              color,
+              weight: 2,
+              dashArray: "8 6",
+              fillColor: color,
+              fillOpacity: 0.18,
+            }).bindPopup(popup).addTo(this._layerGroup);
+          }
+          return;
+        }
+
+        const marker = L.marker([lat, lon], {
+          icon: L.divIcon({
+            className: "hw-hazard-icon-marker",
+            html: `<div class="hw-hazard-icon-wrap hw-volcano-catalog"><img src="/local/home_weather/icons/volcano.svg" width="18" height="18" alt="" draggable="false"/></div>`,
+            iconSize: [18, 18],
+            iconAnchor: [9, 9],
+          }),
+          zIndexOffset: 120,
+        });
+        marker.bindPopup(popup);
+        catalogGroup.addLayer(marker);
       });
     }
   }

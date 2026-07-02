@@ -99,6 +99,8 @@ def build_lightning_payload(
     strikes: list[dict[str, Any]],
     home: dict[str, float],
     config: dict[str, Any] | None = None,
+    *,
+    strikes_last_hour: int | None = None,
 ) -> dict[str, Any]:
     """Build coordinator payload from buffered strikes within retention window."""
     lightning_config = get_lightning_config(config)
@@ -130,9 +132,10 @@ def build_lightning_payload(
     nearest = min(geofield, key=lambda s: s.get("distance_miles", float("inf"))) if geofield else None
 
     one_hour_ms = int(dt_util.utcnow().timestamp() * 1000) - 3600 * 1000
-    strikes_last_hour = sum(
-        1 for s in geofield if (s.get("time_ms") or 0) >= one_hour_ms
-    )
+    if strikes_last_hour is None:
+        strikes_last_hour = sum(
+            1 for s in geofield if (s.get("time_ms") or 0) >= one_hour_ms
+        )
 
     last_strike_time: datetime | None = None
     if nearest and nearest.get("time_ms"):
@@ -172,6 +175,49 @@ def empty_lightning_payload(*, feed_status: str = "off") -> dict[str, Any]:
         "feed_status": feed_status,
         "last_updated": dt_util.utcnow().isoformat(),
     }
+
+
+def strike_in_monitoring_zone(
+    strike: dict[str, Any],
+    home: dict[str, float],
+    config: dict[str, Any] | None = None,
+) -> bool:
+    """Return True when a strike should count toward geofield stats."""
+    lightning_config = get_lightning_config(config)
+    if lightning_config.get("zone_mode", "zone") == "all":
+        return True
+    radius = float(lightning_config.get("geofield_radius_miles", 100))
+    dist = haversine_distance_miles(
+        float(home["lat"]),
+        float(home["lon"]),
+        float(strike["lat"]),
+        float(strike["lon"]),
+    )
+    return dist <= radius
+
+
+class LightningHourlyCounter:
+    """Rolling one-hour counter for monitoring-zone strikes (not capped by map buffer)."""
+
+    def __init__(self) -> None:
+        self._times_ms: list[int] = []
+        self._lock = asyncio.Lock()
+
+    async def record(self, time_ms: int) -> None:
+        async with self._lock:
+            self._times_ms.append(int(time_ms))
+            self._prune_locked()
+
+    async def count(self) -> int:
+        async with self._lock:
+            self._prune_locked()
+            return len(self._times_ms)
+
+    def _prune_locked(self) -> None:
+        cutoff = int(dt_util.utcnow().timestamp() * 1000) - 3600 * 1000
+        if not self._times_ms:
+            return
+        self._times_ms = [t for t in self._times_ms if t >= cutoff]
 
 
 class LightningStrikeBuffer:
@@ -286,4 +332,4 @@ class BlitzortungListener:
                     self.buffer.last_strike_time_ns = strike["time_ns"]
                 await self.buffer.add_strike(strike)
                 if self._on_strike:
-                    self._on_strike()
+                    self._on_strike(strike)

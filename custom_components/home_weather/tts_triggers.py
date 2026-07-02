@@ -45,8 +45,10 @@ from .tts_notifications import (
     format_earthquake_alert_for_tts,
     format_tornado_warning_for_tts,
     format_tropical_alert_for_tts,
+    format_volcano_alert_for_tts,
     passes_earthquake_tts_filter,
     passes_tornado_tts_filter,
+    passes_volcano_tts_filter,
     play_hazard_alert_notification,
     play_nws_alert_notification,
     play_nws_siren,
@@ -87,6 +89,8 @@ def _is_alerts_active(config: dict[str, Any]) -> bool:
     if (config.get("tornado_alerts") or {}).get("enabled", False):
         return True
     if (config.get("earthquake_alerts") or {}).get("enabled", False):
+        return True
+    if (config.get("volcano_alerts") or {}).get("enabled", False):
         return True
     return False
 
@@ -240,6 +244,8 @@ class TTSTriggerManager:
             setups.append(("tornado_alerts", self._setup_tornado_alerts_trigger(config)))
         if (config.get("earthquake_alerts") or {}).get("enabled", False):
             setups.append(("earthquake_alerts", self._setup_earthquake_alerts_trigger(config)))
+        if (config.get("volcano_alerts") or {}).get("enabled", False):
+            setups.append(("volcano_alerts", self._setup_volcano_alerts_trigger(config)))
 
         successful: list[str] = []
         for name, coro in setups:
@@ -693,6 +699,28 @@ class TTSTriggerManager:
         await play_hazard_alert_notification(
             self.hass, config, "earthquake_alerts", msg, media_players,
             request_id=request_id, alert_kind="earthquake_alert",
+        )
+
+    async def fire_test_volcano_alert(self, *, request_id: str | None = None) -> None:
+        """Play sample volcano TTS alert."""
+        config = self._get_config()
+        media_players = media_players_with_tts(config.get("media_players", []))
+        if not media_players:
+            _fire_tts_status(
+                self.hass, "skipped", request_id=request_id,
+                reason="No media players with TTS configured", alert_kind="volcano_alert",
+            )
+            return
+        sample = {
+            "name": "Mount Test",
+            "activity_level": "watch",
+            "distance_miles": 120,
+            "synopsis": "This is a Home Weather test volcano alert.",
+        }
+        msg = format_volcano_alert_for_tts(sample)
+        await play_hazard_alert_notification(
+            self.hass, config, "volcano_alerts", msg, media_players,
+            request_id=request_id, alert_kind="volcano_alert",
         )
 
     async def _setup_upcoming_change_trigger(self, tts_config: dict[str, Any]) -> None:
@@ -1620,3 +1648,52 @@ class TTSTriggerManager:
             alert_kind="earthquake_alert",
         )
         _LOGGER.info("Earthquake alert TTS fired: %s", event_type)
+
+    async def _setup_volcano_alerts_trigger(self, config: dict[str, Any]) -> None:
+        """Listen for volcano coordinator bus events."""
+        media_players = media_players_with_tts(config.get("media_players", []))
+        if not media_players:
+            _LOGGER.warning("Volcano alerts enabled but no media players with TTS configured")
+            return
+
+        for event_type in (
+            "home_weather_volcano_activity_detected",
+            "home_weather_volcano_activity_updated",
+            "home_weather_volcano_activity_cleared",
+        ):
+            def _make_listener(et: str) -> Callable[[Event], None]:
+                @callback
+                def _on_event(ev: Event) -> None:
+                    self.hass.async_create_task(
+                        self._handle_volcano_bus_event(config, ev, et)
+                    )
+                return _on_event
+
+            self._unsub_callbacks.append(
+                self.hass.bus.async_listen(event_type, _make_listener(event_type))
+            )
+        _LOGGER.info("Volcano alerts trigger set up (bus listeners)")
+
+    async def _handle_volcano_bus_event(
+        self,
+        config: dict[str, Any],
+        event: Event,
+        event_type: str,
+    ) -> None:
+        volcano_cfg = config.get("volcano_alerts") or {}
+        if not volcano_cfg.get("enabled"):
+            return
+        media_players = media_players_with_tts(config.get("media_players", []))
+        if not media_players:
+            return
+        payload = dict(event.data or {})
+        if not passes_volcano_tts_filter(payload, volcano_cfg, event_type):
+            return
+        cleared = event_type == "home_weather_volcano_activity_cleared"
+        updated = event_type == "home_weather_volcano_activity_updated"
+        msg = format_volcano_alert_for_tts(payload, cleared=cleared, updated=updated)
+        await play_hazard_alert_notification(
+            self.hass, config, "volcano_alerts", msg, media_players,
+            alert_kind="volcano_alert",
+        )
+        _LOGGER.info("Volcano alert TTS fired: %s", event_type)

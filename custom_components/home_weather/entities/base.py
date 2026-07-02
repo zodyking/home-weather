@@ -15,6 +15,7 @@ def hazard_device_info(entry: ConfigEntry, hazard: str) -> dict[str, Any]:
         "tornado": "Tornado",
         "hurricane": "Hurricane",
         "lightning": "Lightning",
+        "volcano": "Volcano",
     }
     return {
         "identifiers": {(DOMAIN, entry.entry_id, hazard)},

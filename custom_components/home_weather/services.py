@@ -104,6 +104,7 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
                     "tornado_coordinator",
                     "hurricane_coordinator",
                     "lightning_coordinator",
+                    "volcano_coordinator",
                 ):
                     hazard = entry_data.get(key)
                     if hazard:
@@ -473,6 +474,10 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
         {"type": "home_weather/test_earthquake_alert"}
     )(_make_alert_test_handler("fire_test_earthquake_alert", "earthquake_test_failed", require_weather=False))
 
+    handle_test_volcano_alert = websocket_api.websocket_command(
+        {"type": "home_weather/test_volcano_alert"}
+    )(_make_alert_test_handler("fire_test_volcano_alert", "volcano_test_failed", require_weather=False))
+
     @websocket_api.websocket_command(
         {
             "type": "home_weather/get_automations",
@@ -695,6 +700,36 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
         payload = coordinator.data or {}
         connection.send_result(msg["id"], payload)
 
+    @websocket_api.websocket_command(
+        {
+            vol.Required("type"): "home_weather/get_volcanoes",
+        }
+    )
+    @websocket_api.async_response
+    async def handle_get_volcanoes(
+        hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+    ) -> None:
+        """Return worldwide volcano data from the volcano coordinator."""
+        entry_data = _get_entry_data(hass)
+        if not entry_data or not entry_data.get("volcano_coordinator"):
+            connection.send_result(
+                msg["id"],
+                {
+                    "catalog_count": 0,
+                    "active_events": [],
+                    "geofield_events": [],
+                    "active_count": 0,
+                    "geofield_count": 0,
+                    "in_geofield": False,
+                    "geojson": {"type": "FeatureCollection", "features": []},
+                },
+            )
+            return
+
+        coordinator = entry_data["volcano_coordinator"]
+        payload = coordinator.data or {}
+        connection.send_result(msg["id"], payload)
+
     websocket_api.async_register_command(hass, handle_get_config)
     websocket_api.async_register_command(hass, handle_set_config)
     websocket_api.async_register_command(hass, handle_get_weather)
@@ -712,6 +747,7 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, handle_test_tropical_alert)
     websocket_api.async_register_command(hass, handle_test_tornado_alert)
     websocket_api.async_register_command(hass, handle_test_earthquake_alert)
+    websocket_api.async_register_command(hass, handle_test_volcano_alert)
     websocket_api.async_register_command(hass, handle_get_automations)
     websocket_api.async_register_command(hass, handle_get_webhook_info)
     websocket_api.async_register_command(hass, handle_get_version)
@@ -720,4 +756,5 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, handle_get_tornadoes)
     websocket_api.async_register_command(hass, handle_get_earthquakes)
     websocket_api.async_register_command(hass, handle_get_lightning)
+    websocket_api.async_register_command(hass, handle_get_volcanoes)
 

@@ -21,6 +21,10 @@ from .entities.tornado import (
     TornadoAffectingHomeBinarySensor,
     TornadoInGeofieldBinarySensor,
 )
+from .entities.volcano import (
+    VolcanoActivityBinarySensor,
+    VolcanoInGeofieldBinarySensor,
+)
 
 
 async def async_setup_entry(
@@ -53,6 +57,12 @@ async def async_setup_entry(
             ),
             LightningInGeofieldBinarySensor(
                 entry_data["lightning_coordinator"], entry
+            ),
+            VolcanoInGeofieldBinarySensor(
+                entry_data["volcano_coordinator"], entry
+            ),
+            VolcanoActivityBinarySensor(
+                entry_data["volcano_coordinator"], entry
             ),
         ]
     )
