@@ -776,13 +776,18 @@
           position: relative;
           z-index: 1;
           width: 100%;
-          height: 100%;
-          min-height: 100%;
+          height: calc(100% - 48px);
+          min-height: 0;
           border-radius: 0;
           overflow: hidden;
           border: none;
           background: #111111;
           isolation: isolate;
+        }
+        @media (max-width: 768px) {
+          .hurricane-map {
+            height: calc(100% - 44px);
+          }
         }
         .hurricane-map-empty-banner { display: none; }
         .hurricane-status {
@@ -1064,19 +1069,27 @@
         .hw-map-controls-stack.measure-active .hw-measure-readout-row {
           display: block;
         }
-        .leaflet-bottom.leaflet-left .leaflet-control-scale {
-          margin-bottom: 0;
-        }
         .leaflet-bar {
           border: 1px solid var(--hw-border-strong, rgba(255,255,255,0.12));
           box-shadow: 0 4px 16px rgba(0,0,0,0.35);
         }
         .leaflet-control-attribution {
-          background: var(--hw-surface, rgba(17, 17, 17, 0.72)) !important;
-          color: var(--hw-muted, #9b9b9b) !important;
-          backdrop-filter: blur(6px);
+          position: absolute !important;
+          bottom: 2px !important;
+          right: 4px !important;
+          left: auto !important;
+          background: transparent !important;
+          color: rgba(158, 158, 158, 0.7) !important;
+          font-size: 10px !important;
+          padding: 0 4px !important;
+          text-shadow: 0 1px 2px rgba(0,0,0,0.8);
         }
-        .leaflet-control-attribution a { color: var(--hw-accent-hover, #90caf9) !important; }
+        .leaflet-control-attribution a { 
+          color: rgba(144, 202, 249, 0.8) !important;
+        }
+        .leaflet-control-attribution a:hover {
+          color: #90caf9 !important;
+        }
         .hw-forecast-label {
           background: rgba(17, 20, 28, 0.88);
           color: #fff;
@@ -1253,20 +1266,31 @@
           height: 100%;
         }
         .hurricane-stat strong.is-live { color: #ffc107; }
-        /* Scientific map controls */
-        .hw-coords {
-          background: rgba(17, 20, 28, 0.82);
-          color: #cfd8dc;
-          font-size: 11px;
-          line-height: 1.4;
-          padding: 3px 8px;
-          margin: 0 0 6px 6px !important;
-          border-radius: 6px;
-          border: 1px solid rgba(255,255,255,0.12);
-          backdrop-filter: blur(6px);
-          font-variant-numeric: tabular-nums;
-          pointer-events: none;
-          white-space: nowrap;
+        /* Leaflet popup styling for dark theme */
+        .leaflet-popup-content-wrapper {
+          background: #1a1f2a;
+          color: #e1e1e1;
+          border-radius: 10px;
+          box-shadow: 0 6px 24px rgba(0,0,0,0.5);
+          border: 1px solid rgba(255,255,255,0.1);
+        }
+        .leaflet-popup-content {
+          margin: 12px 14px;
+          font-size: 13px;
+          line-height: 1.5;
+        }
+        .leaflet-popup-tip {
+          background: #1a1f2a;
+          border: 1px solid rgba(255,255,255,0.1);
+          box-shadow: 0 3px 10px rgba(0,0,0,0.3);
+        }
+        .leaflet-popup-close-button {
+          color: #9e9e9e !important;
+          font-size: 20px !important;
+          padding: 6px 8px 0 0 !important;
+        }
+        .leaflet-popup-close-button:hover {
+          color: #fff !important;
         }
         .hw-legend {
           background: rgba(17, 20, 28, 0.92);
@@ -1342,11 +1366,6 @@
         }
         .leaflet-control-layers-expanded { padding: 8px 10px; }
         .leaflet-control-layers label { font-size: 12px; margin: 2px 0; }
-        .leaflet-control-scale-line {
-          background: rgba(17, 20, 28, 0.7);
-          color: #cfd8dc;
-          border-color: rgba(255,255,255,0.4);
-        }
         .hw-home-marker.in-cone {
           filter: drop-shadow(0 0 6px rgba(244,67,54,0.9));
           animation: hw-pulse 1.5s ease-in-out infinite;
@@ -1378,16 +1397,21 @@
           position: absolute;
           bottom: 0;
           left: 0;
-          right: 320px;
+          right: min(320px, 100%);
           height: 48px;
           background: #141820;
           border-top: 1px solid rgba(255,255,255,0.1);
           display: flex;
           align-items: center;
           justify-content: space-between;
-          padding: 0 12px;
+          padding: 0 16px;
           z-index: 1050;
-          gap: 8px;
+          gap: 12px;
+        }
+        @media (min-width: 769px) {
+          .hw-bottom-bar {
+            right: clamp(248px, 28vw, 300px);
+          }
         }
         .hw-bottom-layers {
           display: flex;
@@ -1425,30 +1449,38 @@
         .hw-bottom-coords {
           display: flex;
           align-items: center;
-          gap: 10px;
+          gap: 12px;
           font-size: 11px;
-          color: #9e9e9e;
+          color: #b0b0b0;
           font-variant-numeric: tabular-nums;
           white-space: nowrap;
+          padding-left: 12px;
+          border-left: 1px solid rgba(255,255,255,0.1);
+          height: 28px;
         }
         .hw-bottom-coords .hw-scale-wrap {
           display: flex;
           align-items: center;
           gap: 6px;
+          color: #8a8a8a;
         }
         .hw-bottom-coords .hw-scale-line {
           display: inline-block;
           height: 4px;
-          border-left: 1px solid #9e9e9e;
-          border-right: 1px solid #9e9e9e;
-          border-bottom: 1px solid #9e9e9e;
+          border-left: 1px solid #8a8a8a;
+          border-right: 1px solid #8a8a8a;
+          border-bottom: 1px solid #8a8a8a;
           min-width: 40px;
         }
         @media (max-width: 768px) {
           .hw-bottom-bar {
             right: 0;
             height: 44px;
-            padding: 0 8px;
+            padding: 0 10px;
+            gap: 8px;
+          }
+          .hw-bottom-layers {
+            gap: 2px;
           }
           .hw-bottom-layer-btn {
             width: 32px;
@@ -1461,9 +1493,11 @@
           }
           .hw-bottom-coords {
             font-size: 10px;
+            gap: 6px;
           }
-        }
-        @media (max-width: 768px) {
+          .hw-bottom-coords .hw-scale-wrap {
+            display: none;
+          }
           .hurricane-status {
             top: 0;
             left: auto;
@@ -1508,18 +1542,6 @@
           }
           .hurricane-status-toggle { display: inline-flex; align-items: center; justify-content: center; }
           .hurricane-status.is-collapsed .hurricane-status-toggle { transform: rotate(-90deg); }
-          .hurricane-map-wrap .leaflet-bottom.leaflet-left {
-            left: 8px;
-            bottom: max(8px, env(safe-area-inset-bottom, 0px));
-          }
-          .hurricane-map-wrap .leaflet-bottom.leaflet-right {
-            right: calc(min(300px, 88%) + 6px);
-            bottom: max(8px, env(safe-area-inset-bottom, 0px));
-          }
-          .leaflet-bottom.leaflet-left .leaflet-control-scale {
-            max-width: min(140px, 42vw);
-          }
-          .hw-coords { font-size: 10px; padding: 2px 6px; }
           .hurricane-map-empty-banner {
             top: 10px;
             left: 12px;
