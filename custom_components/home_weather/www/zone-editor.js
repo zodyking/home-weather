@@ -171,6 +171,7 @@
           ...existing,
           enabled: state.enabled,
           zone_mode: state.zone_mode,
+          alert_zone_mode: state.zone_mode,
           [hazard.radiusKey]: Math.round(clamp(state.radius, hazard.min, hazard.max)),
         };
       });
@@ -288,18 +289,18 @@
           justify-content: center;
           height: 100%;
           min-height: 240px;
-          color: #9b9b9b;
+          color: var(--hw-muted, #9b9b9b);
         }
         .hw-zone-map {
           position: absolute;
           inset: 0;
-          background: #111;
+          background: var(--hw-bg, #111);
         }
         .hw-zone-map .leaflet-container {
           width: 100%;
           height: 100%;
           font-family: inherit;
-          background: #111111;
+          background: var(--hw-bg, #111111);
         }
         .hw-zone-panel {
           position: absolute;
@@ -310,12 +311,12 @@
           max-height: calc(100% - 24px);
           display: flex;
           flex-direction: column;
-          background: rgba(17, 20, 28, 0.94);
-          border: 1px solid rgba(255, 255, 255, 0.12);
+          background: var(--hw-surface, rgba(17, 20, 28, 0.94));
+          border: 1px solid var(--hw-border-strong, rgba(255, 255, 255, 0.12));
           border-radius: 12px;
-          box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+          box-shadow: var(--shadow-lg, 0 12px 40px rgba(0, 0, 0, 0.5));
           backdrop-filter: blur(10px);
-          color: #e1e1e1;
+          color: var(--hw-text, #e1e1e1);
           overflow: hidden;
         }
         .hw-zone-panel-header {
@@ -324,7 +325,7 @@
           justify-content: space-between;
           gap: 8px;
           padding: 12px 14px;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+          border-bottom: 1px solid var(--hw-border, rgba(255, 255, 255, 0.08));
           cursor: default;
         }
         .hw-zone-panel-title {
@@ -332,23 +333,24 @@
           font-weight: 700;
           letter-spacing: 0.04em;
           text-transform: uppercase;
+          color: var(--hw-text, #e1e1e1);
         }
         .hw-zone-panel-sub {
           font-size: 11px;
-          color: #9b9b9b;
+          color: var(--hw-muted, #9b9b9b);
           margin-top: 2px;
         }
         .hw-zone-panel-toggle {
           display: none;
           background: none;
           border: none;
-          color: #9b9b9b;
+          color: var(--hw-muted, #9b9b9b);
           cursor: pointer;
           padding: 4px;
           border-radius: 6px;
           transition: transform 0.2s ease;
         }
-        .hw-zone-panel-toggle:hover { color: #fff; }
+        .hw-zone-panel-toggle:hover { color: var(--hw-text, #fff); }
         .hw-zone-panel-body {
           overflow-y: auto;
           padding: 8px;
@@ -357,17 +359,17 @@
           gap: 8px;
         }
         .hw-zone-row {
-          border: 1px solid rgba(255, 255, 255, 0.08);
+          border: 1px solid var(--hw-border, rgba(255, 255, 255, 0.08));
           border-radius: 10px;
-          background: rgba(28, 28, 28, 0.6);
+          background: var(--hw-inset-bg, var(--hw-surface-2, rgba(28, 28, 28, 0.6)));
           padding: 10px 12px;
           cursor: pointer;
           transition: border-color 0.15s ease, background 0.15s ease;
         }
-        .hw-zone-row:hover { border-color: rgba(255, 255, 255, 0.2); }
+        .hw-zone-row:hover { border-color: var(--hw-border-strong, rgba(255, 255, 255, 0.2)); }
         .hw-zone-row.is-selected {
           border-color: var(--hazard-color, #03a9f4);
-          background: rgba(40, 40, 40, 0.8);
+          background: var(--hw-hover, rgba(40, 40, 40, 0.8));
         }
         .hw-zone-row.is-disabled { opacity: 0.55; }
         .hw-zone-row-head {
@@ -386,12 +388,13 @@
           font-size: 13px;
           font-weight: 600;
           flex: 1;
+          color: var(--hw-text, #e1e1e1);
         }
         .hw-zone-radius-badge {
           font-size: 11px;
           font-variant-numeric: tabular-nums;
-          color: #cfd8dc;
-          background: rgba(255,255,255,0.08);
+          color: var(--hw-text, #cfd8dc);
+          background: var(--hw-hover, rgba(255,255,255,0.08));
           padding: 2px 8px;
           border-radius: 999px;
           white-space: nowrap;
@@ -429,45 +432,53 @@
           display: none;
           margin-top: 10px;
           flex-direction: column;
-          gap: 10px;
+          gap: 0;
         }
         .hw-zone-row.is-selected .hw-zone-row-body { display: flex; }
-        .hw-zone-field {
+        .hw-zone-field-stack {
           display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 8px;
+          flex-direction: column;
+          gap: 6px;
+          padding: 10px 0;
+          border-bottom: 1px solid var(--hw-border, rgba(255, 255, 255, 0.08));
         }
+        .hw-zone-field-stack:first-child { padding-top: 0; }
+        .hw-zone-field-stack:last-child { border-bottom: none; padding-bottom: 0; }
         .hw-zone-field-label {
           font-size: 12px;
-          color: #9b9b9b;
+          font-weight: 600;
+          color: var(--hw-muted, #b0bec5);
         }
         .hw-zone-radius-input {
-          width: 88px;
-          background: rgba(0,0,0,0.35);
-          border: 1px solid rgba(255,255,255,0.14);
+          width: 100%;
+          box-sizing: border-box;
+          background: var(--hw-input-bg, rgba(0,0,0,0.35));
+          border: 1px solid var(--hw-border-strong, rgba(255,255,255,0.14));
           border-radius: 8px;
-          color: #e1e1e1;
+          color: var(--hw-text, #e1e1e1);
           font-size: 13px;
           font-variant-numeric: tabular-nums;
-          padding: 6px 8px;
-          text-align: right;
+          padding: 9px 10px;
+          text-align: left;
+          transition: border-color 0.15s ease, box-shadow 0.15s ease;
         }
         .hw-zone-radius-input:focus {
           outline: none;
-          border-color: #03a9f4;
+          border-color: var(--hw-accent, #03a9f4);
+          box-shadow: 0 0 0 2px var(--hw-accent-dim, rgba(3, 169, 244, 0.22));
         }
         .hw-zone-mode {
           display: flex;
-          border: 1px solid rgba(255,255,255,0.14);
+          width: 100%;
+          border: 1px solid var(--hw-border-strong, rgba(255,255,255,0.14));
           border-radius: 8px;
           overflow: hidden;
         }
         .hw-zone-mode button {
           flex: 1;
-          background: none;
+          background: transparent;
           border: none;
-          color: #9b9b9b;
+          color: var(--hw-muted, #9b9b9b);
           font-size: 11px;
           font-weight: 600;
           padding: 6px 8px;
@@ -475,34 +486,34 @@
           min-height: 30px;
           transition: background 0.15s ease, color 0.15s ease;
         }
-        .hw-zone-mode button + button { border-left: 1px solid rgba(255,255,255,0.14); }
+        .hw-zone-mode button + button { border-left: 1px solid var(--hw-border-strong, rgba(255,255,255,0.14)); }
         .hw-zone-mode button.active {
-          background: rgba(3, 169, 244, 0.22);
-          color: #e1f5fe;
+          background: var(--hw-accent-dim, rgba(3, 169, 244, 0.22));
+          color: var(--hw-accent-hover, #e1f5fe);
         }
-        .hw-zone-mode button:focus-visible { outline: 2px solid #03a9f4; outline-offset: -2px; }
+        .hw-zone-mode button:focus-visible { outline: 2px solid var(--hw-accent, #03a9f4); outline-offset: -2px; }
         .hw-zone-hint {
           font-size: 11px;
-          color: #78909c;
+          color: var(--hw-muted, #78909c);
           line-height: 1.4;
         }
         .hw-zone-bypass-note {
           font-size: 11px;
-          color: #ffb74d;
+          color: var(--hw-warning, #ffb74d);
           line-height: 1.4;
         }
         .hw-zone-panel-footer {
           display: flex;
           gap: 8px;
           padding: 10px 12px;
-          border-top: 1px solid rgba(255, 255, 255, 0.08);
+          border-top: 1px solid var(--hw-border, rgba(255, 255, 255, 0.08));
         }
         .hw-zone-btn {
           flex: 1;
           border-radius: 8px;
-          border: 1px solid rgba(255,255,255,0.14);
-          background: rgba(255,255,255,0.06);
-          color: #e1e1e1;
+          border: 1px solid var(--hw-border-strong, rgba(255,255,255,0.14));
+          background: var(--hw-hover, rgba(255,255,255,0.06));
+          color: var(--hw-text, #e1e1e1);
           font-size: 13px;
           font-weight: 600;
           padding: 9px 12px;
@@ -510,14 +521,14 @@
           cursor: pointer;
           transition: background 0.15s ease;
         }
-        .hw-zone-btn:hover { background: rgba(255,255,255,0.12); }
-        .hw-zone-btn:focus-visible { outline: 2px solid #03a9f4; outline-offset: 2px; }
+        .hw-zone-btn:hover { background: var(--hw-border, rgba(255,255,255,0.12)); }
+        .hw-zone-btn:focus-visible { outline: 2px solid var(--hw-accent, #03a9f4); outline-offset: 2px; }
         .hw-zone-btn--primary {
-          background: #03a9f4;
-          border-color: #03a9f4;
-          color: #04212e;
+          background: var(--hw-accent, #03a9f4);
+          border-color: var(--hw-accent, #03a9f4);
+          color: #ffffff;
         }
-        .hw-zone-btn--primary:hover { background: #29b6f6; }
+        .hw-zone-btn--primary:hover { background: var(--hw-accent-hover, #29b6f6); }
         .hw-zone-btn:disabled { opacity: 0.5; cursor: default; }
         .hw-zone-handle {
           cursor: ew-resize;
@@ -614,18 +625,21 @@
               </label>
             </div>
             <div class="hw-zone-row-body">
-              <div class="hw-zone-field">
-                <span class="hw-zone-field-label">Radius (miles)</span>
-                <input type="number" class="hw-zone-radius-input" data-zone-radius="${hazard.key}"
+              <div class="hw-zone-field-stack">
+                <label class="hw-zone-field-label" for="hw-zone-radius-${hazard.key}">Radius (miles)</label>
+                <input type="number" class="hw-zone-radius-input" id="hw-zone-radius-${hazard.key}" data-zone-radius="${hazard.key}"
                   min="${hazard.min}" max="${hazard.max}" step="1" value="${Math.round(state.radius)}"
                   aria-label="${hazard.label} radius in miles"/>
               </div>
-              <div class="hw-zone-mode" role="group" aria-label="${hazard.label} zone mode">
-                <button type="button" data-zone-mode="${hazard.key}" data-mode="zone" class="${state.zone_mode === "zone" ? "active" : ""}">Use zone</button>
-                <button type="button" data-zone-mode="${hazard.key}" data-mode="all" class="${state.zone_mode === "all" ? "active" : ""}">Show all data</button>
-              </div>
-              <div class="hw-zone-bypass-note" data-zone-note="${hazard.key}" style="display:none">
-                Zone bypassed — sensors report all ${hazard.label.toLowerCase()} data regardless of distance.
+              <div class="hw-zone-field-stack">
+                <span class="hw-zone-field-label">Scope</span>
+                <div class="hw-zone-mode" role="group" aria-label="${hazard.label} scope">
+                  <button type="button" data-zone-mode="${hazard.key}" data-mode="zone" class="${state.zone_mode === "zone" ? "active" : ""}">Use zone</button>
+                  <button type="button" data-zone-mode="${hazard.key}" data-mode="all" class="${state.zone_mode === "all" ? "active" : ""}">Bypass</button>
+                </div>
+                <div class="hw-zone-bypass-note" data-zone-note="${hazard.key}" style="${state.zone_mode === "all" ? "" : "display:none"}">
+                  Bypass active — sensors and spoken alerts use all ${hazard.label.toLowerCase()} data regardless of distance and thresholds.
+                </div>
               </div>
               <div class="hw-zone-hint">${hazard.hint} Drag the handle on the circle edge to resize.</div>
             </div>
@@ -960,7 +974,7 @@
         const badge = row.querySelector(`[data-zone-badge="${key}"]`);
         if (badge) {
           badge.textContent = state.zone_mode === "all"
-            ? "All data"
+            ? "Bypass"
             : `${Math.round(state.radius)} mi`;
         }
 

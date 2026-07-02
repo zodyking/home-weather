@@ -2205,7 +2205,19 @@ class HomeWeatherPanel extends HTMLElement {
         @media (min-width: 1200px) {
           .content-area { max-width: 1600px; margin: 0 auto; }
         }
-        .glass { background: var(--hw-surface); border: 1px solid var(--hw-border); border-radius: var(--radius-xl); box-shadow: var(--shadow); }
+        .glass { background: var(--hw-surface); border: 1px solid var(--hw-border-strong); border-radius: var(--radius-xl); box-shadow: var(--shadow-md); }
+        :host([data-hw-theme="light"]) .settings-card,
+        :host([data-hw-theme="light"]) .settings-sidenav,
+        :host([data-hw-theme="light"]) .zone-card,
+        :host([data-hw-theme="light"]) .hourly-card,
+        :host([data-hw-theme="light"]) .daily-card,
+        :host([data-hw-theme="light"]) .moon-card-fill,
+        :host([data-hw-theme="light"]) .sun-panel-card,
+        :host([data-hw-theme="light"]) .theme-swatch-row {
+          box-shadow: var(--shadow-sm);
+        }
+        :host([data-hw-theme="light"]) .settings-pane-sub,
+        :host([data-hw-theme="light"]) .form-hint { color: var(--hw-muted); }
         .topbar {
           position: sticky;
           top: 0;
@@ -3154,7 +3166,7 @@ class HomeWeatherPanel extends HTMLElement {
         .settings-group-title { font-size: 11px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--secondary-text-color); }
         .settings-group-sub { font-size: 13px; color: var(--secondary-text-color); margin-bottom: 4px; max-width: 70ch; line-height: 1.5; }
         .settings-category.collapsible-section { border-radius: var(--radius-lg); }
-        .settings-category.collapsible-section.open { border-color: rgba(255, 255, 255, 0.18); box-shadow: var(--shadow-sm); }
+        .settings-category.collapsible-section.open { border-color: var(--hw-border-strong); box-shadow: var(--shadow-sm); }
         .settings-category > .collapsible-header { padding: 16px 20px; }
         .settings-category > .collapsible-header .collapsible-title { font-size: 16px; }
         .settings-category-hint {
@@ -3210,7 +3222,7 @@ class HomeWeatherPanel extends HTMLElement {
           flex-direction: column;
           gap: var(--form-gap-sm);
           padding: 14px 16px;
-          background: rgba(0, 0, 0, 0.18);
+          background: var(--hw-inset-bg, var(--hw-surface-2));
           border: 1px solid var(--hw-border);
           border-radius: var(--radius-sm);
         }
@@ -3263,15 +3275,15 @@ class HomeWeatherPanel extends HTMLElement {
           justify-content: flex-end;
           margin-top: 8px;
           padding: 16px 0 calc(16px + var(--safe-bottom));
-          background: rgba(17, 17, 17, 0.88);
+          background: var(--hw-footer-bg, var(--hw-surface));
           backdrop-filter: blur(12px) saturate(140%);
           -webkit-backdrop-filter: blur(12px) saturate(140%);
-          border-top: 1px solid var(--hw-border);
+          border-top: 1px solid var(--hw-border-strong);
         }
-        .form-actions-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: var(--form-gap-lg); padding-top: var(--form-gap); border-top: 1px solid rgba(255,255,255,0.06); }
+        .form-actions-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: var(--form-gap-lg); padding-top: var(--form-gap); border-top: 1px solid var(--hw-border); }
         .btn-secondary-test { background: var(--secondary-background-color); color: var(--primary-text-color); border: 1px solid var(--input-border); }
-        .btn-secondary-test:hover { background: rgba(255, 255, 255, 0.06); }
-        code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.92em; padding: 1px 5px; border-radius: 4px; background: rgba(255,255,255,0.06); color: var(--panel-accent-hover); }
+        .btn-secondary-test:hover { background: var(--hw-hover); }
+        code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.92em; padding: 1px 5px; border-radius: 4px; background: var(--hw-code-bg); color: var(--panel-accent-hover); }
         .form-group { display: flex; flex-direction: column; gap: 5px; margin-bottom: var(--form-gap); }
         .form-group label { font-size: var(--form-label-size); font-weight: 500; color: var(--primary-text-color); letter-spacing: 0.01em; }
         .form-group input, .form-group select { padding: 10px 14px; height: var(--form-input-height); border: 1px solid var(--input-border); border-radius: 8px; background: var(--input-bg); color: var(--primary-text-color); font-size: 14px; box-sizing: border-box; transition: border-color 0.15s ease; }
@@ -3410,7 +3422,7 @@ class HomeWeatherPanel extends HTMLElement {
         .test-tts-btn:hover { background: var(--panel-accent-hover); }
         .multi-select { display: flex; flex-direction: column; gap: 8px; max-height: 200px; overflow-y: auto; padding: 12px; background: var(--secondary-background-color); border-radius: 8px; }
         .multi-select-item { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--card-background-color); border-radius: 6px; cursor: pointer; transition: all 0.2s; }
-        .multi-select-item:hover { background: rgba(255, 255, 255, 0.06); }
+        .multi-select-item:hover { background: var(--hw-hover); }
         .multi-select-item.selected { background: var(--accent-color); color: white; }
         .multi-select-item input { display: none; }
         .textarea-field { width: 100%; min-height: 100px; padding: 12px; border: 1px solid var(--input-border); border-radius: 8px; background: var(--input-bg); color: var(--primary-text-color); font-size: 14px; font-family: inherit; resize: vertical; }
@@ -3476,7 +3488,7 @@ class HomeWeatherPanel extends HTMLElement {
         .btn-primary { background: var(--panel-accent); color: #ffffff; box-shadow: 0 2px 8px var(--panel-accent-dim); }
         .btn-primary:hover { background: var(--panel-accent-hover); }
         .btn-secondary { background: var(--input-bg); color: var(--primary-text-color); border: 1px solid var(--input-border); }
-        .btn-secondary:hover { background: rgba(255, 255, 255, 0.06); }
+        .btn-secondary:hover { background: var(--hw-hover); }
         .btn:disabled { opacity: 0.5; cursor: not-allowed; }
         /* Entity Autocomplete */
         .entity-autocomplete-wrapper { position: relative; width: 100%; }
@@ -3772,7 +3784,7 @@ class HomeWeatherPanel extends HTMLElement {
           position: fixed;
           inset: 0;
           z-index: 900;
-          background: rgba(0, 0, 0, 0.55);
+          background: var(--hw-scrim, rgba(0, 0, 0, 0.55));
           opacity: 0;
           visibility: hidden;
           transition: opacity 0.2s ease, visibility 0.2s;
@@ -3789,7 +3801,7 @@ class HomeWeatherPanel extends HTMLElement {
           flex-direction: column;
           background: var(--hw-surface);
           border-left: 1px solid var(--hw-border-strong);
-          box-shadow: -18px 0 48px rgba(0, 0, 0, 0.5);
+          box-shadow: var(--shadow-lg);
           transform: translateX(105%);
           transition: transform 0.22s ease;
           overflow: hidden;
@@ -4042,65 +4054,74 @@ class HomeWeatherPanel extends HTMLElement {
           padding: 14px 16px;
           display: flex;
           flex-direction: column;
-          gap: 12px;
+          gap: 0;
           min-width: 0;
         }
-        .zone-card-head { display: flex; align-items: center; gap: 10px; }
+        .zone-card-head { display: flex; align-items: center; gap: 10px; padding-bottom: 12px; border-bottom: 1px solid var(--hw-border); }
         .zone-card-head img { width: 20px; height: 20px; flex-shrink: 0; }
         .zone-card-title { font-size: 14px; font-weight: 600; color: var(--hw-text); flex: 1; }
-        .zone-card-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
-        .zone-card-row > label { font-size: 12px; color: var(--hw-muted); }
-        .zone-card-radius { display: flex; align-items: center; gap: 8px; }
-        .zone-card-radius input {
-          width: 92px;
-          height: 36px;
-          padding: 0 10px;
+        .zone-card-body { display: flex; flex-direction: column; gap: 0; padding-top: 4px; }
+        .zone-card-desc { margin: 10px 0 4px !important; }
+        .zone-card-field {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+          padding: 12px 0;
+          border-bottom: 1px solid var(--hw-border);
+        }
+        .zone-card-field:first-of-type { padding-top: 8px; }
+        .zone-card-field:last-of-type { border-bottom: none; padding-bottom: 0; }
+        .zone-card-field > label {
+          font-size: 12px;
+          font-weight: 600;
+          color: var(--hw-muted);
+          letter-spacing: 0.01em;
+        }
+        .zone-card-field input[type="number"],
+        .zone-card-field select {
+          width: 100%;
+          height: 40px;
+          padding: 0 12px;
           border: 1px solid var(--input-border);
           border-radius: 8px;
           background: var(--input-bg);
           color: var(--primary-text-color);
-          font-size: 13px;
-          text-align: right;
+          font-size: 14px;
           font-variant-numeric: tabular-nums;
           box-sizing: border-box;
+          transition: border-color 0.15s ease, box-shadow 0.15s ease;
         }
-        .zone-card-radius .unit { font-size: 12px; color: var(--hw-muted); }
-        .zone-threshold-input {
-          height: 36px;
-          min-width: 130px;
-          padding: 0 10px;
-          border: 1px solid var(--input-border);
-          border-radius: 8px;
-          background: var(--input-bg);
-          color: var(--primary-text-color);
-          font-size: 13px;
-          box-sizing: border-box;
+        .zone-card-field input[type="number"]:focus,
+        .zone-card-field select:focus {
+          outline: none;
+          border-color: var(--panel-accent);
+          box-shadow: 0 0 0 2px var(--panel-accent-dim);
         }
-        .zone-card-row-toggle > label { flex: 1; }
-        .zone-mode-seg {
+        .zone-card-field .zone-mode-seg {
           display: flex;
+          width: 100%;
           border: 1px solid var(--input-border);
           border-radius: 8px;
           overflow: hidden;
         }
-        .zone-mode-seg button {
+        .zone-card-field .zone-mode-seg button {
           flex: 1;
-          min-height: 34px;
+          min-height: 40px;
           padding: 0 12px;
           border: none;
           background: transparent;
           color: var(--hw-muted);
-          font-size: 12px;
+          font-size: 13px;
           font-weight: 600;
           font-family: inherit;
           cursor: pointer;
           transition: background 0.12s ease, color 0.12s ease;
-          white-space: nowrap;
         }
-        .zone-mode-seg button + button { border-left: 1px solid var(--input-border); }
-        .zone-mode-seg button.active { background: var(--panel-accent-dim); color: var(--panel-accent-hover); }
-        .zone-mode-seg button:focus-visible { outline: 2px solid var(--hw-accent); outline-offset: -2px; }
-        .zone-card-note { font-size: 11px; color: var(--hw-warning, #ffb74d); line-height: 1.4; }
+        .zone-card-field .zone-mode-seg button + button { border-left: 1px solid var(--input-border); }
+        .zone-card-field .zone-mode-seg button.active { background: var(--panel-accent-dim); color: var(--panel-accent-hover); }
+        .zone-card-field .zone-mode-seg button:focus-visible { outline: 2px solid var(--hw-accent); outline-offset: -2px; }
+        .zone-card-field--toggle .toggle-switch { align-self: flex-start; }
+        .zone-card-note { font-size: 12px; color: var(--hw-warning, #ffb74d); line-height: 1.45; margin: 0; }
         .zone-card.is-disabled { opacity: 0.6; }
 
         /* Appearance tab */
@@ -4504,6 +4525,7 @@ class HomeWeatherPanel extends HTMLElement {
           }
         });
         this._applyTheme();
+        if (this._currentView === "trends") this._initApexChart();
       });
     });
     s.querySelectorAll("input[data-theme-token]").forEach((inp) => {
@@ -4531,21 +4553,17 @@ class HomeWeatherPanel extends HTMLElement {
       this._applyTheme();
     });
 
-    // Alert Zones: sensor + alert scope segmented switches (zone/bypass)
-    const wireZoneSeg = (attr, noteAttr) => {
-      s.querySelectorAll(`.zone-mode-seg[${attr}]`).forEach((seg) => {
-        const key = seg.getAttribute(attr);
-        seg.querySelectorAll("button[data-mode]").forEach((btn) => {
-          btn.addEventListener("click", () => {
-            seg.querySelectorAll("button[data-mode]").forEach((b) => b.classList.toggle("active", b === btn));
-            const note = s.querySelector(`.zone-card-note[${noteAttr}="${key}"]`);
-            if (note) note.style.display = btn.dataset.mode === "all" ? "" : "none";
-          });
+    // Alert Zones: linked scope segmented switch (zone/bypass for sensors + alerts)
+    s.querySelectorAll('.zone-mode-seg[data-scope-for]').forEach((seg) => {
+      const key = seg.getAttribute("data-scope-for");
+      seg.querySelectorAll("button[data-mode]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          seg.querySelectorAll("button[data-mode]").forEach((b) => b.classList.toggle("active", b === btn));
+          const note = s.querySelector(`.zone-card-note[data-scope-note-for="${key}"]`);
+          if (note) note.style.display = btn.dataset.mode === "all" ? "" : "none";
         });
       });
-    };
-    wireZoneSeg("data-zone-mode-for", "data-zone-note-for");
-    wireZoneSeg("data-alert-mode-for", "data-alert-note-for");
+    });
 
     // Alert Zones: dim card when hazard disabled
     s.querySelectorAll("[data-zone-card-enabled]").forEach((input) => {
@@ -5839,7 +5857,17 @@ class HomeWeatherPanel extends HTMLElement {
     return this._apexChartsPromise;
   }
 
+  _chartThemeColors() {
+    const style = getComputedStyle(this);
+    return {
+      muted: style.getPropertyValue("--hw-muted").trim() || "#9b9b9b",
+      border: style.getPropertyValue("--hw-border").trim() || "rgba(255,255,255,0.08)",
+      text: style.getPropertyValue("--hw-text").trim() || "#e1e1e1",
+    };
+  }
+
   _baseChartOptions(data) {
+    const tc = this._chartThemeColors();
     return {
       chart: { type: "area", height: 320, toolbar: { show: false }, zoom: { enabled: false }, fontFamily: "inherit", background: "transparent" },
       dataLabels: { enabled: false },
@@ -5847,12 +5875,12 @@ class HomeWeatherPanel extends HTMLElement {
       fill: { type: "gradient", gradient: { opacityFrom: 0.25, opacityTo: 0.05 } },
       xaxis: {
         categories: data.map((d) => d.time),
-        labels: { style: { colors: "#9b9b9b" }, trim: true, maxHeight: 36 },
+        labels: { style: { colors: tc.muted }, trim: true, maxHeight: 36 },
         axisBorder: { show: false },
         axisTicks: { show: false },
       },
-      grid: { borderColor: "rgba(255,255,255,0.08)", strokeDashArray: 4, xaxis: { lines: { show: false } }, yaxis: { lines: { show: true } } },
-      legend: { show: true, position: "top", horizontalAlign: "left" },
+      grid: { borderColor: tc.border, strokeDashArray: 4, xaxis: { lines: { show: false } }, yaxis: { lines: { show: true } } },
+      legend: { show: true, position: "top", horizontalAlign: "left", labels: { colors: tc.text } },
     };
   }
 
@@ -5951,6 +5979,8 @@ class HomeWeatherPanel extends HTMLElement {
       container.innerHTML = "";
 
       const chartHeight = Math.max(280, (container.clientHeight || 400) - 8);
+      const tc = this._chartThemeColors();
+      const chartTheme = this._getAppearance().mode === "light" ? "light" : "dark";
 
       const opts = {
         chart: {
@@ -5970,7 +6000,7 @@ class HomeWeatherPanel extends HTMLElement {
           labels: {
             rotate: -45,
             rotateAlways: true,
-            style: { colors: "#9b9b9b", fontSize: "10px" },
+            style: { colors: tc.muted, fontSize: "10px" },
             hideOverlappingLabels: true,
           },
           axisBorder: { show: false },
@@ -5981,25 +6011,25 @@ class HomeWeatherPanel extends HTMLElement {
           max: yMax,
           labels: {
             formatter: (v) => String(Math.round(v)),
-            style: { colors: "#9b9b9b", fontSize: "11px" },
+            style: { colors: tc.muted, fontSize: "11px" },
           },
           axisBorder: { show: false },
           axisTicks: { show: false },
         },
         grid: {
-          borderColor: "rgba(255,255,255,0.08)",
+          borderColor: tc.border,
           strokeDashArray: 3,
           xaxis: { lines: { show: false } },
           yaxis: { lines: { show: true } },
         },
-        title: { text: "", align: "left", style: { fontSize: "14px", fontWeight: 600 } },
-        tooltip: { shared: true, intersect: false, custom: tooltip, theme: "dark" },
+        title: { text: "", align: "left", style: { fontSize: "14px", fontWeight: 600, color: tc.text } },
+        tooltip: { shared: true, intersect: false, custom: tooltip, theme: chartTheme },
         legend: {
           show: true,
           position: "top",
           horizontalAlign: "center",
           fontSize: "11px",
-          labels: { colors: "#9b9b9b" },
+          labels: { colors: tc.muted },
           markers: { width: 10, height: 10, radius: 2 },
           itemMargin: { horizontal: 8, vertical: 4 },
         },
@@ -6521,39 +6551,35 @@ class HomeWeatherPanel extends HTMLElement {
       .map((v) => `<option value="${v}" ${selected === v ? "selected" : ""}>${v.charAt(0).toUpperCase() + v.slice(1)}</option>`).join("");
     const volcanoLevelOptions = (selected) => ["advisory", "watch", "warning"]
       .map((v) => `<option value="${v}" ${selected === v ? "selected" : ""}>${v.charAt(0).toUpperCase() + v.slice(1)}</option>`).join("");
+    const resolveScopeMode = (block) => (block?.zone_mode === "all" ? "all" : "zone");
     const zoneHazards = [
-      { key: "hurricane", label: "Hurricane", icon: "hurricane", color: "#29b6f6", enabledId: "hurricane-monitoring-enabled", radiusId: "hurricane-monitoring-max-distance", radius: hurricaneMonitoring.max_distance_miles, min: 1, max: 5000, enabled: hurricaneMonitoring.enabled !== false, mode: hurricaneMonitoring.zone_mode === "all" ? "all" : "zone", alertMode: hurricaneMonitoring.alert_zone_mode === "all" ? "all" : "zone", hasAlert: true, desc: "Storms within this radius drive hurricane sensors and alerts.", thresholds: `
-        <div class="zone-card-row">
+      { key: "hurricane", label: "Hurricane", icon: "hurricane", color: "#29b6f6", enabledId: "hurricane-monitoring-enabled", radiusId: "hurricane-monitoring-max-distance", radius: hurricaneMonitoring.max_distance_miles, min: 1, max: 5000, enabled: hurricaneMonitoring.enabled !== false, mode: resolveScopeMode(hurricaneMonitoring), desc: "Storms within this radius drive hurricane sensors and alerts.", thresholds: `
+        <div class="zone-card-field">
           <label for="hurricane-monitoring-min-threat">Min threat level</label>
-          <select id="hurricane-monitoring-min-threat" class="zone-threshold-input">${threatOptions(hurricaneMonitoring.min_threat_level)}</select>
+          <select id="hurricane-monitoring-min-threat">${threatOptions(hurricaneMonitoring.min_threat_level)}</select>
         </div>
-        <div class="zone-card-row">
-          <label for="hurricane-monitoring-outlook-prob">Outlook min probability</label>
-          <div class="zone-card-radius">
-            <input type="number" id="hurricane-monitoring-outlook-prob" min="0" max="100" step="1" value="${Math.round(hurricaneMonitoring.outlook_min_probability ?? 40)}"/>
-            <span class="unit">%</span>
-          </div>
+        <div class="zone-card-field">
+          <label for="hurricane-monitoring-outlook-prob">Outlook min probability (%)</label>
+          <input type="number" id="hurricane-monitoring-outlook-prob" min="0" max="100" step="1" value="${Math.round(hurricaneMonitoring.outlook_min_probability ?? 40)}"/>
         </div>` },
-      { key: "tornado", label: "Tornado", icon: "tornado", color: "#e040fb", enabledId: "tornado-monitoring-enabled", radiusId: "tornado-monitoring-max-distance", radius: tornadoMonitoring.max_distance_miles, min: 1, max: 500, enabled: tornadoMonitoring.enabled !== false, mode: tornadoMonitoring.zone_mode === "all" ? "all" : "zone", alertMode: tornadoMonitoring.alert_zone_mode === "all" ? "all" : "zone", hasAlert: true, desc: "Warning polygons within this radius trigger tornado sensors and alerts.", thresholds: `
-        <div class="zone-card-row zone-card-row-toggle">
+      { key: "tornado", label: "Tornado", icon: "tornado", color: "#e040fb", enabledId: "tornado-monitoring-enabled", radiusId: "tornado-monitoring-max-distance", radius: tornadoMonitoring.max_distance_miles, min: 1, max: 500, enabled: tornadoMonitoring.enabled !== false, mode: resolveScopeMode(tornadoMonitoring), desc: "Warning polygons within this radius trigger tornado sensors and alerts.", thresholds: `
+        <div class="zone-card-field zone-card-field--toggle">
           <label for="tornado-monitoring-only-home">Only when polygon includes home</label>
           <label class="toggle-switch">
             <input type="checkbox" id="tornado-monitoring-only-home" ${tornadoMonitoring.only_affecting_home !== false ? "checked" : ""}/>
             <span class="toggle-slider"></span>
           </label>
         </div>` },
-      { key: "earthquake", label: "Earthquake", icon: "earthquake", color: "#ffa726", enabledId: "earthquake-monitoring-enabled", radiusId: "earthquake-radius-miles", radius: earthquakeMonitoring.radius_miles, min: 1, max: 5000, enabled: earthquakeMonitoring.enabled !== false, mode: earthquakeMonitoring.zone_mode === "all" ? "all" : "zone", alertMode: earthquakeMonitoring.alert_zone_mode === "all" ? "all" : "zone", hasAlert: true, desc: "Quakes inside this radius count as nearby for sensors and alerts.", thresholds: `
-        <div class="zone-card-row">
+      { key: "earthquake", label: "Earthquake", icon: "earthquake", color: "#ffa726", enabledId: "earthquake-monitoring-enabled", radiusId: "earthquake-radius-miles", radius: earthquakeMonitoring.radius_miles, min: 1, max: 5000, enabled: earthquakeMonitoring.enabled !== false, mode: resolveScopeMode(earthquakeMonitoring), desc: "Quakes inside this radius count as nearby for sensors and alerts.", thresholds: `
+        <div class="zone-card-field">
           <label for="earthquake-min-magnitude">Min magnitude</label>
-          <div class="zone-card-radius">
-            <input type="number" id="earthquake-min-magnitude" min="0" max="10" step="0.1" value="${earthquakeMonitoring.min_magnitude ?? 2.5}"/>
-          </div>
+          <input type="number" id="earthquake-min-magnitude" min="0" max="10" step="0.1" value="${earthquakeMonitoring.min_magnitude ?? 2.5}"/>
         </div>` },
-      { key: "lightning", label: "Lightning", icon: "lightning-bolt", color: "#ffee58", enabledId: "lightning-monitoring-enabled", radiusId: "lightning-geofield-radius-miles", radius: lightningMonitoring.geofield_radius_miles ?? 100, min: 1, max: 500, enabled: lightningMonitoring.enabled !== false, mode: lightningMonitoring.zone_mode === "all" ? "all" : "zone", alertMode: "zone", hasAlert: false, desc: "Live strikes inside this radius feed lightning sensors." },
-      { key: "volcano", label: "Volcano", icon: "volcano", color: "#ff7043", enabledId: "volcano-monitoring-enabled", radiusId: "volcano-radius-miles", radius: volcanoMonitoring.radius_miles ?? 500, min: 1, max: 5000, enabled: volcanoMonitoring.enabled !== false, mode: volcanoMonitoring.zone_mode === "all" ? "all" : "zone", alertMode: volcanoMonitoring.alert_zone_mode === "all" ? "all" : "zone", hasAlert: true, desc: "Active volcanoes inside this radius count as nearby for sensors and alerts.", thresholds: `
-        <div class="zone-card-row">
+      { key: "lightning", label: "Lightning", icon: "lightning-bolt", color: "#ffee58", enabledId: "lightning-monitoring-enabled", radiusId: "lightning-geofield-radius-miles", radius: lightningMonitoring.geofield_radius_miles ?? 100, min: 1, max: 500, enabled: lightningMonitoring.enabled !== false, mode: resolveScopeMode(lightningMonitoring), desc: "Live strikes inside this radius feed lightning sensors." },
+      { key: "volcano", label: "Volcano", icon: "volcano", color: "#ff7043", enabledId: "volcano-monitoring-enabled", radiusId: "volcano-radius-miles", radius: volcanoMonitoring.radius_miles ?? 500, min: 1, max: 5000, enabled: volcanoMonitoring.enabled !== false, mode: resolveScopeMode(volcanoMonitoring), desc: "Active volcanoes inside this radius count as nearby for sensors and alerts.", thresholds: `
+        <div class="zone-card-field">
           <label for="volcano-min-alert-level">Min activity level</label>
-          <select id="volcano-min-alert-level" class="zone-threshold-input">${volcanoLevelOptions(volcanoMonitoring.min_alert_level)}</select>
+          <select id="volcano-min-alert-level">${volcanoLevelOptions(volcanoMonitoring.min_alert_level)}</select>
         </div>` },
     ];
     const renderZoneCard = (z) => `
@@ -6566,33 +6592,22 @@ class HomeWeatherPanel extends HTMLElement {
             <span class="toggle-slider"></span>
           </label>
         </div>
-        <p class="form-hint" style="margin:0;">${z.desc}</p>
-        <div class="zone-card-row">
-          <label for="${z.radiusId}">Zone radius</label>
-          <div class="zone-card-radius">
+        <div class="zone-card-body">
+          <p class="form-hint zone-card-desc">${z.desc}</p>
+          <div class="zone-card-field">
+            <label for="${z.radiusId}">Zone radius (miles)</label>
             <input type="number" id="${z.radiusId}" min="${z.min}" max="${z.max}" step="1" value="${Math.round(z.radius)}"/>
-            <span class="unit">mi</span>
+          </div>
+          ${z.thresholds || ""}
+          <div class="zone-card-field">
+            <span>Scope</span>
+            <div class="zone-mode-seg" data-scope-for="${z.key}" role="group" aria-label="${z.label} scope">
+              <button type="button" data-mode="zone" class="${z.mode === "zone" ? "active" : ""}">Use zone</button>
+              <button type="button" data-mode="all" class="${z.mode === "all" ? "active" : ""}">Bypass</button>
+            </div>
+            <p class="zone-card-note" data-scope-note-for="${z.key}" style="${z.mode === "all" ? "" : "display:none"}">Bypass active — sensors and spoken alerts use all ${z.label.toLowerCase()} data regardless of distance and thresholds.</p>
           </div>
         </div>
-        ${z.thresholds || ""}
-        <div class="zone-card-row">
-          <label>Sensor scope</label>
-          <div class="zone-mode-seg" data-zone-mode-for="${z.key}" role="group" aria-label="${z.label} sensor scope">
-            <button type="button" data-mode="zone" class="${z.mode === "zone" ? "active" : ""}">Use zone</button>
-            <button type="button" data-mode="all" class="${z.mode === "all" ? "active" : ""}">Bypass</button>
-          </div>
-        </div>
-        <div class="zone-card-note" data-zone-note-for="${z.key}" style="${z.mode === "all" ? "" : "display:none"}">Zone bypassed — sensors report all ${z.label.toLowerCase()} data regardless of distance.</div>
-        ${z.hasAlert ? `
-        <div class="zone-card-row">
-          <label>Alert scope</label>
-          <div class="zone-mode-seg" data-alert-mode-for="${z.key}" role="group" aria-label="${z.label} alert scope">
-            <button type="button" data-mode="zone" class="${z.alertMode === "zone" ? "active" : ""}">Use zone</button>
-            <button type="button" data-mode="all" class="${z.alertMode === "all" ? "active" : ""}">Bypass</button>
-          </div>
-        </div>
-        <div class="zone-card-note" data-alert-note-for="${z.key}" style="${z.alertMode === "all" ? "" : "display:none"}">Zone bypassed — spoken alerts fire for all ${z.label.toLowerCase()} activity regardless of distance and thresholds.</div>
-        ` : ""}
       </div>`;
 
     return `
@@ -6628,7 +6643,7 @@ class HomeWeatherPanel extends HTMLElement {
             <section class="settings-pane ${activePane === "zones" ? "active" : ""}" data-settings-pane="zones">
               <div class="settings-pane-head">
                 <div class="settings-pane-title">Alert Zones</div>
-                <div class="settings-pane-sub">Set the radius around your home for each hazard, or bypass the zone so sensors report everything. Values here are the single source of truth for the Home Assistant sensors.</div>
+                <div class="settings-pane-sub">Set the radius around your home for each hazard. Scope controls whether sensors and spoken alerts use the zone or bypass it for all data.</div>
               </div>
               <div class="zone-editor-cta">
                 <div class="zone-editor-cta-text">
@@ -6647,12 +6662,8 @@ class HomeWeatherPanel extends HTMLElement {
                 <div class="settings-pane-title">Hazard Monitoring</div>
                 <div class="settings-pane-sub">Data-source and map-quality filters per hazard. Zone radius, thresholds, and sensor/alert scope live in <strong>Alert Zones</strong>; spoken alert sounds and behavior live in <strong>Announcements</strong>.</div>
               </div>
-              ${renderMonitoringCard("Tornado", "NWS forecast zone", `
-                <div class="form-group">
-                  <label>NWS Zone ID (optional)</label>
-                  <input type="text" id="nws-zone" placeholder="e.g. NYZ072" value="${(this._settings.nws_zone || "").replace(/"/g, "&quot;")}"/>
-                  <p class="form-hint">When set, tornado warnings are fetched for this specific NWS zone. Leave blank to use your home location. Polygon matching and zone radius live in <strong>Alert Zones</strong>.</p>
-                </div>
+              ${renderMonitoringCard("Tornado", "Zone and alerts", `
+                <p class="form-hint">Tornado warnings use your home location with the radius, thresholds, and scope from <strong>Alert Zones</strong> (Use zone or Bypass). Spoken alert behavior is in <strong>Announcements</strong>.</p>
               `)}
               ${renderMonitoringCard("Earthquake", "USGS feeds and map display", `
                 <p class="form-hint">Nearby alerts and sensors use the real-time USGS feed within your earthquake zone. Magnitude and radius live in <strong>Alert Zones</strong>. The hazard map shows worldwide seismic activity from a separate feed.</p>
@@ -7169,12 +7180,12 @@ class HomeWeatherPanel extends HTMLElement {
   _themeBase(mode) {
     if (mode === "light") {
       return {
-        bg: "#f4f6f8", surface: "#ffffff", surface2: "#eef1f4", elevated: "#ffffff",
-        inputBg: "#ffffff", text: "#1a1c1e", muted: "#5b6470", disabled: "#9aa3ad",
-        accent: "#0277bd", accentHover: "#0288d1", accentDim: "rgba(2, 119, 189, 0.14)",
-        danger: "#d32f2f", warning: "#ed6c02", success: "#2e7d32",
-        border: "rgba(0, 0, 0, 0.10)", borderStrong: "rgba(0, 0, 0, 0.16)", hover: "rgba(0, 0, 0, 0.04)",
-        swatchBorder: "#c9d1da",
+        bg: "#dde4ed", surface: "#ffffff", surface2: "#edf1f6", elevated: "#ffffff",
+        inputBg: "#ffffff", text: "#152030", muted: "#546274", disabled: "#8a95a3",
+        accent: "#0277bd", accentHover: "#0288d1", accentDim: "rgba(2, 119, 189, 0.12)",
+        danger: "#c62828", warning: "#e65100", success: "#2e7d32",
+        border: "rgba(21, 32, 48, 0.10)", borderStrong: "rgba(21, 32, 48, 0.16)", hover: "rgba(21, 32, 48, 0.05)",
+        swatchBorder: "#b8c4d4",
       };
     }
     return {
@@ -7236,7 +7247,12 @@ class HomeWeatherPanel extends HTMLElement {
       t.accentDim = this._hexToRgba(ov.accent, 0.15);
     }
     if (ov.bg) t.bg = ov.bg;
-    if (ov.surface) { t.surface = ov.surface; t.surface2 = ov.surface; t.elevated = ov.surface; t.inputBg = ov.surface; }
+    if (ov.surface) {
+      t.surface = ov.surface;
+      t.surface2 = this._shiftColor(ov.surface, mode === "light" ? -10 : 10);
+      t.elevated = ov.surface;
+      t.inputBg = ov.surface;
+    }
     if (ov.text) t.text = ov.text;
     if (ov.muted) { t.muted = ov.muted; t.disabled = ov.muted; }
     if (ov.border) { t.border = ov.border; t.borderStrong = ov.border; }
@@ -7261,6 +7277,27 @@ class HomeWeatherPanel extends HTMLElement {
     set("--hw-border", t.border);
     set("--hw-border-strong", t.borderStrong);
     set("--hw-hover", t.hover);
+    const shadows = mode === "light"
+      ? {
+        sm: "0 1px 2px rgba(15, 23, 42, 0.05)",
+        base: "0 1px 2px rgba(15, 23, 42, 0.05), 0 2px 6px rgba(15, 23, 42, 0.06)",
+        md: "0 2px 8px rgba(15, 23, 42, 0.08), 0 1px 3px rgba(15, 23, 42, 0.05)",
+        lg: "0 12px 32px rgba(15, 23, 42, 0.12), 0 4px 8px rgba(15, 23, 42, 0.06)",
+      }
+      : {
+        sm: "0 1px 2px rgba(0, 0, 0, 0.3)",
+        base: "0 2px 8px rgba(0, 0, 0, 0.35)",
+        md: "0 4px 16px rgba(0, 0, 0, 0.35)",
+        lg: "0 12px 40px rgba(0, 0, 0, 0.5)",
+      };
+    set("--shadow-sm", shadows.sm);
+    set("--shadow", shadows.base);
+    set("--shadow-md", shadows.md);
+    set("--shadow-lg", shadows.lg);
+    set("--hw-footer-bg", /^#/.test(t.surface) ? this._hexToRgba(t.surface, mode === "light" ? 0.96 : 0.88) : t.surface);
+    set("--hw-inset-bg", t.surface2);
+    set("--hw-code-bg", mode === "light" ? "rgba(21, 32, 48, 0.06)" : "rgba(255,255,255,0.06)");
+    set("--hw-scrim", mode === "light" ? "rgba(15, 23, 42, 0.32)" : "rgba(0, 0, 0, 0.55)");
     // Translucent header bar tuned to the current surface so the sticky topbar
     // matches the theme (it otherwise falls back to a hardcoded dark rgba).
     const headerBg = /^#/.test(t.surface) ? this._hexToRgba(t.surface, 0.78) : t.surface;
@@ -7352,9 +7389,6 @@ class HomeWeatherPanel extends HTMLElement {
 
     const weatherEntity = s.getElementById("weather-entity");
     if (weatherEntity) this._settings.weather_entity = weatherEntity.value || null;
-
-    const nwsZone = s.getElementById("nws-zone");
-    if (nwsZone) this._settings.nws_zone = (nwsZone.value || "").trim();
 
     this._settings.tts = this._collectTtsSettings();
     this._settings.sun_alerts = this._collectSunAlertsSettings();
@@ -7556,18 +7590,10 @@ class HomeWeatherPanel extends HTMLElement {
     };
   }
 
-  /** Read the zone/all segmented switch for a hazard from the Alert Zones pane. */
-  _getZoneModeFromForm(hazardKey, fallback = "zone") {
+  /** Read the linked scope (zone/bypass) for sensors and alerts from the Alert Zones pane. */
+  _getScopeModeFromForm(hazardKey, fallback = "zone") {
     const s = this.shadowRoot;
-    const activeBtn = s?.querySelector(`.zone-mode-seg[data-zone-mode-for="${hazardKey}"] button.active`);
-    if (!activeBtn) return fallback;
-    return activeBtn.dataset.mode === "all" ? "all" : "zone";
-  }
-
-  /** Read the Alert scope (zone/bypass) segmented switch for a hazard. */
-  _getAlertZoneModeFromForm(hazardKey, fallback = "zone") {
-    const s = this.shadowRoot;
-    const activeBtn = s?.querySelector(`.zone-mode-seg[data-alert-mode-for="${hazardKey}"] button.active`);
+    const activeBtn = s?.querySelector(`.zone-mode-seg[data-scope-for="${hazardKey}"] button.active`);
     if (!activeBtn) return fallback;
     return activeBtn.dataset.mode === "all" ? "all" : "zone";
   }
@@ -7584,8 +7610,8 @@ class HomeWeatherPanel extends HTMLElement {
     return {
       ...existing,
       enabled: getChecked("hurricane-monitoring-enabled"),
-      zone_mode: this._getZoneModeFromForm("hurricane", existing.zone_mode || "zone"),
-      alert_zone_mode: this._getAlertZoneModeFromForm("hurricane", existing.alert_zone_mode || "zone"),
+      zone_mode: this._getScopeModeFromForm("hurricane", existing.zone_mode || "zone"),
+      alert_zone_mode: this._getScopeModeFromForm("hurricane", existing.alert_zone_mode || existing.zone_mode || "zone"),
       min_threat_level: levels.includes(minThreat) ? minThreat : defaults.min_threat_level,
       max_distance_miles: Math.min(5000, Math.max(1, parseInt(getVal("hurricane-monitoring-max-distance", String(existing.max_distance_miles ?? defaults.max_distance_miles)), 10) || defaults.max_distance_miles)),
       outlook_min_probability: Math.min(100, Math.max(0, parseInt(getVal("hurricane-monitoring-outlook-prob", String(existing.outlook_min_probability ?? defaults.outlook_min_probability)), 10) || defaults.outlook_min_probability)),
@@ -7602,8 +7628,8 @@ class HomeWeatherPanel extends HTMLElement {
     return {
       ...existing,
       enabled: getChecked("tornado-monitoring-enabled"),
-      zone_mode: this._getZoneModeFromForm("tornado", existing.zone_mode || "zone"),
-      alert_zone_mode: this._getAlertZoneModeFromForm("tornado", existing.alert_zone_mode || "zone"),
+      zone_mode: this._getScopeModeFromForm("tornado", existing.zone_mode || "zone"),
+      alert_zone_mode: this._getScopeModeFromForm("tornado", existing.alert_zone_mode || existing.zone_mode || "zone"),
       only_affecting_home: getChecked("tornado-monitoring-only-home"),
       max_distance_miles: Math.min(500, Math.max(1, parseInt(getVal("tornado-monitoring-max-distance", String(existing.max_distance_miles ?? defaults.max_distance_miles)), 10) || defaults.max_distance_miles)),
     };
@@ -7633,8 +7659,8 @@ class HomeWeatherPanel extends HTMLElement {
     return {
       ...existing,
       enabled: getChecked("earthquake-monitoring-enabled"),
-      zone_mode: this._getZoneModeFromForm("earthquake", existing.zone_mode || "zone"),
-      alert_zone_mode: this._getAlertZoneModeFromForm("earthquake", existing.alert_zone_mode || "zone"),
+      zone_mode: this._getScopeModeFromForm("earthquake", existing.zone_mode || "zone"),
+      alert_zone_mode: this._getScopeModeFromForm("earthquake", existing.alert_zone_mode || existing.zone_mode || "zone"),
       min_magnitude: Math.min(10, Math.max(0, parseFloat(getVal("earthquake-min-magnitude", String(defaults.min_magnitude))) || defaults.min_magnitude)),
       radius_miles: Math.min(5000, Math.max(1, parseInt(getVal("earthquake-radius-miles", String(existing.radius_miles ?? defaults.radius_miles)), 10) || defaults.radius_miles)),
       feed_type: validFeeds.includes(feedType) ? feedType : defaults.feed_type,
@@ -7655,7 +7681,7 @@ class HomeWeatherPanel extends HTMLElement {
     return {
       ...existing,
       enabled: getChecked("lightning-monitoring-enabled"),
-      zone_mode: this._getZoneModeFromForm("lightning", existing.zone_mode || "zone"),
+      zone_mode: this._getScopeModeFromForm("lightning", existing.zone_mode || "zone"),
       show_on_map: getChecked("lightning-show-on-map"),
       geofield_radius_miles: Math.min(500, Math.max(1, parseInt(getVal("lightning-geofield-radius-miles", String(existing.geofield_radius_miles ?? defaults.geofield_radius_miles)), 10) || defaults.geofield_radius_miles)),
       max_age_minutes: Math.min(240, Math.max(5, parseInt(getVal("lightning-max-age-minutes", String(defaults.max_age_minutes)), 10) || defaults.max_age_minutes)),
@@ -7695,8 +7721,8 @@ class HomeWeatherPanel extends HTMLElement {
     return {
       ...existing,
       enabled: getChecked("volcano-monitoring-enabled"),
-      zone_mode: this._getZoneModeFromForm("volcano", existing.zone_mode || "zone"),
-      alert_zone_mode: this._getAlertZoneModeFromForm("volcano", existing.alert_zone_mode || "zone"),
+      zone_mode: this._getScopeModeFromForm("volcano", existing.zone_mode || "zone"),
+      alert_zone_mode: this._getScopeModeFromForm("volcano", existing.alert_zone_mode || existing.zone_mode || "zone"),
       radius_miles: Math.min(5000, Math.max(1, parseInt(getVal("volcano-radius-miles", String(existing.radius_miles ?? defaults.radius_miles)), 10) || defaults.radius_miles)),
       min_alert_level: levels.includes(minLevel) ? minLevel : defaults.min_alert_level,
       map_show_all_volcanoes: getChecked("volcano-map-show-all"),

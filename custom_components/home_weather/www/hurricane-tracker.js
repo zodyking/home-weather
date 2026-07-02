@@ -565,11 +565,11 @@
           flex: 1;
         }
         .hurricane-layout.is-embedded .hurricane-map-wrap {
-          position: relative;
-          inset: auto;
-          flex: 1;
-          width: 100%;
-          height: 100%;
+          position: absolute;
+          inset: 0;
+          flex: none;
+          width: auto;
+          height: auto;
           min-height: 0;
           overflow: hidden;
         }
@@ -581,19 +581,33 @@
           border: none;
         }
         @media (min-width: 769px) {
-          .hurricane-map-wrap {
-            display: flex;
+          .hurricane-layout {
             flex-direction: row;
             align-items: stretch;
+          }
+          .hurricane-map-wrap {
+            position: relative;
+            inset: auto;
+            flex: 1 1 auto;
+            min-width: 0;
+            min-height: 0;
+            z-index: 1;
+            background: #111111;
+          }
+          .hurricane-layout.is-embedded .hurricane-map-wrap {
+            position: relative;
+            inset: auto;
+            flex: 1 1 auto;
+            width: auto;
+            height: auto;
           }
           .hurricane-map-wrap > .hurricane-map,
           .hurricane-layout.is-embedded .hurricane-map {
             position: relative;
-            flex: 1 1 auto;
+            width: 100%;
+            height: 100%;
             min-width: 0;
             min-height: 0;
-            width: auto;
-            height: 100%;
             inset: auto;
           }
           .hurricane-status {
@@ -613,14 +627,9 @@
             border-top: none;
             border-right: none;
             border-bottom: none;
-            border-left: 1px solid rgba(255,255,255,0.12);
+            border-left: 1px solid var(--hw-border-strong, rgba(255,255,255,0.12));
             box-shadow: none;
-            z-index: 10;
-            background: #141820;
-            color: #e1e1e1;
-          }
-          .hurricane-map-wrap {
-            background: #111111;
+            z-index: 20;
           }
           .hurricane-map-empty-banner {
             top: 12px;
@@ -741,8 +750,11 @@
           position: absolute;
           inset: 0;
           overflow: hidden;
+          z-index: 1;
         }
         .hurricane-map {
+          position: relative;
+          z-index: 1;
           width: 100%;
           height: 100%;
           min-height: 100%;
@@ -750,6 +762,7 @@
           overflow: hidden;
           border: none;
           background: #111111;
+          isolation: isolate;
         }
         .hurricane-map-empty-banner { display: none; }
         .hurricane-status {
@@ -761,7 +774,8 @@
           max-height: calc(100% - 24px);
           overflow: hidden;
           overflow-x: hidden;
-          z-index: 10;
+          z-index: 1100;
+          pointer-events: auto;
           --primary-text-color: var(--hw-text, #e1e1e1);
           --secondary-text-color: var(--hw-muted, #9b9b9b);
           --card-background-color: var(--hw-surface, #141820);
@@ -1838,8 +1852,8 @@
         <section class="${layoutClass}">
           <div class="hurricane-map-wrap">
             <div id="hurricane-map" class="hurricane-map"></div>
-            ${this._buildStatusPanelHtml()}
           </div>
+          ${this._buildStatusPanelHtml()}
         </section>`;
       this._renderMap(true);
       this._syncLightningLayer();
@@ -1869,13 +1883,10 @@
       this._map = L.map(mapEl, {
         zoomControl: false,
         attributionControl: true,
-        // Keep a single world copy and stop infinite horizontal repetition /
-        // panning into invalid longitudes (e.g. -375°).
-        worldCopyJump: false,
+        // Allow seamless horizontal panning with repeating world tiles.
+        worldCopyJump: true,
         minZoom: 3,
         maxZoom: 18,
-        maxBounds: L.latLngBounds([-85, -180], [85, 180]),
-        maxBoundsViscosity: 1.0,
       });
 
       // Establish a valid initial view immediately. Without a center/zoom the
@@ -1884,10 +1895,10 @@
       this._safe(() => this._map.setView([39.8283, -98.5795], 4));
 
       const baseLayers = {
-        Dark: L.tileLayer(DARK_TILE_URL, { maxZoom: 19, subdomains: "abcd", attribution: CARTO_ATTR, noWrap: true }),
-        Light: L.tileLayer(LIGHT_TILE_URL, { maxZoom: 19, subdomains: "abcd", attribution: CARTO_ATTR, noWrap: true }),
-        Satellite: L.tileLayer(SAT_TILE_URL, { maxZoom: 19, attribution: ESRI_ATTR, noWrap: true }),
-        Ocean: L.tileLayer(OCEAN_TILE_URL, { maxZoom: 13, attribution: ESRI_ATTR, noWrap: true }),
+        Dark: L.tileLayer(DARK_TILE_URL, { maxZoom: 19, subdomains: "abcd", attribution: CARTO_ATTR }),
+        Light: L.tileLayer(LIGHT_TILE_URL, { maxZoom: 19, subdomains: "abcd", attribution: CARTO_ATTR }),
+        Satellite: L.tileLayer(SAT_TILE_URL, { maxZoom: 19, attribution: ESRI_ATTR }),
+        Ocean: L.tileLayer(OCEAN_TILE_URL, { maxZoom: 13, attribution: ESRI_ATTR }),
       };
       this._baseLayers = baseLayers;
       baseLayers.Dark.addTo(this._map);
