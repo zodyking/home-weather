@@ -369,7 +369,7 @@ async def async_fetch_wildfires(
     if not wildfire_config.get("enabled", True):
         return empty_payload()
 
-    home = get_home_coordinates(config or {})
+    home = get_home_coordinates(hass, config)
     session = async_get_clientsession(hass)
 
     raw_points, raw_polygons = await asyncio.gather(

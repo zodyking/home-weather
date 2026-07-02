@@ -291,7 +291,7 @@ async def async_fetch_air_quality(
     if not air_quality_config.get("enabled", True):
         return empty_payload()
 
-    home = get_home_coordinates(config or {})
+    home = get_home_coordinates(hass, config)
     session = async_get_clientsession(hass)
 
     async with session.get(AIRNOW_REPORTING_AREA_URL, timeout=60) as resp:

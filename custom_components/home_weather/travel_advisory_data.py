@@ -366,4 +366,5 @@ async def async_fetch_travel_advisories(
         return empty_coordinator_payload()
 
     advisories = parse_travel_advisories(raw)
-    return build_coordinator_payload(advisories, travel_config)
+    countries_geojson = await hass.async_add_executor_job(_load_countries_geojson)
+    return build_coordinator_payload(advisories, travel_config, countries_geojson)
