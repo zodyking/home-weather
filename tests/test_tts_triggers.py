@@ -199,3 +199,91 @@ def test_sun_alerts_setup_uses_filtered_player_list():
     mock_track.assert_not_called()
 
 
+def test_scheduled_forecast_waits_for_tts_before_nws_replay():
+    """Regression: replay must not start until forecast TTS finishes."""
+    from unittest.mock import AsyncMock, patch
+    import asyncio
+
+    from custom_components.home_weather.tts_triggers import TTSTriggerManager
+
+    config = {
+        "weather_entity": "weather.home",
+        "tts": {},
+        "nws_alerts": {"enabled": True, "replay_on_time_based_forecast": True},
+        "media_players": [
+            {"entity_id": "media_player.kitchen", "tts_entity_id": "tts.google"},
+        ],
+    }
+    weather = {"configured": True, "current": {"condition": "sunny"}}
+    manager = TTSTriggerManager(
+        hass=SimpleNamespace(),
+        get_config=lambda: config,
+        get_weather_data=lambda: weather,
+        refresh_weather_data=AsyncMock(return_value=weather),
+    )
+    order: list[str] = []
+
+    async def _dispatch(*_args, **_kwargs):
+        order.append("dispatch")
+
+    async def _replay(*_args, **_kwargs):
+        order.append("replay")
+
+    with patch(
+        "custom_components.home_weather.tts_triggers.build_scheduled_forecast",
+        return_value="Forecast message",
+    ), patch(
+        "custom_components.home_weather.tts_triggers.dispatch_tts_and_wait",
+        new=AsyncMock(side_effect=_dispatch),
+    ), patch.object(
+        manager, "_maybe_replay_nws_alerts_after_forecast", new=AsyncMock(side_effect=_replay),
+    ):
+        asyncio.run(manager._fire_scheduled_forecast(refresh_weather=False))
+
+    assert order == ["dispatch", "replay"]
+
+
+def test_maybe_replay_refreshes_active_alerts_before_replay():
+    """Regression: replay should fetch current alerts, not rely on stale cache."""
+    from unittest.mock import AsyncMock, patch
+    import asyncio
+
+    from custom_components.home_weather.tts_triggers import TTSTriggerManager
+
+    config = {
+        "nws_alerts": {"enabled": True, "replay_on_time_based_forecast": True},
+        "media_players": [
+            {"entity_id": "media_player.kitchen", "tts_entity_id": "tts.google"},
+        ],
+    }
+    manager = TTSTriggerManager(
+        hass=SimpleNamespace(),
+        get_config=lambda: config,
+        get_weather_data=lambda: {"configured": True},
+        refresh_weather_data=None,
+    )
+    manager._nws_active_alerts = []
+    refreshed = [{"event": "Flood Watch", "description": "* WHAT...Flooding possible."}]
+
+    async def _refresh(*, notify_new=True):
+        assert notify_new is False
+        manager._nws_active_alerts = refreshed
+
+    with patch.object(
+        manager, "_check_nws_alerts_async", new=AsyncMock(side_effect=_refresh),
+    ) as mock_refresh, patch(
+        "custom_components.home_weather.tts_triggers.replay_active_nws_alerts",
+        new=AsyncMock(),
+    ) as mock_replay:
+        asyncio.run(
+            manager._maybe_replay_nws_alerts_after_forecast(
+                config,
+                config["media_players"],
+            )
+        )
+
+    mock_refresh.assert_awaited_once()
+    mock_replay.assert_awaited_once()
+    replay_alerts = mock_replay.await_args.args[3]
+    assert replay_alerts == refreshed
+

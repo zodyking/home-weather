@@ -42,6 +42,7 @@ from .tts_notifications import (
     build_sunset_upcoming_message,
     build_sunset_final_message,
     dispatch_tts,
+    dispatch_tts_and_wait,
     format_earthquake_alert_for_tts,
     format_tornado_warning_for_tts,
     format_tropical_alert_for_tts,
@@ -997,7 +998,7 @@ class TTSTriggerManager:
 
         @callback
         def _check_sun_alerts(now: datetime) -> None:
-            self.hass.async_create_task(self._check_sun_alerts_async(config))
+            self.hass.async_create_task(self._check_sun_alerts_async())
 
         unsub = async_track_time_interval(
             self.hass,
@@ -1007,8 +1008,9 @@ class TTSTriggerManager:
         self._unsub_callbacks.append(unsub)
         _LOGGER.debug("Sun alerts trigger set up (check every 60s)")
 
-    async def _check_sun_alerts_async(self, config: dict[str, Any]) -> None:
+    async def _check_sun_alerts_async(self) -> None:
         """Check sunrise/sunset and fire TTS/automation as needed."""
+        config = self._get_config()
         sun_alerts = config.get("sun_alerts", {})
         tts_config = config.get("tts", {})
         media_players = media_players_with_tts(config.get("media_players", []))
@@ -1065,7 +1067,7 @@ class TTSTriggerManager:
                         except Exception as e:
                             _LOGGER.warning("Sunrise automation failed: %s", e)
                     msg = build_sunrise_final_message(automation_triggered)
-                    await dispatch_tts(
+                    await dispatch_tts_and_wait(
                         self.hass, media_players, tts_config, msg,
                         alert_kind="sunrise",
                     )
@@ -1076,7 +1078,7 @@ class TTSTriggerManager:
                 if last is None or (now - last).total_seconds() >= interval * 60:
                     self._sun_alerts_last_upcoming[event_key_up] = now
                     msg = build_sunrise_upcoming_message(mins_until)
-                    await dispatch_tts(
+                    await dispatch_tts_and_wait(
                         self.hass, media_players, tts_config, msg,
                         alert_kind="sunrise",
                     )
@@ -1109,7 +1111,7 @@ class TTSTriggerManager:
                         except Exception as e:
                             _LOGGER.warning("Sunset automation failed: %s", e)
                     msg = build_sunset_final_message(automation_triggered)
-                    await dispatch_tts(
+                    await dispatch_tts_and_wait(
                         self.hass, media_players, tts_config, msg,
                         alert_kind="sunset",
                     )
@@ -1120,7 +1122,7 @@ class TTSTriggerManager:
                 if last is None or (now - last).total_seconds() >= interval * 60:
                     self._sun_alerts_last_upcoming[event_key_up] = now
                     msg = build_sunset_upcoming_message(mins_until)
-                    await dispatch_tts(
+                    await dispatch_tts_and_wait(
                         self.hass, media_players, tts_config, msg,
                         alert_kind="sunset",
                     )
@@ -1156,15 +1158,20 @@ class TTSTriggerManager:
             # Must run on the event loop: async_track_time_interval runs
             # non-callback functions in the executor, where async_create_task
             # is not thread-safe and the coroutine would never be awaited.
-            self.hass.async_create_task(self._check_nws_alerts_async(config))
+            self.hass.async_create_task(self._check_nws_alerts_async())
 
         unsub = async_track_time_interval(self.hass, _poll, timedelta(minutes=5))
         self._unsub_callbacks.append(unsub)
-        await self._check_nws_alerts_async(config)
+        await self._check_nws_alerts_async()
         _LOGGER.info("NWS alerts trigger set up (polling every 5 min)")
 
-    async def _check_nws_alerts_async(self, config: dict[str, Any]) -> None:
+    async def _check_nws_alerts_async(
+        self,
+        *,
+        notify_new: bool = True,
+    ) -> None:
         """Fetch NWS alerts and fire notification for newly seen active alerts."""
+        config = self._get_config()
         nws = config.get("nws_alerts", {})
         media_players = media_players_with_tts(config.get("media_players", []))
         if not nws.get("enabled") or not media_players:
@@ -1210,7 +1217,7 @@ class TTSTriggerManager:
                     pass
             active_ids.add(aid)
             active_alerts.append(props)
-            if not bootstrap and aid not in known:
+            if notify_new and not bootstrap and aid not in known:
                 known.add(aid)
                 await play_nws_alert_notification(
                     self.hass,
@@ -1287,7 +1294,7 @@ class TTSTriggerManager:
             len(message),
             (message[:100] + "...") if len(message) > 100 else message,
         )
-        await dispatch_tts(
+        await dispatch_tts_and_wait(
             self.hass,
             media_players,
             tts_config,
@@ -1310,11 +1317,20 @@ class TTSTriggerManager:
     ) -> None:
         """After a time-based forecast, replay active NWS alerts if configured."""
         nws = config.get("nws_alerts") or {}
-        if not nws.get("enabled") or not nws.get("replay_on_time_based_forecast", True):
+        if not nws.get("enabled"):
+            _LOGGER.debug("Skipping NWS replay after forecast: NWS alerts disabled")
             return
+        if not nws.get("replay_on_time_based_forecast", True):
+            _LOGGER.debug("Skipping NWS replay after forecast: replay toggle off")
+            return
+
+        # Refresh from the API so replay is not limited to the last 5-minute poll.
+        await self._check_nws_alerts_async(notify_new=False)
         alerts = getattr(self, "_nws_active_alerts", [])
         if not alerts:
+            _LOGGER.debug("Skipping NWS replay after forecast: no active alerts")
             return
+
         await replay_active_nws_alerts(
             self.hass,
             config,
@@ -1503,14 +1519,14 @@ class TTSTriggerManager:
 
         @callback
         def _poll(now: datetime) -> None:
-            self.hass.async_create_task(self._check_tropical_alerts_async(config))
+            self.hass.async_create_task(self._check_tropical_alerts_async())
 
         unsub = async_track_time_interval(self.hass, _poll, timedelta(minutes=5))
         self._unsub_callbacks.append(unsub)
-        await self._check_tropical_alerts_async(config)
+        await self._check_tropical_alerts_async()
         _LOGGER.info("Tropical alerts trigger set up (polling every 5 min)")
 
-    async def _check_tropical_alerts_async(self, config: dict[str, Any]) -> None:
+    async def _check_tropical_alerts_async(self) -> None:
         """Fetch hurricane data and announce tropical changes."""
         from .hurricane_data import (
             async_get_hurricane_data,
@@ -1518,6 +1534,7 @@ class TTSTriggerManager:
             detect_tropical_tts_events,
         )
 
+        config = self._get_config()
         tropical = config.get("tropical_alerts") or {}
         media_players = media_players_with_tts(config.get("media_players", []))
         if not tropical.get("enabled") or not media_players:
@@ -1560,13 +1577,13 @@ class TTSTriggerManager:
         @callback
         def _on_issued(event: Event) -> None:
             self.hass.async_create_task(
-                self._handle_tornado_bus_event(config, event, cleared=False)
+                self._handle_tornado_bus_event(event, cleared=False)
             )
 
         @callback
         def _on_cleared(event: Event) -> None:
             self.hass.async_create_task(
-                self._handle_tornado_bus_event(config, event, cleared=True)
+                self._handle_tornado_bus_event(event, cleared=True)
             )
 
         self._unsub_callbacks.append(
@@ -1579,11 +1596,11 @@ class TTSTriggerManager:
 
     async def _handle_tornado_bus_event(
         self,
-        config: dict[str, Any],
         event: Event,
         *,
         cleared: bool,
     ) -> None:
+        config = self._get_config()
         tornado = config.get("tornado_alerts") or {}
         if not tornado.get("enabled"):
             return
@@ -1616,7 +1633,7 @@ class TTSTriggerManager:
                 @callback
                 def _on_event(ev: Event) -> None:
                     self.hass.async_create_task(
-                        self._handle_earthquake_bus_event(config, ev, et)
+                        self._handle_earthquake_bus_event(ev, et)
                     )
                 return _on_event
 
@@ -1627,10 +1644,10 @@ class TTSTriggerManager:
 
     async def _handle_earthquake_bus_event(
         self,
-        config: dict[str, Any],
         event: Event,
         event_type: str,
     ) -> None:
+        config = self._get_config()
         eq_cfg = config.get("earthquake_alerts") or {}
         if not eq_cfg.get("enabled"):
             return
@@ -1665,7 +1682,7 @@ class TTSTriggerManager:
                 @callback
                 def _on_event(ev: Event) -> None:
                     self.hass.async_create_task(
-                        self._handle_volcano_bus_event(config, ev, et)
+                        self._handle_volcano_bus_event(ev, et)
                     )
                 return _on_event
 
@@ -1676,10 +1693,10 @@ class TTSTriggerManager:
 
     async def _handle_volcano_bus_event(
         self,
-        config: dict[str, Any],
         event: Event,
         event_type: str,
     ) -> None:
+        config = self._get_config()
         volcano_cfg = config.get("volcano_alerts") or {}
         if not volcano_cfg.get("enabled"):
             return

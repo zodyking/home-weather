@@ -242,3 +242,49 @@ def test_bootstrap_logic_documentation():
             known.add(aid)
 
     assert fired == ["a3"]
+
+
+def test_play_hazard_alert_notification_waits_for_tts():
+    """Regression: chained hazard alerts must not overlap on the same speaker."""
+    from unittest.mock import AsyncMock, patch
+    import asyncio
+
+    from custom_components.home_weather.tts_notifications import play_hazard_alert_notification
+
+    hass = MagicMock()
+    players = [{"entity_id": "media_player.kitchen", "tts_entity_id": "tts.google"}]
+    config = {
+        "tropical_alerts": {"tts_volume": 0.9, "sound_file": ""},
+        "tts": {},
+    }
+    order: list[str] = []
+
+    async def _siren(*_args, **_kwargs):
+        order.append("siren")
+
+    async def _send(*_args, **_kwargs):
+        order.append("send")
+
+    async def _wait(*_args, **_kwargs):
+        order.append("wait")
+
+    with patch(
+        "custom_components.home_weather.tts_notifications.play_hazard_siren",
+        new=AsyncMock(side_effect=_siren),
+    ), patch(
+        "custom_components.home_weather.tts_notifications.send_tts",
+        new=AsyncMock(side_effect=_send),
+    ), patch(
+        "custom_components.home_weather.tts_notifications.wait_for_media_players_after_tts",
+        new=AsyncMock(side_effect=_wait),
+    ), patch(
+        "custom_components.home_weather.tts_notifications.apply_ai_rewrite",
+        new=AsyncMock(side_effect=lambda _h, _c, msg, **_kw: msg),
+    ):
+        asyncio.run(
+            play_hazard_alert_notification(
+                hass, config, "tropical_alerts", "Storm alert.", players,
+            )
+        )
+
+    assert order == ["siren", "send", "wait"]

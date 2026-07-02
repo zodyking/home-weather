@@ -815,6 +815,36 @@ async def dispatch_tts(
     )
 
 
+def media_player_entity_ids(media_players_config: list[dict[str, Any]]) -> list[str]:
+    """Return configured media player entity IDs in order."""
+    return [eid for mp in media_players_config if (eid := mp.get("entity_id"))]
+
+
+async def dispatch_tts_and_wait(
+    hass: HomeAssistant,
+    media_players_config: list[dict[str, Any]],
+    tts_config: dict[str, Any],
+    message: str,
+    volume_override: float | None = None,
+    *,
+    request_id: str | None = None,
+    alert_kind: str = "",
+) -> None:
+    """Send TTS and wait for playback to finish on all target speakers."""
+    await dispatch_tts(
+        hass,
+        media_players_config,
+        tts_config,
+        message,
+        volume_override,
+        request_id=request_id,
+        alert_kind=alert_kind,
+    )
+    await wait_for_media_players_after_tts(
+        hass, media_player_entity_ids(media_players_config),
+    )
+
+
 async def send_tts_with_ai_rewrite(
     hass: HomeAssistant,
     media_players_config: list[dict[str, Any]],
@@ -1156,6 +1186,9 @@ async def replay_active_nws_alerts(
         request_id=request_id,
         alert_kind="nws_alert_replay",
     )
+    await wait_for_media_players_after_tts(
+        hass, media_player_entity_ids(media_players_config),
+    )
 
 
 
@@ -1181,6 +1214,57 @@ async def _wait_for_media_player_idle(
 
     _LOGGER.warning("Timed out waiting for %s to finish playback", entity_id)
     return False
+
+
+async def wait_for_media_players_after_tts(
+    hass: HomeAssistant,
+    entity_ids: list[str],
+    *,
+    timeout: float = 180.0,
+    start_timeout: float = 45.0,
+    poll_interval: float = 0.5,
+) -> None:
+    """Wait for non-blocking TTS playback to finish on each media player.
+
+    ``send_tts`` uses ``blocking=False``, so callers must wait for playback
+    before starting another announcement on the same speaker.
+    """
+    unique_ids = [eid for eid in dict.fromkeys(entity_ids) if eid]
+    if not unique_ids:
+        return
+
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+
+    for entity_id in unique_ids:
+        remaining = max(0.0, deadline - loop.time())
+        if remaining <= 0:
+            _LOGGER.warning("Timed out before waiting for %s TTS playback", entity_id)
+            return
+
+        start_deadline = min(deadline, loop.time() + start_timeout)
+        started = False
+        while loop.time() < start_deadline:
+            state = hass.states.get(entity_id)
+            if state and state.state in ("playing", "buffering"):
+                started = True
+                break
+            await asyncio.sleep(poll_interval)
+
+        if not started:
+            # TTS may have finished instantly or never started; nothing to wait for.
+            continue
+
+        remaining = max(0.0, deadline - loop.time())
+        if remaining <= 0:
+            _LOGGER.warning("Timed out waiting for %s TTS playback to finish", entity_id)
+            return
+        await _wait_for_media_player_idle(
+            hass,
+            entity_id,
+            timeout=remaining,
+            poll_interval=poll_interval,
+        )
 
 
 async def play_nws_alert_notification(
@@ -1220,17 +1304,16 @@ async def play_nws_alert_notification(
                 {"entity_id": eid, "volume_level": tts_vol},
                 blocking=True,
             )
-            await send_tts(
-                hass, [mp], msg, volume_override=tts_vol,
-                request_id=request_id, alert_kind="nws_alert",
-            )
         except Exception as exc:
-            _LOGGER.warning("NWS alert playback failed for %s: %s", eid, exc)
-            _fire_tts_status(
-                hass, "failed",
-                request_id=request_id, entity_id=eid,
-                reason=str(exc), alert_kind="nws_alert",
-            )
+            _LOGGER.warning("NWS alert volume_set failed for %s: %s", eid, exc)
+
+    await send_tts(
+        hass, media_players_config, msg, volume_override=tts_vol,
+        request_id=request_id, alert_kind="nws_alert",
+    )
+    await wait_for_media_players_after_tts(
+        hass, media_player_entity_ids(media_players_config),
+    )
 
 
 def _round_miles(value: float | None) -> str:
@@ -1507,13 +1590,13 @@ async def play_hazard_alert_notification(
                 {"entity_id": eid, "volume_level": tts_vol},
                 blocking=True,
             )
-            await send_tts(
-                hass, [mp], msg, volume_override=tts_vol,
-                request_id=request_id, alert_kind=alert_kind,
-            )
         except Exception as exc:
-            _LOGGER.warning("Hazard alert playback failed for %s: %s", eid, exc)
-            _fire_tts_status(
-                hass, "failed", request_id=request_id, entity_id=eid,
-                reason=str(exc), alert_kind=alert_kind,
-            )
+            _LOGGER.warning("Hazard alert volume_set failed for %s: %s", eid, exc)
+
+    await send_tts(
+        hass, media_players_config, msg, volume_override=tts_vol,
+        request_id=request_id, alert_kind=alert_kind,
+    )
+    await wait_for_media_players_after_tts(
+        hass, media_player_entity_ids(media_players_config),
+    )

@@ -80,38 +80,42 @@ _CACHE = HurricaneDataCache()
 
 
 def get_home_coordinates(hass: HomeAssistant, config: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Resolve home coordinates using the same priority as the panel."""
-    config = config or {}
-    weather_entity = config.get("weather_entity")
-    if weather_entity:
-        state = hass.states.get(weather_entity)
-        if state:
-            lat = state.attributes.get("latitude")
-            lon = state.attributes.get("longitude")
-            if lat is not None and lon is not None:
-                try:
-                    return {
-                        "lat": float(lat),
-                        "lon": float(lon),
-                        "label": "Home",
-                    }
-                except (TypeError, ValueError):
-                    pass
+    """Resolve home coordinates from Home Assistant's configured home location.
 
-    lat = hass.config.latitude
-    lon = hass.config.longitude
+    Priority: ``zone.home`` (user-editable on the HA map), then ``hass.config``.
+    Weather-entity latitude/longitude are intentionally excluded — those attributes
+    refer to the provider's forecast grid point, not the user's home address.
+    """
+    _ = config  # reserved for future explicit home overrides in panel config
+    label = "Home"
+
     zone = hass.states.get("zone.home")
     if zone:
         zlat = zone.attributes.get("latitude")
         zlon = zone.attributes.get("longitude")
         if zlat is not None and zlon is not None:
             try:
-                lat = float(zlat)
-                lon = float(zlon)
+                return {
+                    "lat": float(zlat),
+                    "lon": float(zlon),
+                    "label": label,
+                }
             except (TypeError, ValueError):
                 pass
 
-    return {"lat": float(lat), "lon": float(lon), "label": "Home"}
+    lat = hass.config.latitude
+    lon = hass.config.longitude
+    if lat is not None and lon is not None:
+        try:
+            return {
+                "lat": float(lat),
+                "lon": float(lon),
+                "label": label,
+            }
+        except (TypeError, ValueError):
+            pass
+
+    return {"lat": 0.0, "lon": 0.0, "label": label}
 
 
 async def async_get_hurricane_data(

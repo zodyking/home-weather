@@ -4,6 +4,8 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 from custom_components.home_weather.hurricane_data import (
     HurricaneDataCache,
@@ -11,6 +13,7 @@ from custom_components.home_weather.hurricane_data import (
     _merge_storm_lists,
     _normalize_arcgis_storm,
     _parse_kml_coordinates,
+    get_home_coordinates,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -92,3 +95,33 @@ def test_group_features_by_storm_key():
     grouped = _group_features_by_storm_key(features)
     assert len(grouped["AL012026"]) == 2
     assert len(grouped["EP022026"]) == 1
+
+
+def test_get_home_coordinates_prefers_zone_home():
+    hass = MagicMock()
+    hass.config.latitude = 40.0
+    hass.config.longitude = -74.0
+    hass.states.get.return_value = SimpleNamespace(
+        attributes={"latitude": 40.6782, "longitude": -73.9442},
+    )
+    home = get_home_coordinates(hass, {"weather_entity": "weather.home"})
+    assert home["lat"] == 40.6782
+    assert home["lon"] == -73.9442
+
+
+def test_get_home_coordinates_ignores_weather_entity_grid_point():
+    """Regression: weather entity lat/lon is a forecast grid point, not home."""
+    hass = MagicMock()
+    hass.config.latitude = 40.6782
+    hass.config.longitude = -73.9442
+    hass.states.get.side_effect = lambda eid: {
+        "zone.home": SimpleNamespace(
+            attributes={"latitude": 40.6782, "longitude": -73.9442},
+        ),
+        "weather.home": SimpleNamespace(
+            attributes={"latitude": 40.2009, "longitude": -74.0271},
+        ),
+    }.get(eid)
+    home = get_home_coordinates(hass, {"weather_entity": "weather.home"})
+    assert home["lat"] == 40.6782
+    assert home["lon"] == -73.9442

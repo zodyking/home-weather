@@ -1105,17 +1105,8 @@ class HomeWeatherPanel extends HTMLElement {
 
   _getHomeCoordinates() {
     const h = this._hass;
-    
-    // Priority 1: Home Assistant's configured home location (most reliable)
-    if (h?.config?.latitude != null && h?.config?.longitude != null) {
-      const lat = Number(h.config.latitude);
-      const lon = Number(h.config.longitude);
-      if (Number.isFinite(lat) && Number.isFinite(lon)) {
-        return { lat, lon };
-      }
-    }
-    
-    // Priority 2: zone.home entity (HA's home zone)
+
+    // Priority 1: zone.home — matches HA map "Home" and is user-editable.
     const zoneHome = h?.states?.["zone.home"];
     if (zoneHome?.attributes?.latitude != null && zoneHome?.attributes?.longitude != null) {
       const lat = Number(zoneHome.attributes.latitude);
@@ -1124,25 +1115,28 @@ class HomeWeatherPanel extends HTMLElement {
         return { lat, lon };
       }
     }
-    
-    // Priority 3: Weather entity attributes (some weather integrations provide this)
-    const weatherEntity = this._settings?.weather_entity ?? this._config?.weather_entity;
-    const weatherState = weatherEntity ? h?.states?.[weatherEntity] : null;
-    const wLat = weatherState?.attributes?.latitude;
-    const wLon = weatherState?.attributes?.longitude;
-    if (wLat != null && wLon != null) {
-      const lat = Number(wLat);
-      const lon = Number(wLon);
+
+    // Priority 2: Home Assistant core config (Settings → General → Home location).
+    if (h?.config?.latitude != null && h?.config?.longitude != null) {
+      const lat = Number(h.config.latitude);
+      const lon = Number(h.config.longitude);
       if (Number.isFinite(lat) && Number.isFinite(lon)) {
         return { lat, lon };
       }
     }
-    
-    // Fallback: return null to indicate coordinates not available yet
-    // Callers should handle this case appropriately
+
+    // Do not fall back to weather-entity lat/lon — that is the forecast grid point,
+    // not the user's home (e.g. a Brooklyn home can map to a NJ grid cell).
     return { lat: null, lon: null };
   }
-  
+
+  _formatWindyCoordinate(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return null;
+    // Windy embed requires coordinates with a decimal part (see embed.windy.com/config/map).
+    return n.toFixed(6);
+  }
+
   _hasValidHomeCoordinates() {
     const { lat, lon } = this._getHomeCoordinates();
     return lat != null && lon != null && Number.isFinite(lat) && Number.isFinite(lon);
@@ -1150,9 +1144,31 @@ class HomeWeatherPanel extends HTMLElement {
 
   _buildWindyUrl(product = "radar") {
     const { lat, lon } = this._getHomeCoordinates();
-    // Return null if coordinates aren't available yet
     if (lat == null || lon == null) return null;
-    return `https://embed.windy.com/embed.html?type=map&location=coordinates&metricRain=in&metricTemp=°F&metricWind=mph&zoom=8&overlay=${product}&product=${product}&level=surface&lat=${lat}&lon=${lon}&pressure=true&message=false&play=0`;
+    const latStr = this._formatWindyCoordinate(lat);
+    const lonStr = this._formatWindyCoordinate(lon);
+    if (latStr == null || lonStr == null) return null;
+
+    const params = new URLSearchParams({
+      type: "map",
+      location: "coordinates",
+      metricRain: "in",
+      metricTemp: "°F",
+      metricWind: "mph",
+      zoom: "9",
+      overlay: product,
+      product,
+      level: "surface",
+      lat: latStr,
+      lon: lonStr,
+      detailLat: latStr,
+      detailLon: lonStr,
+      marker: "true",
+      pressure: "true",
+      message: "false",
+      play: "0",
+    });
+    return `https://embed.windy.com/embed.html?${params.toString()}`;
   }
 
   _prepareGraphData() {
@@ -1913,9 +1929,11 @@ class HomeWeatherPanel extends HTMLElement {
     if (!s) return;
     this._apexCharts.forEach((ch) => { try { ch.destroy(); } catch (_) {} });
     this._apexCharts = [];
-    // Preserve the Windy iframe across full re-renders to avoid reload flicker.
+    // Preserve the Windy iframe across full re-renders when the target URL is unchanged.
     const prevIframe = s.querySelector(".maps-windy-frame iframe");
     const prevWindyUrl = prevIframe ? prevIframe.getAttribute("src") : null;
+    const expectedWindyUrl = this._mapsMode !== "storms" ? this._buildWindyUrl(this._mapsMode) : null;
+    const canPreserveWindy = prevIframe && prevWindyUrl && expectedWindyUrl && prevWindyUrl === expectedWindyUrl;
     if (prevIframe) prevIframe.remove();
     s.innerHTML = `
       <style>
@@ -3942,8 +3960,8 @@ class HomeWeatherPanel extends HTMLElement {
           </div>`
       }
     `;
-    // Re-insert preserved Windy iframe if the new render produced one with the same URL.
-    if (prevIframe && prevWindyUrl) {
+    // Re-insert preserved Windy iframe only when coordinates/mode URL still match.
+    if (canPreserveWindy) {
       const newContainer = s.querySelector(".maps-windy-frame");
       const newIframe = newContainer ? newContainer.querySelector("iframe") : null;
       if (newIframe && newIframe.getAttribute("src") === prevWindyUrl) {
