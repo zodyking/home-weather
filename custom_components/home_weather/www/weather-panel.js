@@ -13,8 +13,13 @@ class HomeWeatherPanel extends HTMLElement {
     this._forecastView = "7day";
     this._mapsMode = "storms";
     this._mapsWindRadii = false;
+    this._mapsShowZones = false;
     this._mapsLayers = this._normalizeMapLayers({ hurricane: true, tornado: true, earthquakes: true, lightning: true });
     this._mapsSort = "newest";
+    this._settingsPane = "general";
+    this._zoneEditor = null;
+    this._zoneEditorPromise = null;
+    this._zoneEditorReturnView = "settings";
     this._chartMetric = "temp";
     this._selectedForecast = null; // { type: "hour"|"day", index: number }
     this._useFahrenheit = true;
@@ -2360,164 +2365,6 @@ class HomeWeatherPanel extends HTMLElement {
           height: 100%;
           overflow: hidden;
         }
-        .maps-toolbar {
-          display: flex;
-          flex-direction: column;
-          gap: var(--space-2);
-          flex-shrink: 0;
-          padding: var(--space-2) var(--space-3);
-          border-bottom: 1px solid var(--card-border);
-          background: var(--card-background-color);
-        }
-        .maps-toolbar-row {
-          display: flex;
-          align-items: center;
-          gap: var(--space-2);
-          min-width: 0;
-          width: 100%;
-        }
-        .maps-toolbar-row--primary {
-          justify-content: space-between;
-        }
-        .maps-toolbar-row--hazards {
-          gap: var(--space-2);
-        }
-        .maps-mode-switcher {
-          flex: 1;
-          min-width: 0;
-          overflow-x: auto;
-          -webkit-overflow-scrolling: touch;
-          scrollbar-width: none;
-          flex-wrap: nowrap;
-        }
-        .maps-mode-switcher::-webkit-scrollbar { display: none; }
-        .maps-mode-switcher button { flex-shrink: 0; }
-        .maps-toolbar-actions {
-          display: flex;
-          align-items: center;
-          gap: var(--space-2);
-          flex-wrap: nowrap;
-          flex-shrink: 0;
-          margin-left: auto;
-        }
-        .maps-toolbar-actions-compact {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          flex-shrink: 0;
-        }
-        .maps-toolbar-toggle {
-          display: inline-flex;
-          align-items: center;
-          gap: 8px;
-          font-size: var(--fs-xs);
-          color: var(--secondary-text-color);
-          cursor: pointer;
-          user-select: none;
-          white-space: nowrap;
-        }
-        .maps-toolbar-toggle input { accent-color: var(--panel-accent); }
-        .maps-toolbar-btn {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          min-width: 36px;
-          min-height: 36px;
-          padding: 0 10px;
-          border: 1px solid var(--card-border);
-          border-radius: var(--radius-sm);
-          background: var(--secondary-background-color);
-          color: var(--primary-text-color);
-          cursor: pointer;
-          font-size: var(--fs-xs);
-        }
-        .maps-toolbar-btn:hover { background: var(--card-border); }
-        .maps-toolbar-meta {
-          font-size: var(--fs-xs);
-          color: var(--muted);
-          white-space: nowrap;
-          padding: 0 2px;
-        }
-        .maps-toolbar > .maps-toolbar-meta {
-          margin-top: -2px;
-        }
-        .maps-layer-filters {
-          display: flex;
-          align-items: center;
-          gap: 4px;
-          flex: 1;
-          min-width: 0;
-          overflow-x: auto;
-          -webkit-overflow-scrolling: touch;
-          scrollbar-width: none;
-          flex-wrap: nowrap;
-        }
-        .maps-layer-filters::-webkit-scrollbar { display: none; }
-        .maps-layer-filters button {
-          display: inline-flex;
-          align-items: center;
-          gap: 6px;
-          min-height: 32px;
-          padding: 0 10px;
-          border: 1px solid var(--card-border);
-          border-radius: 999px;
-          background: var(--secondary-background-color);
-          color: var(--secondary-text-color);
-          font-size: var(--fs-xs);
-          cursor: pointer;
-          transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
-        }
-        .maps-layer-filters button:hover {
-          background: var(--card-border);
-          color: var(--primary-text-color);
-        }
-        .maps-layer-filters button.active {
-          background: rgba(41, 182, 246, 0.16);
-          border-color: rgba(41, 182, 246, 0.45);
-          color: var(--primary-text-color);
-        }
-        .maps-layer-filters button .layer-dot {
-          width: 8px;
-          height: 8px;
-          border-radius: 50%;
-          flex-shrink: 0;
-        }
-        .maps-layer-filters button .layer-ico {
-          width: 15px;
-          height: 15px;
-          flex-shrink: 0;
-          opacity: 0.55;
-          filter: grayscale(1);
-          transition: opacity 0.15s ease, filter 0.15s ease;
-        }
-        .maps-layer-filters button.active .layer-ico { opacity: 1; filter: none; }
-        .maps-layer-filters button[data-map-layer="tropical"] .layer-dot { background: #ffb74d; }
-        .maps-layer-filters button[data-map-layer="hurricane"] .layer-dot { background: #ffb74d; }
-        .maps-layer-filters button[data-map-layer="tornado"] .layer-dot { background: #e040fb; }
-        .maps-layer-filters button[data-map-layer="earthquakes"] .layer-dot { background: #ef5350; }
-        .maps-layer-filters button[data-map-layer="lightning"] .layer-dot { background: #ffc107; }
-        .maps-layer-filters button[data-map-layer="lightning"].active {
-          background: rgba(255, 193, 7, 0.16);
-          border-color: rgba(255, 193, 7, 0.45);
-        }
-        .maps-toolbar-btn--labeled { gap: 6px; padding: 0 12px; }
-        .maps-toolbar-btn .maps-btn-ico { flex-shrink: 0; }
-        .maps-hazard-sort {
-          min-height: 32px;
-          padding: 0 10px;
-          border: 1px solid var(--card-border);
-          border-radius: var(--radius-sm);
-          background: var(--secondary-background-color);
-          color: var(--primary-text-color);
-          font-size: var(--fs-xs);
-          cursor: pointer;
-        }
-        .maps-toolbar-divider {
-          width: 1px;
-          height: 24px;
-          background: var(--card-border);
-          flex-shrink: 0;
-        }
         .maps-stage {
           position: relative;
           flex: 1;
@@ -2593,32 +2440,6 @@ class HomeWeatherPanel extends HTMLElement {
             height: 100dvh;
             max-height: 100dvh;
           }
-          .maps-toolbar {
-            padding: 8px 10px;
-            gap: 6px;
-          }
-          .maps-mode-switcher button {
-            min-height: 36px;
-            padding: 6px 12px;
-            font-size: 12px;
-          }
-          .maps-layer-filters button {
-            min-height: 34px;
-            padding: 0 10px;
-            font-size: 11px;
-          }
-          .maps-toolbar-divider { display: none; }
-          .maps-toolbar-meta { display: none; }
-          .maps-toolbar-toggle .toggle-label { display: none; }
-          .maps-toolbar-btn--labeled span { display: none; }
-          .maps-toolbar-btn--labeled { min-width: 36px; min-height: 36px; padding: 0; }
-          .maps-hazard-sort {
-            min-height: 36px;
-            max-width: 96px;
-            padding: 0 6px;
-            font-size: 10px;
-          }
-          .maps-toolbar-toggle { min-height: 36px; gap: 0; }
           .maps-view .eyebrow { display: none; }
           .maps-view .topbar {
             --header-height: 52px;
@@ -3198,8 +3019,449 @@ class HomeWeatherPanel extends HTMLElement {
         .entity-autocomplete-input { width: 100%; padding: 12px 16px; border: 1px solid var(--input-border); border-radius: 8px; background: var(--input-bg); color: var(--primary-text-color); font-size: 14px; }
         .entity-autocomplete-input:focus { outline: none; border-color: var(--panel-accent); box-shadow: 0 0 0 2px var(--panel-accent-dim); }
         .entity-autocomplete-input::placeholder { color: var(--secondary-text-color); opacity: 0.7; }
+
+        /* ============ Desktop-app menubar ============ */
+        .hw-menubar {
+          position: sticky;
+          top: 0;
+          z-index: 120;
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          height: 48px;
+          min-height: 48px;
+          padding: 0 clamp(8px, 1.5vw, 16px);
+          box-sizing: border-box;
+          background: var(--hw-surface);
+          border-bottom: 1px solid var(--hw-border-strong);
+          user-select: none;
+        }
+        .hw-menubar .hamburger { display: none; flex-shrink: 0; }
+        @media (max-width: 768px) { .hw-menubar .hamburger { display: inline-flex; align-items: center; justify-content: center; } }
+        .narrow .hw-menubar .hamburger { display: inline-flex; align-items: center; justify-content: center; }
+        .hw-menubar-brand {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 0 10px 0 4px;
+          min-width: 0;
+          flex-shrink: 1;
+        }
+        .hw-menubar-brand img { width: 20px; height: 20px; flex-shrink: 0; }
+        .hw-menubar-brand-name {
+          font-size: 13px;
+          font-weight: 700;
+          letter-spacing: -0.01em;
+          color: var(--hw-text);
+          white-space: nowrap;
+        }
+        .hw-menubar-crumb {
+          font-size: 13px;
+          color: var(--hw-muted);
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .hw-menubar-menus {
+          display: flex;
+          align-items: stretch;
+          height: 100%;
+          min-width: 0;
+        }
+        .hw-menu { position: relative; display: flex; align-items: stretch; }
+        .hw-menu-trigger {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          padding: 0 12px;
+          border: none;
+          background: transparent;
+          color: var(--hw-text);
+          font-size: 13px;
+          font-weight: 500;
+          font-family: inherit;
+          cursor: pointer;
+          border-radius: 6px;
+          margin: 6px 1px;
+          transition: background 0.12s ease;
+          white-space: nowrap;
+        }
+        .hw-menu-trigger:hover { background: var(--hw-hover); }
+        .hw-menu-trigger:focus-visible { outline: 2px solid var(--hw-accent); outline-offset: -2px; }
+        .hw-menu.open > .hw-menu-trigger { background: var(--hw-elevated); color: var(--hw-accent-hover); }
+        .hw-menu-dropdown {
+          display: none;
+          position: absolute;
+          top: calc(100% - 4px);
+          left: 0;
+          z-index: 200;
+          min-width: 224px;
+          padding: 6px;
+          background: rgba(24, 24, 24, 0.98);
+          border: 1px solid var(--hw-border-strong);
+          border-radius: 10px;
+          box-shadow: 0 16px 44px rgba(0, 0, 0, 0.55);
+          backdrop-filter: blur(14px);
+        }
+        .hw-menu.open > .hw-menu-dropdown { display: flex; flex-direction: column; }
+        .hw-menu-item {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          width: 100%;
+          padding: 8px 10px;
+          border: none;
+          border-radius: 6px;
+          background: transparent;
+          color: var(--hw-text);
+          font-size: 13px;
+          font-family: inherit;
+          text-align: left;
+          cursor: pointer;
+          white-space: nowrap;
+          transition: background 0.1s ease;
+          box-sizing: border-box;
+        }
+        .hw-menu-item:hover { background: var(--hw-hover); }
+        .hw-menu-item:focus-visible { outline: 2px solid var(--hw-accent); outline-offset: -2px; }
+        .hw-menu-item[disabled] { opacity: 0.45; cursor: default; }
+        .hw-menu-item .hw-menu-mark {
+          width: 16px;
+          height: 16px;
+          flex-shrink: 0;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          color: var(--hw-accent-hover);
+          visibility: hidden;
+        }
+        .hw-menu-item[aria-checked="true"] .hw-menu-mark { visibility: visible; }
+        .hw-menu-item .hw-menu-ico { width: 15px; height: 15px; flex-shrink: 0; opacity: 0.8; }
+        .hw-menu-item .hw-menu-item-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+        .hw-menu-item .hw-menu-item-hint { font-size: 11px; color: var(--hw-muted); }
+        .hw-menu-divider { height: 1px; margin: 5px 8px; background: var(--hw-border); border: none; }
+        .hw-menu-group-label {
+          padding: 7px 10px 3px;
+          font-size: 10px;
+          font-weight: 700;
+          letter-spacing: 0.12em;
+          text-transform: uppercase;
+          color: var(--hw-muted);
+        }
+        .hw-menubar-right {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          margin-left: auto;
+          flex-shrink: 0;
+          min-width: 0;
+        }
+        .hw-menubar-status {
+          font-size: 11px;
+          color: var(--hw-muted);
+          white-space: nowrap;
+          font-variant-numeric: tabular-nums;
+        }
+        .hw-menubar-back {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          height: 34px;
+          min-height: 34px;
+          padding: 0 12px;
+          border: 1px solid var(--hw-border-strong);
+          background: var(--hw-input-bg);
+          border-radius: var(--radius-sm);
+          color: var(--hw-text);
+          font-size: 12px;
+          font-weight: 500;
+          font-family: inherit;
+          cursor: pointer;
+          white-space: nowrap;
+          transition: background 0.12s ease;
+        }
+        .hw-menubar-back:hover { background: var(--hw-hover); }
+        .hw-menubar-back:focus-visible { outline: 2px solid var(--hw-accent); outline-offset: 2px; }
+        .hw-menubar-back svg { width: 16px; height: 16px; flex-shrink: 0; }
+        .hw-menubar-mobile-trigger {
+          display: none;
+          align-items: center;
+          gap: 6px;
+          height: 36px;
+          min-height: 36px;
+          padding: 0 12px;
+          border: 1px solid var(--hw-border-strong);
+          background: var(--hw-input-bg);
+          border-radius: var(--radius-sm);
+          color: var(--hw-text);
+          font-size: 12px;
+          font-weight: 600;
+          font-family: inherit;
+          cursor: pointer;
+        }
+        .hw-menubar-mobile-trigger svg { width: 16px; height: 16px; }
+        @media (max-width: 768px) {
+          .hw-menubar { height: 52px; min-height: 52px; }
+          .hw-menubar-menus { display: none; }
+          .hw-menubar-status { display: none; }
+          .hw-menubar-mobile-trigger { display: inline-flex; }
+          .hw-menubar-back span { display: none; }
+          .hw-menubar-back { width: 36px; min-width: 36px; height: 36px; padding: 0; justify-content: center; }
+          .hw-menubar-crumb { max-width: 32vw; }
+        }
+        /* Mobile menu sheet */
+        .hw-menusheet-backdrop {
+          position: fixed;
+          inset: 0;
+          z-index: 300;
+          background: rgba(0, 0, 0, 0.55);
+          opacity: 0;
+          visibility: hidden;
+          transition: opacity 0.2s ease, visibility 0.2s;
+        }
+        .hw-menusheet-backdrop.open { opacity: 1; visibility: visible; }
+        .hw-menusheet {
+          position: fixed;
+          top: 0;
+          right: 0;
+          bottom: 0;
+          z-index: 301;
+          width: min(320px, 88vw);
+          display: flex;
+          flex-direction: column;
+          background: var(--hw-surface);
+          border-left: 1px solid var(--hw-border-strong);
+          box-shadow: -18px 0 48px rgba(0, 0, 0, 0.5);
+          transform: translateX(105%);
+          transition: transform 0.22s ease;
+          overflow: hidden;
+        }
+        .hw-menusheet.open { transform: translateX(0); }
+        .hw-menusheet-head {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+          padding: 14px 16px;
+          border-bottom: 1px solid var(--hw-border);
+          flex-shrink: 0;
+        }
+        .hw-menusheet-title { font-size: 14px; font-weight: 700; color: var(--hw-text); }
+        .hw-menusheet-close {
+          width: 40px;
+          height: 40px;
+          min-width: 40px;
+          border: 1px solid var(--hw-border-strong);
+          background: var(--hw-input-bg);
+          border-radius: var(--radius-sm);
+          color: var(--hw-text);
+          cursor: pointer;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .hw-menusheet-close svg { width: 18px; height: 18px; }
+        .hw-menusheet-body {
+          flex: 1;
+          overflow-y: auto;
+          -webkit-overflow-scrolling: touch;
+          padding: 8px 10px calc(16px + var(--safe-bottom));
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+        }
+        .hw-menusheet-body .hw-menu-group-label { padding-top: 14px; }
+        .hw-menusheet-body .hw-menu-item { min-height: 44px; font-size: 14px; }
+
+        /* ============ Settings shell (sidebar + panes) ============ */
+        .settings-shell {
+          display: grid;
+          grid-template-columns: 232px minmax(0, 1fr);
+          gap: clamp(12px, 2vw, 24px);
+          max-width: min(1360px, 100%);
+          margin: 0 auto;
+          width: 100%;
+          align-items: start;
+        }
+        .settings-sidenav {
+          position: sticky;
+          top: 60px;
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+          padding: 8px;
+          background: var(--hw-surface);
+          border: 1px solid var(--hw-border);
+          border-radius: var(--radius-lg);
+          box-sizing: border-box;
+        }
+        .settings-sidenav button {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          width: 100%;
+          min-height: 42px;
+          padding: 0 12px;
+          border: none;
+          border-radius: var(--radius-sm);
+          background: transparent;
+          color: var(--hw-muted);
+          font-size: 13px;
+          font-weight: 500;
+          font-family: inherit;
+          text-align: left;
+          cursor: pointer;
+          transition: background 0.12s ease, color 0.12s ease;
+          box-sizing: border-box;
+          white-space: nowrap;
+        }
+        .settings-sidenav button:hover { background: var(--hw-hover); color: var(--hw-text); }
+        .settings-sidenav button:focus-visible { outline: 2px solid var(--hw-accent); outline-offset: -2px; }
+        .settings-sidenav button.active {
+          background: var(--hw-accent-dim, rgba(3, 169, 244, 0.14));
+          color: var(--hw-accent-hover);
+          font-weight: 600;
+        }
+        .settings-sidenav button svg { width: 17px; height: 17px; flex-shrink: 0; }
+        .settings-sidenav-desc { display: none; }
+        .settings-content { min-width: 0; display: flex; flex-direction: column; }
+        .settings-pane { display: none; flex-direction: column; gap: 14px; min-width: 0; }
+        .settings-pane.active { display: flex; }
+        .settings-pane-head { margin-bottom: 2px; }
+        .settings-pane-title { font-size: 18px; font-weight: 700; letter-spacing: -0.01em; color: var(--hw-text); }
+        .settings-pane-sub { font-size: 13px; color: var(--hw-muted); margin-top: 3px; line-height: 1.5; max-width: 72ch; }
+        .settings-card {
+          background: var(--hw-surface);
+          border: 1px solid var(--hw-border);
+          border-radius: var(--radius-md);
+          padding: 18px 20px;
+          display: flex;
+          flex-direction: column;
+          gap: var(--form-gap, 16px);
+          min-width: 0;
+        }
+        .settings-card-title { font-size: 15px; font-weight: 600; color: var(--hw-text); }
+        .settings-card-sub { font-size: 12px; color: var(--hw-muted); margin-top: -10px; line-height: 1.5; }
+        @media (max-width: 900px) {
+          .settings-shell { grid-template-columns: 1fr; }
+          .settings-sidenav {
+            position: sticky;
+            top: 52px;
+            z-index: 60;
+            flex-direction: row;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            scrollbar-width: none;
+            padding: 6px;
+            border-radius: var(--radius-md);
+          }
+          .settings-sidenav::-webkit-scrollbar { display: none; }
+          .settings-sidenav button { width: auto; flex-shrink: 0; min-height: 40px; }
+        }
+
+        /* Alert zone cards in settings */
+        .zone-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); gap: 12px; }
+        .zone-card {
+          background: var(--hw-surface);
+          border: 1px solid var(--hw-border);
+          border-left: 4px solid var(--zone-color, var(--hw-accent));
+          border-radius: var(--radius-md);
+          padding: 14px 16px;
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+          min-width: 0;
+        }
+        .zone-card-head { display: flex; align-items: center; gap: 10px; }
+        .zone-card-head img { width: 20px; height: 20px; flex-shrink: 0; }
+        .zone-card-title { font-size: 14px; font-weight: 600; color: var(--hw-text); flex: 1; }
+        .zone-card-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+        .zone-card-row > label { font-size: 12px; color: var(--hw-muted); }
+        .zone-card-radius { display: flex; align-items: center; gap: 8px; }
+        .zone-card-radius input {
+          width: 92px;
+          height: 36px;
+          padding: 0 10px;
+          border: 1px solid var(--input-border);
+          border-radius: 8px;
+          background: var(--input-bg);
+          color: var(--primary-text-color);
+          font-size: 13px;
+          text-align: right;
+          font-variant-numeric: tabular-nums;
+          box-sizing: border-box;
+        }
+        .zone-card-radius .unit { font-size: 12px; color: var(--hw-muted); }
+        .zone-mode-seg {
+          display: flex;
+          border: 1px solid var(--input-border);
+          border-radius: 8px;
+          overflow: hidden;
+        }
+        .zone-mode-seg button {
+          flex: 1;
+          min-height: 34px;
+          padding: 0 12px;
+          border: none;
+          background: transparent;
+          color: var(--hw-muted);
+          font-size: 12px;
+          font-weight: 600;
+          font-family: inherit;
+          cursor: pointer;
+          transition: background 0.12s ease, color 0.12s ease;
+          white-space: nowrap;
+        }
+        .zone-mode-seg button + button { border-left: 1px solid var(--input-border); }
+        .zone-mode-seg button.active { background: var(--panel-accent-dim); color: var(--panel-accent-hover); }
+        .zone-mode-seg button:focus-visible { outline: 2px solid var(--hw-accent); outline-offset: -2px; }
+        .zone-card-note { font-size: 11px; color: var(--hw-warning, #ffb74d); line-height: 1.4; }
+        .zone-card.is-disabled { opacity: 0.6; }
+        .zone-editor-cta {
+          display: flex;
+          align-items: center;
+          gap: 16px;
+          flex-wrap: wrap;
+          justify-content: space-between;
+          background: linear-gradient(120deg, rgba(3, 169, 244, 0.14), rgba(3, 169, 244, 0.03));
+          border: 1px solid rgba(3, 169, 244, 0.35);
+          border-radius: var(--radius-md);
+          padding: 16px 20px;
+        }
+        .zone-editor-cta-text { flex: 1 1 260px; min-width: 0; }
+        .zone-editor-cta-title { font-size: 15px; font-weight: 700; color: var(--hw-text); }
+        .zone-editor-cta-sub { font-size: 12px; color: var(--hw-muted); margin-top: 4px; line-height: 1.5; }
+
+        /* Zone editor view */
+        .zones-view {
+          height: 100dvh;
+          max-height: 100dvh;
+          display: flex;
+          flex-direction: column;
+          overflow: hidden;
+        }
+        .zones-view .settings-body {
+          flex: 1;
+          min-height: 0;
+          padding: 0;
+          max-width: none;
+          margin: 0;
+          width: 100%;
+          box-sizing: border-box;
+          display: flex;
+          flex-direction: column;
+          overflow: hidden;
+        }
+        #zone-editor-root {
+          flex: 1;
+          width: 100%;
+          height: 100%;
+          min-height: 0;
+          position: relative;
+          overflow: hidden;
+        }
       </style>
-      ${this._currentView === "forecast" || this._currentView === "alerts" || this._currentView === "hurricanes"
+      ${this._currentView === "forecast" || this._currentView === "alerts" || this._currentView === "hurricanes" || this._currentView === "zones"
         ? this._currentView === "alerts"
           ? `<div class="settings-view ${this._isNarrow ? "narrow" : ""}">
             ${this._renderPanelHeader("NWS Alerts", "")}
@@ -3209,7 +3471,14 @@ class HomeWeatherPanel extends HTMLElement {
           </div>`
           : this._currentView === "hurricanes"
             ? `<div class="settings-view maps-view ${this._isNarrow ? "narrow" : ""}">
-            ${this._renderPanelHeader("Maps &amp; Weather", "Hazards, radar layers, and hourly trends")}
+            ${this._renderMapsMenubar()}
+            <div class="settings-body">
+            ${this._renderContent()}
+            </div>
+          </div>`
+          : this._currentView === "zones"
+            ? `<div class="settings-view zones-view ${this._isNarrow ? "narrow" : ""}">
+            ${this._renderZonesMenubar()}
             <div class="settings-body">
             ${this._renderContent()}
             </div>
@@ -3241,7 +3510,7 @@ class HomeWeatherPanel extends HTMLElement {
             </div>
           </div>`
         : `<div class="settings-view ${this._isNarrow ? "narrow" : ""}">
-            ${this._renderPanelHeader("Settings", "Home Weather")}
+            ${this._renderSettingsMenubar()}
             <div class="settings-body">
             ${this._renderContent()}
             </div>
@@ -3263,36 +3532,17 @@ class HomeWeatherPanel extends HTMLElement {
     const alertsBtn = s.getElementById("alerts-btn");
     const hurricanesBtn = s.getElementById("hurricanes-btn");
     const backBtn = s.getElementById("back-btn");
-    if (alertsBtn) alertsBtn.addEventListener("click", () => {
-      this._destroyHurricaneTracker();
-      this._destroyAtmosphereParticles();
-      this._currentView = "alerts";
-      this._alertsData = null;
-      this._alertsLoading = false;
-      this._render();
-    });
-    if (hurricanesBtn) hurricanesBtn.addEventListener("click", () => {
-      this._destroyAtmosphereParticles();
-      this._currentView = "hurricanes";
-      this._render();
-    });
-    if (gearBtn) gearBtn.addEventListener("click", async () => {
-      this._destroyHurricaneTracker();
-      this._destroyAtmosphereParticles();
-      this._currentView = "settings";
-      this._expandedSections = new Set();
-      await this._loadWwwSounds();
-      this._render();
-      this._loadWebhookInfo();
-    });
-    if (backBtn) backBtn.addEventListener("click", () => {
-      this._syncSettingsFromForm();
-      this._destroyHurricaneTracker();
-      this._currentView = "forecast";
-      this._render();
-    });
+    if (alertsBtn) alertsBtn.addEventListener("click", () => this._navigateTo("alerts"));
+    if (hurricanesBtn) hurricanesBtn.addEventListener("click", () => this._navigateTo("hurricanes"));
+    if (gearBtn) gearBtn.addEventListener("click", () => this._navigateTo("settings"));
+    if (backBtn) backBtn.addEventListener("click", () => this._navigateTo("forecast"));
+    if (this._currentView === "hurricanes" || this._currentView === "settings" || this._currentView === "zones") {
+      this._attachMenubarHandlers();
+    }
     if (this._currentView === "settings") {
       this._attachSettingsHandlers();
+    } else if (this._currentView === "zones") {
+      this._initZoneEditor();
     } else if (this._currentView === "forecast") {
       s.querySelectorAll("[data-detail-hour], [data-detail-day]").forEach((btn) => {
         btn.addEventListener("click", () => {
@@ -3327,56 +3577,47 @@ class HomeWeatherPanel extends HTMLElement {
         });
       });
     } else if (this._currentView === "hurricanes") {
-      s.querySelectorAll(".maps-mode-switcher button[data-maps-mode]").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          const mode = btn.dataset.mapsMode || "storms";
-          if (mode === this._mapsMode) return;
-          this._mapsMode = mode;
-          if (mode !== "storms") this._destroyHurricaneTracker();
-          this._render();
-        });
-      });
-      s.querySelectorAll(".maps-toolbar-actions .metric-switcher button[data-chart-metric]").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          this._chartMetric = btn.dataset.chartMetric || "temp";
-          s.querySelectorAll(".maps-toolbar-actions .metric-switcher button[data-chart-metric]").forEach((b) => b.classList.toggle("active", b === btn));
-          this._initApexChart();
-        });
-      });
-      s.getElementById("maps-wind-radii-toggle")?.addEventListener("change", (e) => {
-        this._mapsWindRadii = !!e.target.checked;
-        this._hurricaneTracker?.setShowWindRadii(this._mapsWindRadii);
-      });
-      s.querySelectorAll(".maps-layer-filters button[data-map-layer]").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          const layer = btn.dataset.mapLayer;
-          if (!layer) return;
-          this._mapsLayers = this._normalizeMapLayers({
-            ...this._mapsLayers,
-            [layer]: !this._mapsLayers[layer],
-          });
-          btn.classList.toggle("active", this._mapsLayers[layer]);
-          btn.setAttribute("aria-pressed", String(this._mapsLayers[layer]));
-          this._hurricaneTracker?.setMapLayers(this._mapsLayers);
-        });
-      });
-      s.getElementById("maps-hazard-sort")?.addEventListener("change", (e) => {
-        this._mapsSort = e.target.value || "newest";
-        this._hurricaneTracker?.setMapSort(this._mapsSort);
-      });
-      s.getElementById("maps-hazards-refresh")?.addEventListener("click", async () => {
-        const btn = s.getElementById("maps-hazards-refresh");
-        if (btn) btn.disabled = true;
-        try {
-          await this._hurricaneTracker?.refresh();
-          this._updateMapsHazardsMeta();
-        } finally {
-          if (btn) btn.disabled = false;
-        }
-      });
       if (this._mapsMode === "storms") this._initHurricaneTracker();
       if (this._mapsMode === "trends") this._initApexChart();
     }
+  }
+
+  /**
+   * Centralized view navigation: tears down active view resources, applies
+   * per-view setup, and re-renders.
+   */
+  async _navigateTo(view) {
+    if (view === this._currentView) {
+      this._closeMenusheet();
+      return;
+    }
+    if (this._currentView === "settings") this._syncSettingsFromForm();
+    this._destroyHurricaneTracker();
+    this._destroyZoneEditor();
+    this._destroyAtmosphereParticles();
+    this._currentView = view;
+    if (view === "alerts") {
+      this._alertsData = null;
+      this._alertsLoading = false;
+    }
+    if (view === "settings") {
+      this._expandedSections = new Set();
+      this._settingsPane = this._settingsPane || "general";
+      await this._loadWwwSounds();
+      this._render();
+      this._loadWebhookInfo();
+      return;
+    }
+    this._render();
+  }
+
+  _openZoneEditorView(returnView) {
+    if (this._currentView === "settings") this._syncSettingsFromForm();
+    this._zoneEditorReturnView = returnView || this._currentView || "settings";
+    this._destroyHurricaneTracker();
+    this._destroyAtmosphereParticles();
+    this._currentView = "zones";
+    this._render();
   }
 
   _openDetailSheet() {
@@ -3399,19 +3640,17 @@ class HomeWeatherPanel extends HTMLElement {
   }
 
   _getAccordionGroup(sectionId) {
-    const topCategories = ["settings-weather", "settings-alerts", "settings-advanced"];
-    if (topCategories.includes(sectionId)) return { type: "list", ids: topCategories };
     const alertsNested = [
       "general", "media-players", "time-based", "current-change", "upcoming-change",
       "sun-alerts", "nws-alerts", "tropical-alerts", "tornado-alerts", "earthquake-alerts",
       "sensor-triggered", "webhook", "voice-satellite",
     ];
     if (alertsNested.includes(sectionId)) return { type: "list", ids: alertsNested };
-    if (sectionId === "weather-source") return { type: "list", ids: ["weather-source"] };
-    const advancedNested = [
-      "forecast-settings", "hurricane-monitoring", "tornado-monitoring",
-      "earthquake-monitoring", "lightning-monitoring", "ai-rewrite",
+    const monitoringNested = [
+      "hurricane-monitoring", "tornado-monitoring", "earthquake-monitoring", "lightning-monitoring",
     ];
+    if (monitoringNested.includes(sectionId)) return { type: "list", ids: monitoringNested };
+    const advancedNested = ["forecast-settings", "ai-rewrite"];
     if (advancedNested.includes(sectionId)) return { type: "list", ids: advancedNested };
     if (/^media-player-\d+$/.test(sectionId)) return { type: "mediaPlayer", sectionId };
     const subMatch = sectionId.match(/^(media-player-\d+-)/);
@@ -3485,6 +3724,44 @@ class HomeWeatherPanel extends HTMLElement {
 
     // Initialize entity autocomplete inputs
     this._initEntityAutocompletes(s);
+
+    // Sidebar pane navigation — all panes stay in the DOM so form state and
+    // the collect helpers keep working; switching is a pure class toggle.
+    s.querySelectorAll(".settings-sidenav button[data-settings-pane]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const pane = btn.dataset.settingsPane;
+        if (!pane) return;
+        this._settingsPane = pane;
+        s.querySelectorAll(".settings-sidenav button[data-settings-pane]").forEach((b) => b.classList.toggle("active", b === btn));
+        s.querySelectorAll(".settings-pane").forEach((p) => p.classList.toggle("active", p.dataset.settingsPane === pane));
+      });
+    });
+
+    // Alert Zones: zone/bypass segmented switches
+    s.querySelectorAll(".zone-mode-seg[data-zone-mode-for]").forEach((seg) => {
+      const key = seg.dataset.zoneModeFor;
+      seg.querySelectorAll("button[data-mode]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          seg.querySelectorAll("button[data-mode]").forEach((b) => b.classList.toggle("active", b === btn));
+          const card = s.querySelector(`.zone-card[data-zone-card="${key}"]`);
+          const note = card?.querySelector(".zone-card-note");
+          if (note) note.style.display = btn.dataset.mode === "all" ? "" : "none";
+        });
+      });
+    });
+
+    // Alert Zones: dim card when hazard disabled
+    s.querySelectorAll("[data-zone-card-enabled]").forEach((input) => {
+      input.addEventListener("change", () => {
+        const card = s.querySelector(`.zone-card[data-zone-card="${input.dataset.zoneCardEnabled}"]`);
+        card?.classList.toggle("is-disabled", !input.checked);
+      });
+    });
+
+    // Alert Zones: open full-screen map editor
+    s.getElementById("open-zone-editor-btn")?.addEventListener("click", () => {
+      this._openZoneEditorView("settings");
+    });
 
     // Weather entity
     const we = s.getElementById("weather-entity");
@@ -3841,20 +4118,500 @@ class HomeWeatherPanel extends HTMLElement {
     }
     if (this._currentView === "alerts") return this._renderAlerts();
     if (this._currentView === "hurricanes") return this._renderHurricanes();
+    if (this._currentView === "zones") return this._renderZones();
     return this._renderSettings();
+  }
+
+  /* ===================== Desktop-app menubar ===================== */
+
+  _menubarNavMenu() {
+    const view = this._currentView;
+    return {
+      id: "navigate",
+      label: "Navigate",
+      items: [
+        { type: "radio", action: "nav", value: "forecast", label: "Dashboard", checked: view === "forecast" },
+        { type: "radio", action: "nav", value: "alerts", label: "NWS Alerts", checked: view === "alerts" },
+        { type: "radio", action: "nav", value: "hurricanes", label: "Maps & Weather", checked: view === "hurricanes" },
+        { type: "radio", action: "nav", value: "settings", label: "Settings", checked: view === "settings" },
+        { type: "divider" },
+        { type: "action", action: "edit-zones", label: "Alert Zones editor…", checked: view === "zones" },
+      ],
+    };
+  }
+
+  _renderMenubarItem(item) {
+    if (item.type === "divider") return `<hr class="hw-menu-divider"/>`;
+    if (item.type === "label") return `<div class="hw-menu-group-label">${item.label}</div>`;
+    const role = item.type === "radio" ? "menuitemradio" : item.type === "check" ? "menuitemcheckbox" : "menuitem";
+    const checked = item.type === "radio" || item.type === "check" ? ` aria-checked="${item.checked ? "true" : "false"}"` : "";
+    const mark = item.type === "radio"
+      ? `<span class="hw-menu-mark"><svg viewBox="0 0 24 24" width="10" height="10" fill="currentColor"><circle cx="12" cy="12" r="6"/></svg></span>`
+      : item.type === "check"
+        ? `<span class="hw-menu-mark"><svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg></span>`
+        : `<span class="hw-menu-mark"></span>`;
+    const icon = item.icon ? `<img class="hw-menu-ico" src="/local/home_weather/icons/${item.icon}.svg" alt="" draggable="false"/>` : "";
+    const hint = item.hint ? `<span class="hw-menu-item-hint">${item.hint}</span>` : "";
+    return `
+      <button type="button" class="hw-menu-item" role="${role}"${checked}
+        data-mb-action="${item.action}" data-mb-value="${item.value ?? ""}" data-mb-type="${item.type}" ${item.disabled ? "disabled" : ""}>
+        ${mark}${icon}<span class="hw-menu-item-label">${item.label}</span>${hint}
+      </button>`;
+  }
+
+  _renderMenubar({ crumb = "", menus = [], status = "", statusId = "" }) {
+    const hamburger = `
+      <button class="hamburger icon-btn" id="hamburger-btn" aria-label="Open Home Assistant sidebar">
+        <svg viewBox="0 0 24 24" fill="currentColor" width="22" height="22"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></svg>
+      </button>`;
+    const menusHtml = menus.map((menu) => `
+      <div class="hw-menu" data-menu-id="${menu.id}">
+        <button type="button" class="hw-menu-trigger" aria-haspopup="true" aria-expanded="false">${menu.label}</button>
+        <div class="hw-menu-dropdown" role="menu" aria-label="${menu.label}">
+          ${menu.items.map((item) => this._renderMenubarItem(item)).join("")}
+        </div>
+      </div>`).join("");
+    const sheetHtml = `
+      <div class="hw-menusheet-backdrop" data-menusheet-close></div>
+      <aside class="hw-menusheet" role="dialog" aria-label="Menu">
+        <div class="hw-menusheet-head">
+          <div class="hw-menusheet-title">Home Weather${crumb ? ` — ${crumb}` : ""}</div>
+          <button type="button" class="hw-menusheet-close" data-menusheet-close aria-label="Close menu">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+          </button>
+        </div>
+        <div class="hw-menusheet-body">
+          ${menus.map((menu) => `
+            <div class="hw-menu-group-label">${menu.label}</div>
+            ${menu.items.map((item) => this._renderMenubarItem(item)).join("")}
+          `).join("")}
+        </div>
+      </aside>`;
+    return `
+      <header class="hw-menubar">
+        ${hamburger}
+        <div class="hw-menubar-brand">
+          <img src="/local/home_weather/icons/hurricane.svg" alt="" draggable="false"/>
+          <span class="hw-menubar-brand-name">Home Weather</span>
+          ${crumb ? `<span class="hw-menubar-crumb">/ ${crumb}</span>` : ""}
+        </div>
+        <nav class="hw-menubar-menus" role="menubar" aria-label="Application menu">
+          ${menusHtml}
+        </nav>
+        <div class="hw-menubar-right">
+          ${status || statusId ? `<span class="hw-menubar-status" ${statusId ? `id="${statusId}"` : ""} aria-live="polite">${status}</span>` : ""}
+          <button type="button" class="hw-menubar-mobile-trigger" data-menusheet-open aria-label="Open menu">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h16v2H4z"/></svg>
+            <span>Menu</span>
+          </button>
+          <button type="button" class="hw-menubar-back" data-mb-action="nav" data-mb-value="forecast" aria-label="Back to dashboard">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+            <span>Dashboard</span>
+          </button>
+        </div>
+      </header>
+      ${sheetHtml}`;
+  }
+
+  _renderMapsMenubar() {
+    const modeLabels = { storms: "Hazards", radar: "Radar", wind: "Wind", rain: "Rain", trends: "Trends" };
+    const viewMenu = {
+      id: "maps-view",
+      label: "View",
+      items: [
+        { type: "radio", action: "maps-mode", value: "storms", label: "Hazards map", checked: this._mapsMode === "storms" },
+        { type: "radio", action: "maps-mode", value: "radar", label: "Radar", checked: this._mapsMode === "radar" },
+        { type: "radio", action: "maps-mode", value: "wind", label: "Wind", checked: this._mapsMode === "wind" },
+        { type: "radio", action: "maps-mode", value: "rain", label: "Rain", checked: this._mapsMode === "rain" },
+        { type: "radio", action: "maps-mode", value: "trends", label: "Hourly trends", checked: this._mapsMode === "trends" },
+      ],
+    };
+    const layersMenu = {
+      id: "maps-layers",
+      label: "Layers",
+      items: [
+        { type: "label", label: "Hazards" },
+        { type: "check", action: "maps-layer", value: "hurricane", label: "Hurricanes", icon: "hurricane", checked: !!this._mapsLayers.hurricane },
+        { type: "check", action: "maps-layer", value: "tornado", label: "Tornado warnings", icon: "tornado", checked: !!this._mapsLayers.tornado },
+        { type: "check", action: "maps-layer", value: "earthquakes", label: "Earthquakes", icon: "earthquake", checked: !!this._mapsLayers.earthquakes },
+        { type: "check", action: "maps-layer", value: "lightning", label: "Live lightning", icon: "lightning-bolt", checked: !!this._mapsLayers.lightning },
+        { type: "divider" },
+        { type: "label", label: "Overlays" },
+        { type: "check", action: "wind-radii", value: "", label: "Hurricane wind radii", checked: !!this._mapsWindRadii },
+        { type: "check", action: "zones-overlay", value: "", label: "My alert zones", checked: !!this._mapsShowZones },
+      ],
+    };
+    const toolsMenu = {
+      id: "maps-tools",
+      label: "Tools",
+      items: [
+        { type: "action", action: "maps-refresh", label: "Refresh hazard data" },
+        { type: "action", action: "edit-zones", label: "Edit alert zones…" },
+        { type: "divider" },
+        { type: "label", label: "Earthquake sort" },
+        { type: "radio", action: "maps-sort", value: "newest", label: "Newest first", checked: this._mapsSort === "newest" },
+        { type: "radio", action: "maps-sort", value: "magnitude", label: "Magnitude", checked: this._mapsSort === "magnitude" },
+        { type: "radio", action: "maps-sort", value: "distance", label: "Distance from home", checked: this._mapsSort === "distance" },
+      ],
+    };
+    const trendsMenu = {
+      id: "maps-trends",
+      label: "Trends",
+      items: [
+        { type: "radio", action: "chart-metric", value: "temp", label: "Temperature", checked: (this._chartMetric || "temp") === "temp" },
+        { type: "radio", action: "chart-metric", value: "precip", label: "Precipitation", checked: this._chartMetric === "precip" },
+        { type: "radio", action: "chart-metric", value: "wind", label: "Wind", checked: this._chartMetric === "wind" },
+        { type: "radio", action: "chart-metric", value: "humidity", label: "Humidity", checked: this._chartMetric === "humidity" },
+      ],
+    };
+    const menus = [this._menubarNavMenu(), viewMenu];
+    if (this._mapsMode === "storms") {
+      menus.push(layersMenu, toolsMenu);
+    } else if (this._mapsMode === "trends") {
+      menus.push(trendsMenu);
+    } else {
+      menus.push(toolsMenu);
+    }
+    return this._renderMenubar({
+      crumb: `Maps · ${modeLabels[this._mapsMode] || "Hazards"}`,
+      menus,
+      status: "Updated —",
+      statusId: "maps-hazards-updated",
+    });
+  }
+
+  _renderSettingsMenubar() {
+    return this._renderMenubar({
+      crumb: "Settings",
+      menus: [this._menubarNavMenu()],
+    });
+  }
+
+  _renderZonesMenubar() {
+    const zonesMenu = {
+      id: "zones-menu",
+      label: "Zones",
+      items: [
+        { type: "action", action: "nav", value: "settings", label: "Open Settings" },
+        { type: "action", action: "nav", value: "hurricanes", label: "Open hazard map" },
+      ],
+    };
+    return this._renderMenubar({
+      crumb: "Alert Zones",
+      menus: [this._menubarNavMenu(), zonesMenu],
+    });
+  }
+
+  _closeAllMenus() {
+    const s = this.shadowRoot;
+    if (!s) return;
+    s.querySelectorAll(".hw-menu.open").forEach((m) => {
+      m.classList.remove("open");
+      m.querySelector(".hw-menu-trigger")?.setAttribute("aria-expanded", "false");
+    });
+  }
+
+  _closeMenusheet() {
+    const s = this.shadowRoot;
+    if (!s) return;
+    s.querySelector(".hw-menusheet")?.classList.remove("open");
+    s.querySelector(".hw-menusheet-backdrop")?.classList.remove("open");
+  }
+
+  _attachMenubarHandlers() {
+    const s = this.shadowRoot;
+    if (!s) return;
+
+    if (!this._menubarGlobalBound) {
+      this._menubarGlobalBound = true;
+      s.addEventListener("click", (e) => {
+        if (!e.target || !e.target.closest) return;
+        if (!e.target.closest(".hw-menu")) this._closeAllMenus();
+      });
+      s.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") {
+          this._closeAllMenus();
+          this._closeMenusheet();
+        }
+      });
+    }
+
+    s.querySelectorAll(".hw-menu-trigger").forEach((trigger) => {
+      const menu = trigger.closest(".hw-menu");
+      trigger.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const wasOpen = menu.classList.contains("open");
+        this._closeAllMenus();
+        if (!wasOpen) {
+          menu.classList.add("open");
+          trigger.setAttribute("aria-expanded", "true");
+        }
+      });
+      trigger.addEventListener("mouseenter", () => {
+        const anyOpen = s.querySelector(".hw-menu.open");
+        if (anyOpen && anyOpen !== menu) {
+          this._closeAllMenus();
+          menu.classList.add("open");
+          trigger.setAttribute("aria-expanded", "true");
+        }
+      });
+      trigger.addEventListener("keydown", (e) => {
+        if (e.key === "ArrowDown" || e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          this._closeAllMenus();
+          menu.classList.add("open");
+          trigger.setAttribute("aria-expanded", "true");
+          menu.querySelector(".hw-menu-item:not([disabled])")?.focus();
+        } else if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+          const triggers = [...s.querySelectorAll(".hw-menu-trigger")];
+          const idx = triggers.indexOf(trigger);
+          const next = e.key === "ArrowRight"
+            ? triggers[(idx + 1) % triggers.length]
+            : triggers[(idx - 1 + triggers.length) % triggers.length];
+          next?.focus();
+          if (menu.classList.contains("open")) {
+            this._closeAllMenus();
+            const nm = next?.closest(".hw-menu");
+            if (nm) {
+              nm.classList.add("open");
+              next.setAttribute("aria-expanded", "true");
+            }
+          }
+        }
+      });
+    });
+
+    s.querySelectorAll(".hw-menu-dropdown").forEach((dropdown) => {
+      dropdown.addEventListener("keydown", (e) => {
+        const items = [...dropdown.querySelectorAll(".hw-menu-item:not([disabled])")];
+        const current = items.indexOf(s.activeElement || document.activeElement);
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          items[(current + 1) % items.length]?.focus();
+        } else if (e.key === "ArrowUp") {
+          e.preventDefault();
+          items[(current - 1 + items.length) % items.length]?.focus();
+        }
+      });
+    });
+
+    s.querySelectorAll("[data-mb-action]").forEach((el) => {
+      el.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const action = el.dataset.mbAction;
+        const value = el.dataset.mbValue || "";
+        const type = el.dataset.mbType || "action";
+        this._handleMenubarAction(action, value, type, el);
+      });
+    });
+
+    s.querySelectorAll("[data-menusheet-open]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        s.querySelector(".hw-menusheet")?.classList.add("open");
+        s.querySelector(".hw-menusheet-backdrop")?.classList.add("open");
+      });
+    });
+    s.querySelectorAll("[data-menusheet-close]").forEach((el) => {
+      el.addEventListener("click", () => this._closeMenusheet());
+    });
+  }
+
+  /** Update aria-checked marks in-place for a check/radio menubar action. */
+  _syncMenubarChecks(action, predicate) {
+    const s = this.shadowRoot;
+    if (!s) return;
+    s.querySelectorAll(`[data-mb-action="${action}"]`).forEach((el) => {
+      const val = el.dataset.mbValue || "";
+      el.setAttribute("aria-checked", predicate(val) ? "true" : "false");
+    });
+  }
+
+  async _handleMenubarAction(action, value, type, el) {
+    switch (action) {
+      case "nav":
+        this._closeMenusheet();
+        this._navigateTo(value || "forecast");
+        break;
+      case "edit-zones":
+        this._closeMenusheet();
+        this._closeAllMenus();
+        this._openZoneEditorView(this._currentView === "zones" ? this._zoneEditorReturnView : this._currentView);
+        break;
+      case "maps-mode": {
+        this._closeMenusheet();
+        const mode = value || "storms";
+        if (mode === this._mapsMode) {
+          this._closeAllMenus();
+          return;
+        }
+        this._mapsMode = mode;
+        if (mode !== "storms") this._destroyHurricaneTracker();
+        this._render();
+        break;
+      }
+      case "maps-layer": {
+        if (!value) return;
+        this._mapsLayers = this._normalizeMapLayers({
+          ...this._mapsLayers,
+          [value]: !this._mapsLayers[value],
+        });
+        this._syncMenubarChecks("maps-layer", (v) => !!this._mapsLayers[v]);
+        this._hurricaneTracker?.setMapLayers(this._mapsLayers);
+        break;
+      }
+      case "wind-radii":
+        this._mapsWindRadii = !this._mapsWindRadii;
+        this._syncMenubarChecks("wind-radii", () => this._mapsWindRadii);
+        this._hurricaneTracker?.setShowWindRadii(this._mapsWindRadii);
+        break;
+      case "zones-overlay":
+        this._mapsShowZones = !this._mapsShowZones;
+        this._syncMenubarChecks("zones-overlay", () => this._mapsShowZones);
+        this._hurricaneTracker?.setShowZones?.(this._mapsShowZones, this._getZoneOverlayConfig());
+        break;
+      case "maps-sort":
+        this._mapsSort = value || "newest";
+        this._syncMenubarChecks("maps-sort", (v) => v === this._mapsSort);
+        this._closeAllMenus();
+        this._closeMenusheet();
+        this._hurricaneTracker?.setMapSort(this._mapsSort);
+        break;
+      case "maps-refresh": {
+        this._closeAllMenus();
+        this._closeMenusheet();
+        if (el) el.disabled = true;
+        try {
+          await this._hurricaneTracker?.refresh();
+          this._updateMapsHazardsMeta();
+        } finally {
+          if (el) el.disabled = false;
+        }
+        break;
+      }
+      case "chart-metric":
+        this._chartMetric = value || "temp";
+        this._syncMenubarChecks("chart-metric", (v) => v === this._chartMetric);
+        this._closeAllMenus();
+        this._closeMenusheet();
+        this._initApexChart();
+        break;
+      default:
+        break;
+    }
+  }
+
+  /** Zone circles for the hazard-map overlay, derived from saved settings. */
+  _getZoneOverlayConfig() {
+    const settings = this._settings || {};
+    const hazards = [
+      { key: "hurricane", configKey: "hurricane_monitoring", radiusKey: "max_distance_miles", color: "#29b6f6", label: "Hurricane zone" },
+      { key: "tornado", configKey: "tornado_monitoring", radiusKey: "max_distance_miles", color: "#e040fb", label: "Tornado zone" },
+      { key: "earthquake", configKey: "earthquake_monitoring", radiusKey: "radius_miles", color: "#ffa726", label: "Earthquake zone" },
+      { key: "lightning", configKey: "lightning_monitoring", radiusKey: "geofield_radius_miles", color: "#ffee58", label: "Lightning zone" },
+    ];
+    return hazards.map((h) => {
+      const block = settings[h.configKey] || {};
+      return {
+        key: h.key,
+        label: h.label,
+        color: h.color,
+        enabled: block.enabled !== false,
+        zone_mode: block.zone_mode === "all" ? "all" : "zone",
+        radius_miles: Number(block[h.radiusKey]) || 0,
+      };
+    });
+  }
+
+  /* ===================== Zone editor view ===================== */
+
+  _renderZones() {
+    return `
+      <section class="maps-page">
+        <div class="maps-stage">
+          <div id="zone-editor-root"></div>
+        </div>
+      </section>`;
+  }
+
+  _loadZoneEditorScript() {
+    if (window.ZoneEditor) return Promise.resolve();
+    if (this._zoneEditorPromise) return this._zoneEditorPromise;
+    const version = this._version || Date.now();
+    this._zoneEditorPromise = new Promise((resolve, reject) => {
+      const src = `/local/home_weather/zone-editor.js?v=${version}`;
+      const existing = document.querySelector(`script[src="${src}"]`);
+      if (existing) {
+        existing.addEventListener("load", () => resolve(), { once: true });
+        existing.addEventListener("error", () => reject(new Error("Failed to load zone editor")), { once: true });
+        if (window.ZoneEditor) resolve();
+        return;
+      }
+      const script = document.createElement("script");
+      script.src = src;
+      script.onload = () => resolve();
+      script.onerror = () => reject(new Error("Failed to load zone editor"));
+      document.head.appendChild(script);
+    });
+    return this._zoneEditorPromise;
+  }
+
+  _destroyZoneEditor() {
+    if (this._zoneEditor) {
+      this._zoneEditor.destroy();
+      this._zoneEditor = null;
+    }
+  }
+
+  async _initZoneEditor() {
+    const s = this.shadowRoot;
+    if (!s || this._currentView !== "zones") return;
+    const root = s.getElementById("zone-editor-root");
+    if (!root) return;
+    try {
+      await this._loadZoneEditorScript();
+      if (this._currentView !== "zones") return;
+      this._destroyZoneEditor();
+      this._zoneEditor = new window.ZoneEditor({
+        hass: this._hass,
+        shadowRoot: s,
+        home: this._getHomeCoordinates(),
+        settings: this._settings || {},
+        onSave: (patch) => this._saveZonePatch(patch),
+        onClose: () => this._closeZoneEditorView(),
+      });
+      await this._zoneEditor.init(root);
+    } catch (err) {
+      root.innerHTML = `<div class="error" style="padding:24px;text-align:center;">Failed to load zone editor: ${String(err.message || err)}</div>`;
+    }
+  }
+
+  _closeZoneEditorView() {
+    this._destroyZoneEditor();
+    this._currentView = this._zoneEditorReturnView || "settings";
+    this._render();
+  }
+
+  async _saveZonePatch(patch) {
+    if (!this._hass) return;
+    Object.assign(this._settings, patch);
+    // Keep legacy aliases in sync with the monitoring blocks.
+    this._settings.earthquakes = { ...this._settings.earthquake_monitoring };
+    if (this._settings.lightning_monitoring) {
+      const { enabled: _enabled, ...legacyLightning } = this._settings.lightning_monitoring;
+      this._settings.lightning = legacyLightning;
+    }
+    try {
+      await this._hass.callWS({ type: "home_weather/set_config", config: this._settings });
+      this._config = JSON.parse(JSON.stringify(this._settings));
+      this._closeZoneEditorView();
+    } catch (e) {
+      console.error("Failed to save alert zones:", e);
+      alert("Failed to save alert zones: " + (e?.message || e));
+    }
   }
 
   _renderHurricanes() {
     this._prepareGraphData();
-    const metricLabels = { temp: "Temp", precip: "Precip", wind: "Wind", humidity: "Humidity" };
-    const chartMetric = this._chartMetric || "temp";
-    const modes = [
-      { id: "storms", label: "Hazards" },
-      { id: "radar", label: "Radar" },
-      { id: "wind", label: "Wind" },
-      { id: "rain", label: "Rain" },
-      { id: "trends", label: "Trends" },
-    ];
     const windyModes = ["radar", "wind", "rain"];
     const windyPanels = windyModes.map((mode) => {
       const active = this._mapsMode === mode;
@@ -3866,51 +4623,8 @@ class HomeWeatherPanel extends HTMLElement {
         </div>`;
     }).join("");
 
-    const layerChips = [
-      { id: "hurricane", label: "Hurricanes", icon: "hurricane" },
-      { id: "tornado", label: "Tornado", icon: "tornado" },
-      { id: "earthquakes", label: "Earthquakes", icon: "earthquake" },
-      { id: "lightning", label: "Lightning", icon: "lightning-bolt" },
-    ];
-    const refreshIcon = `<svg class="maps-btn-ico" viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true"><path d="M17.65 6.35A8 8 0 1 0 19.73 14h-2.08A6 6 0 1 1 16.24 7.76L13 11h7V4l-2.35 2.35z"/></svg>`;
-    const hazardsActions = this._mapsMode === "storms" ? `
-      <div class="maps-toolbar-row maps-toolbar-row--hazards">
-        <div class="maps-layer-filters" role="group" aria-label="Hazard layers">
-          ${layerChips.map((c) => `<button type="button" class="${this._mapsLayers[c.id] ? "active" : ""}" data-map-layer="${c.id}" aria-pressed="${this._mapsLayers[c.id]}"><img class="layer-ico" src="/local/home_weather/icons/${c.icon}.svg" width="15" height="15" alt="" draggable="false"/>${c.label}</button>`).join("")}
-        </div>
-        <div class="maps-toolbar-actions-compact">
-          <label class="maps-toolbar-toggle" title="Show hurricane wind-field radii">
-            <input type="checkbox" id="maps-wind-radii-toggle" ${this._mapsWindRadii ? "checked" : ""}/>
-            <span class="toggle-label">Wind radii</span>
-          </label>
-          <select class="maps-hazard-sort" id="maps-hazard-sort" title="Sort earthquake markers" aria-label="Sort earthquake markers">
-            <option value="newest" ${this._mapsSort === "newest" ? "selected" : ""}>Newest</option>
-            <option value="magnitude" ${this._mapsSort === "magnitude" ? "selected" : ""}>Mag</option>
-            <option value="distance" ${this._mapsSort === "distance" ? "selected" : ""}>Dist</option>
-          </select>
-          <button type="button" class="maps-toolbar-btn maps-toolbar-btn--labeled" id="maps-hazards-refresh" title="Refresh hazard data">${refreshIcon}<span>Refresh</span></button>
-        </div>
-      </div>
-      <span class="maps-toolbar-meta" id="maps-hazards-updated" aria-live="polite">Updated —</span>` : "";
-
-    const trendsActions = this._mapsMode === "trends" ? `
-      <div class="maps-toolbar-actions">
-        <div class="metric-switcher">
-          ${Object.entries(metricLabels).map(([key, label]) => `<button type="button" class="${chartMetric === key ? "active" : ""}" data-chart-metric="${key}">${label}</button>`).join("")}
-        </div>
-      </div>` : "";
-
     return `
       <section class="maps-page">
-        <div class="maps-toolbar">
-          <div class="maps-toolbar-row maps-toolbar-row--primary">
-            <div class="maps-mode-switcher switcher">
-              ${modes.map((m) => `<button type="button" class="${this._mapsMode === m.id ? "active" : ""}" data-maps-mode="${m.id}">${m.label}</button>`).join("")}
-            </div>
-            ${trendsActions}
-          </div>
-          ${hazardsActions}
-        </div>
         <div class="maps-stage">
           <div class="maps-view-panel ${this._mapsMode === "storms" ? "active" : ""}" data-maps-mode="storms">
             <div id="hurricane-tracker-root"></div>
@@ -3990,6 +4704,7 @@ class HomeWeatherPanel extends HTMLElement {
       this._hurricaneTracker.setShowWindRadii(this._mapsWindRadii);
       this._hurricaneTracker.setMapLayers(this._mapsLayers);
       this._hurricaneTracker.setMapSort(this._mapsSort);
+      this._hurricaneTracker.setShowZones?.(this._mapsShowZones, this._getZoneOverlayConfig());
       this._updateMapsHazardsMeta();
       requestAnimationFrame(() => {
         requestAnimationFrame(() => this._hurricaneTracker?.invalidateMapSize?.());
@@ -4797,7 +5512,6 @@ class HomeWeatherPanel extends HTMLElement {
     if (!sunAlerts.sunset_tts) sunAlerts.sunset_tts = defaultSunAlerts.sunset_tts;
     if (!sunAlerts.sunrise_automation) sunAlerts.sunrise_automation = defaultSunAlerts.sunrise_automation;
     if (!sunAlerts.sunset_automation) sunAlerts.sunset_automation = defaultSunAlerts.sunset_automation;
-    const automationEntities = entities.filter((e) => e.startsWith("automation."));
     
     // Track expanded sections — all collapsed by default
     if (!this._expandedSections) this._expandedSections = new Set();
@@ -4849,21 +5563,6 @@ class HomeWeatherPanel extends HTMLElement {
         </div>
         <div class="collapsible-content">
           ${content}
-        </div>
-      </div>
-    `;
-
-    const renderCategory = (id, title, subtitle, innerHtml) => `
-      <div class="settings-category collapsible-section ${this._expandedSections.has(id) ? "open" : ""}" data-section-id="${id}">
-        <div class="collapsible-header">
-          <div class="collapsible-header-left">
-            <div class="collapsible-title">${title}</div>
-          </div>
-          ${chevronBtn(this._expandedSections.has(id))}
-        </div>
-        <div class="collapsible-content collapsible-content--category">
-          ${subtitle ? `<p class="settings-category-hint">${subtitle}</p>` : ""}
-          ${innerHtml}
         </div>
       </div>
     `;
@@ -4967,20 +5666,178 @@ class HomeWeatherPanel extends HTMLElement {
     const daysOfWeek = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
     const dayLabels = { mon: "Mon", tue: "Tue", wed: "Wed", thu: "Thu", fri: "Fri", sat: "Sat", sun: "Sun" };
 
+    const activePane = this._settingsPane || "general";
+    const paneNav = [
+      { id: "general", label: "General", icon: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3l9 7h-3v9h-4v-6H10v6H6v-9H3l9-7z"/></svg>` },
+      { id: "zones", label: "Alert Zones", icon: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 100 20 10 10 0 000-20zm0 2a8 8 0 110 16 8 8 0 010-16zm0 3a5 5 0 100 10 5 5 0 000-10zm0 2a3 3 0 110 6 3 3 0 010-6z"/></svg>` },
+      { id: "monitoring", label: "Hazard Monitoring", icon: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>` },
+      { id: "announcements", label: "Announcements", icon: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3a4.5 4.5 0 00-2.5-4.03v8.05A4.5 4.5 0 0016.5 12zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>` },
+      { id: "advanced", label: "Advanced", icon: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.488.488 0 00-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 00-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94 0 .31.02.64.07.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>` },
+    ];
+    const zoneHazards = [
+      { key: "hurricane", label: "Hurricane", icon: "hurricane", color: "#29b6f6", enabledId: "hurricane-monitoring-enabled", radiusId: "hurricane-monitoring-max-distance", radius: hurricaneMonitoring.max_distance_miles, min: 1, max: 5000, enabled: hurricaneMonitoring.enabled !== false, mode: hurricaneMonitoring.zone_mode === "all" ? "all" : "zone", desc: "Storms within this radius drive hurricane sensors and alerts." },
+      { key: "tornado", label: "Tornado", icon: "tornado", color: "#e040fb", enabledId: "tornado-monitoring-enabled", radiusId: "tornado-monitoring-max-distance", radius: tornadoMonitoring.max_distance_miles, min: 1, max: 500, enabled: tornadoMonitoring.enabled !== false, mode: tornadoMonitoring.zone_mode === "all" ? "all" : "zone", desc: "Warning polygons within this radius trigger tornado sensors." },
+      { key: "earthquake", label: "Earthquake", icon: "earthquake", color: "#ffa726", enabledId: "earthquake-monitoring-enabled", radiusId: "earthquake-radius-miles", radius: earthquakeMonitoring.radius_miles, min: 1, max: 5000, enabled: earthquakeMonitoring.enabled !== false, mode: earthquakeMonitoring.zone_mode === "all" ? "all" : "zone", desc: "Quakes inside this radius count as nearby for sensors." },
+      { key: "lightning", label: "Lightning", icon: "lightning-bolt", color: "#ffee58", enabledId: "lightning-monitoring-enabled", radiusId: "lightning-geofield-radius-miles", radius: lightningMonitoring.geofield_radius_miles ?? 100, min: 1, max: 500, enabled: lightningMonitoring.enabled !== false, mode: lightningMonitoring.zone_mode === "all" ? "all" : "zone", desc: "Live strikes inside this radius feed lightning sensors." },
+    ];
+    const renderZoneCard = (z) => `
+      <div class="zone-card ${z.enabled ? "" : "is-disabled"}" data-zone-card="${z.key}" style="--zone-color:${z.color}">
+        <div class="zone-card-head">
+          <img src="/local/home_weather/icons/${z.icon}.svg" alt="" draggable="false"/>
+          <span class="zone-card-title">${z.label}</span>
+          <label class="toggle-switch" title="Enable ${z.label} monitoring">
+            <input type="checkbox" id="${z.enabledId}" data-zone-card-enabled="${z.key}" ${z.enabled ? "checked" : ""}/>
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <p class="form-hint" style="margin:0;">${z.desc}</p>
+        <div class="zone-card-row">
+          <label for="${z.radiusId}">Zone radius</label>
+          <div class="zone-card-radius">
+            <input type="number" id="${z.radiusId}" min="${z.min}" max="${z.max}" step="1" value="${Math.round(z.radius)}"/>
+            <span class="unit">mi</span>
+          </div>
+        </div>
+        <div class="zone-card-row">
+          <label>Sensor scope</label>
+          <div class="zone-mode-seg" data-zone-mode-for="${z.key}" role="group" aria-label="${z.label} zone mode">
+            <button type="button" data-mode="zone" class="${z.mode === "zone" ? "active" : ""}">Use zone</button>
+            <button type="button" data-mode="all" class="${z.mode === "all" ? "active" : ""}">Show all data</button>
+          </div>
+        </div>
+        <div class="zone-card-note" style="${z.mode === "all" ? "" : "display:none"}">Zone bypassed — sensors report all ${z.label.toLowerCase()} data regardless of distance.</div>
+      </div>`;
+
     return `
       <div class="settings-form">
+        <div class="settings-shell">
+          <nav class="settings-sidenav" aria-label="Settings sections">
+            ${paneNav.map((p) => `<button type="button" class="${activePane === p.id ? "active" : ""}" data-settings-pane="${p.id}">${p.icon}<span>${p.label}</span></button>`).join("")}
+          </nav>
+          <div class="settings-content">
 
-        ${renderCategory("settings-weather", "Weather Source", "Pick the entity that powers your dashboard and forecasts.", `
-          ${renderNestedSection("weather-source", "Weather Entity", "Dashboard data source", `
-            <div class="form-group">
-              <label>Weather Entity *</label>
-              ${this._renderEntityAutocomplete("weather-entity", this._settings.weather_entity || "", "weather", "Type to search weather entities...")}
-              <p class="form-hint">Required. Must support hourly and daily forecasts.</p>
-            </div>
-          `)}
-        `)}
+            <section class="settings-pane ${activePane === "general" ? "active" : ""}" data-settings-pane="general">
+              <div class="settings-pane-head">
+                <div class="settings-pane-title">General</div>
+                <div class="settings-pane-sub">Data source and location basics for the whole integration.</div>
+              </div>
+              <div class="settings-card">
+                <div class="settings-card-title">Weather source</div>
+                <div class="form-group">
+                  <label>Weather Entity *</label>
+                  ${this._renderEntityAutocomplete("weather-entity", this._settings.weather_entity || "", "weather", "Type to search weather entities...")}
+                  <p class="form-hint">Required. Must support hourly and daily forecasts.</p>
+                </div>
+              </div>
+              <div class="settings-card">
+                <div class="settings-card-title">NWS forecast zone</div>
+                <div class="form-group">
+                  <label>Zone ID (optional)</label>
+                  <input type="text" id="nws-zone" placeholder="e.g. NYZ072" value="${(this._settings.nws_zone || "").replace(/"/g, "&quot;")}"/>
+                  <p class="form-hint">When set, tornado warnings are fetched for this NWS zone instead of nationwide. Leave blank to use your home location only.</p>
+                </div>
+              </div>
+              <div class="settings-card">
+                <div class="settings-card-title">About</div>
+                <p class="form-hint" style="margin:0;">Home Weather integration${this._version ? ` · v${this._version}` : ""}. Configure alert zones, hazard monitoring, and announcements from the sections on the left.</p>
+              </div>
+            </section>
 
-        ${renderCategory("settings-alerts", "Announcements &amp; Alerts", "Enable and test each alert type independently. Media players and TTS entities are configured per player.", `
+            <section class="settings-pane ${activePane === "zones" ? "active" : ""}" data-settings-pane="zones">
+              <div class="settings-pane-head">
+                <div class="settings-pane-title">Alert Zones</div>
+                <div class="settings-pane-sub">Set the radius around your home for each hazard, or bypass the zone so sensors report everything. Values here are the single source of truth for the Home Assistant sensors.</div>
+              </div>
+              <div class="zone-editor-cta">
+                <div class="zone-editor-cta-text">
+                  <div class="zone-editor-cta-title">Edit zones on the map</div>
+                  <div class="zone-editor-cta-sub">Drag each hazard's radius around your home visually with live distance readouts.</div>
+                </div>
+                <button type="button" class="btn btn-primary" id="open-zone-editor-btn">Open map editor</button>
+              </div>
+              <div class="zone-cards">
+                ${zoneHazards.map(renderZoneCard).join("")}
+              </div>
+            </section>
+
+            <section class="settings-pane ${activePane === "monitoring" ? "active" : ""}" data-settings-pane="monitoring">
+              <div class="settings-pane-head">
+                <div class="settings-pane-title">Hazard Monitoring</div>
+                <div class="settings-pane-sub">Data-quality filters per hazard. Zone radius and enable/bypass switches live in <strong>Alert Zones</strong>; spoken alert thresholds live in <strong>Announcements</strong>.</div>
+              </div>
+              ${renderNestedSection("hurricane-monitoring", "Hurricane", "Threat threshold for sensor tracking", `
+                <p class="form-hint">Detail sensors show values only when a storm is inside your hurricane zone; empty means nothing nearby under current thresholds.</p>
+                <div class="form-group">
+                  <label>Min threat level (sensors)</label>
+                  <select id="hurricane-monitoring-min-threat">
+                    <option value="none" ${hurricaneMonitoring.min_threat_level === "none" ? "selected" : ""}>None</option>
+                    <option value="monitor" ${hurricaneMonitoring.min_threat_level === "monitor" ? "selected" : ""}>Monitor</option>
+                    <option value="watch" ${hurricaneMonitoring.min_threat_level === "watch" ? "selected" : ""}>Watch</option>
+                    <option value="high" ${hurricaneMonitoring.min_threat_level === "high" ? "selected" : ""}>High</option>
+                  </select>
+                </div>
+              `)}
+              ${renderNestedSection("tornado-monitoring", "Tornado", "Warning polygon matching", `
+                <p class="form-hint">When enabled, sensors only trigger if the warning polygon actually covers your home; otherwise the tornado zone radius from Alert Zones applies.</p>
+                ${renderToggle("tornado-monitoring-only-home", tornadoMonitoring.only_affecting_home !== false, "Only when warning polygon includes home")}
+              `)}
+              ${renderNestedSection("earthquake-monitoring", "Earthquake", "USGS feeds and magnitude thresholds", `
+                <p class="form-hint">Nearby alerts and sensors use the real-time USGS feed within your earthquake zone. The hazard map shows worldwide seismic activity from a separate feed.</p>
+                <div class="form-row-inline">
+                  <div class="form-group">
+                    <label>Nearby min magnitude</label>
+                    <input type="number" id="earthquake-min-magnitude" min="0" max="10" step="0.1" value="${earthquakeMonitoring.min_magnitude}"/>
+                  </div>
+                  <div class="form-group">
+                    <label>Nearby alert feed (USGS real-time)</label>
+                    <select id="earthquake-feed-type">
+                      <option value="all_hour" ${earthquakeMonitoring.feed_type === "all_hour" ? "selected" : ""}>All earthquakes — past hour</option>
+                      <option value="all_day" ${earthquakeMonitoring.feed_type === "all_day" ? "selected" : ""}>All earthquakes — past day</option>
+                      <option value="2.5_day" ${earthquakeMonitoring.feed_type === "2.5_day" ? "selected" : ""}>M2.5+ — past day</option>
+                      <option value="4.5_week" ${earthquakeMonitoring.feed_type === "4.5_week" ? "selected" : ""}>M4.5+ — past week</option>
+                    </select>
+                  </div>
+                </div>
+                ${renderToggle("earthquake-map-worldwide", earthquakeMonitoring.map_show_worldwide !== false, "Show worldwide seismic activity on map")}
+                <div class="form-row-inline">
+                  <div class="form-group">
+                    <label>Map min magnitude</label>
+                    <input type="number" id="earthquake-map-min-magnitude" min="0" max="10" step="0.1" value="${earthquakeMonitoring.map_min_magnitude ?? 4.5}"/>
+                  </div>
+                  <div class="form-group">
+                    <label>Map feed</label>
+                    <select id="earthquake-map-feed-type">
+                      <option value="all_hour" ${earthquakeMonitoring.map_feed_type === "all_hour" ? "selected" : ""}>All earthquakes — past hour</option>
+                      <option value="all_day" ${earthquakeMonitoring.map_feed_type === "all_day" ? "selected" : ""}>All earthquakes — past day</option>
+                      <option value="2.5_day" ${earthquakeMonitoring.map_feed_type === "2.5_day" ? "selected" : ""}>M2.5+ — past day</option>
+                      <option value="4.5_week" ${(earthquakeMonitoring.map_feed_type || "all_day") === "4.5_week" ? "selected" : ""}>M4.5+ — past week</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="inline-toggle">
+                  <span class="inline-toggle-label">Tsunami alerts</span>
+                  <label class="toggle-switch">
+                    <input type="checkbox" id="earthquake-tsunami-enabled" ${earthquakeMonitoring.tsunami_alert_enabled !== false ? "checked" : ""}/>
+                    <span class="toggle-slider"></span>
+                  </label>
+                </div>
+              `)}
+              ${renderNestedSection("lightning-monitoring", "Lightning", "Live Blitzortung strike tracking", `
+                <p class="form-hint">Map markers require both tracking enabled (in Alert Zones) and the Lightning layer on the hazard map. Data from <a href="https://www.blitzortung.org" target="_blank" rel="noopener noreferrer">Blitzortung.org</a>.</p>
+                ${renderToggle("lightning-show-on-map", lightningMonitoring.show_on_map !== false, "Show live lightning on hazard map")}
+                <div class="form-group">
+                  <label>Strike retention (minutes)</label>
+                  <input type="number" id="lightning-max-age-minutes" min="5" max="240" value="${lightningMonitoring.max_age_minutes ?? 60}"/>
+                  <p class="form-hint">How long strike markers stay visible on the map.</p>
+                </div>
+              `)}
+            </section>
+
+            <section class="settings-pane ${activePane === "announcements" ? "active" : ""}" data-settings-pane="announcements">
+              <div class="settings-pane-head">
+                <div class="settings-pane-title">Announcements</div>
+                <div class="settings-pane-sub">Spoken forecasts and hazard alerts. Media players and TTS entities are configured per player; each alert type can be enabled and tested independently.</div>
+              </div>
           ${renderNestedSection("general", "Message Intro", "Opening phrase for spoken forecasts", `
             <div class="form-group">
               <label>Message Intro</label>
@@ -5179,7 +6036,7 @@ class HomeWeatherPanel extends HTMLElement {
             ${renderToggle("tropical-announce-new-storm", tropicalAlerts.announce_new_storm !== false, "Announce new nearby hurricane")}
             ${renderToggle("tropical-announce-outlook", tropicalAlerts.announce_outlook_development !== false, "Announce outlook development")}
             <div class="subsection-title">Alert thresholds (TTS only)</div>
-            <p class="form-hint">These control when hurricane alerts are spoken. Sensor geofield settings are under <strong>Advanced → Hurricane Monitoring</strong>.</p>
+            <p class="form-hint">These control when hurricane alerts are spoken. Distance uses your hurricane zone from <strong>Alert Zones</strong>.</p>
             <div class="form-row-inline">
               <div class="form-group">
                 <label>Min threat level</label>
@@ -5191,13 +6048,9 @@ class HomeWeatherPanel extends HTMLElement {
                 </select>
               </div>
               <div class="form-group">
-                <label>Max storm distance (mi)</label>
-                <input type="number" id="tropical-alerts-max-distance" min="1" max="5000" value="${tropicalAlerts.max_distance_miles}"/>
+                <label>Outlook min formation probability (%)</label>
+                <input type="number" id="tropical-alerts-outlook-prob" min="0" max="100" value="${tropicalAlerts.outlook_min_probability}"/>
               </div>
-            </div>
-            <div class="form-group">
-              <label>Outlook min formation probability (%)</label>
-              <input type="number" id="tropical-alerts-outlook-prob" min="0" max="100" value="${tropicalAlerts.outlook_min_probability}"/>
             </div>
             <div class="form-actions-row">
               <button type="button" class="test-tts-btn" id="test-tropical-btn">Test hurricane alert</button>
@@ -5224,13 +6077,7 @@ class HomeWeatherPanel extends HTMLElement {
             </div>
             <div class="subsection-title">Announcements</div>
             ${renderToggle("tornado-announce-cleared", tornadoAlerts.announce_cleared === true, "Announce when warning clears")}
-            <div class="subsection-title">Alert thresholds (TTS only)</div>
-            <p class="form-hint">These control when tornado warnings trigger spoken alerts. Sensor geofield settings are under <strong>Advanced → Tornado Monitoring</strong>.</p>
-            ${renderToggle("tornado-alerts-only-home", tornadoAlerts.only_affecting_home !== false, "Only when warning polygon includes home")}
-            <div class="form-group">
-              <label>Max distance when not home-only (mi)</label>
-              <input type="number" id="tornado-alerts-max-distance" min="1" max="500" value="${tornadoAlerts.max_distance_miles}"/>
-            </div>
+            <p class="form-hint">Spoken alerts follow your tornado zone and home-polygon settings from <strong>Alert Zones</strong> and <strong>Hazard Monitoring</strong>.</p>
             <div class="form-actions-row">
               <button type="button" class="test-tts-btn" id="test-tornado-btn">Test tornado alert</button>
             </div>
@@ -5267,7 +6114,7 @@ class HomeWeatherPanel extends HTMLElement {
             ${renderToggle("earthquake-alerts-tsunami-priority", earthquakeAlerts.tsunami_priority !== false, "Always announce tsunami-flagged events")}
             ${renderToggle("earthquake-alerts-announce-updated", earthquakeAlerts.announce_updated === true, "Announce magnitude updates")}
             ${renderToggle("earthquake-alerts-announce-cleared", earthquakeAlerts.announce_cleared === true, "Announce when event clears")}
-            <p class="form-hint">TTS thresholds are separate from earthquake monitoring under Advanced.</p>
+            <p class="form-hint">TTS thresholds are separate from the sensor zone in <strong>Alert Zones</strong> — use a tighter distance here to only speak about closer events.</p>
             <div class="form-actions-row">
               <button type="button" class="test-tts-btn" id="test-earthquake-alert-btn">Test earthquake alert</button>
             </div>
@@ -5403,131 +6250,49 @@ class HomeWeatherPanel extends HTMLElement {
               <p class="form-hint">Registers a <code>HomeWeatherForecast</code> intent and the phrases above as conversation triggers.</p>
             </div>
           `, true, "enable-voice-satellite", tts.enable_voice_satellite)}
-        `)}
+            </section>
 
-        ${renderCategory("settings-advanced", "Advanced", "Hazard monitoring, detection thresholds, forecast tuning and AI rewriting.", `
-          ${renderNestedSection("forecast-settings", "Forecast Settings", "Thresholds and limits", `
-            <div class="form-group">
-              <label>Precipitation Threshold (%)</label>
-              <input type="number" id="precip-threshold" min="0" max="100" value="${tts.precip_threshold}"/>
-            </div>
-
-            <div class="form-row-inline">
-              <div class="form-group">
-                <label>Wind Speed Threshold (for mention)</label>
-                <input type="number" id="wind-speed-threshold" min="0" max="100" value="${tts.wind_speed_threshold}"/>
+            <section class="settings-pane ${activePane === "advanced" ? "active" : ""}" data-settings-pane="advanced">
+              <div class="settings-pane-head">
+                <div class="settings-pane-title">Advanced</div>
+                <div class="settings-pane-sub">Forecast tuning thresholds and AI message rewriting.</div>
               </div>
+              ${renderNestedSection("forecast-settings", "Forecast Settings", "Thresholds and limits", `
+                <div class="form-group">
+                  <label>Precipitation Threshold (%)</label>
+                  <input type="number" id="precip-threshold" min="0" max="100" value="${tts.precip_threshold}"/>
+                </div>
 
-              <div class="form-group">
-                <label>Wind Gust Threshold (for mention)</label>
-                <input type="number" id="wind-gust-threshold" min="0" max="100" value="${tts.wind_gust_threshold}"/>
-              </div>
-            </div>
-          `)}
+                <div class="form-row-inline">
+                  <div class="form-group">
+                    <label>Wind Speed Threshold (for mention)</label>
+                    <input type="number" id="wind-speed-threshold" min="0" max="100" value="${tts.wind_speed_threshold}"/>
+                  </div>
 
-          ${renderNestedSection("hurricane-monitoring", "Hurricane Monitoring", "Sensor and map geofield for hurricane tracking", `
-            <p class="form-hint">Controls Home Assistant hurricane sensors and map display. Detail sensors show values only when a storm is inside this geofield; empty means nothing nearby under current thresholds. Alert thresholds for TTS stay under <strong>Announcements → Hurricane Alerts</strong>.</p>
-            <div class="form-row-inline">
-              <div class="form-group">
-                <label>Min threat level (sensors)</label>
-                <select id="hurricane-monitoring-min-threat">
-                  <option value="none" ${hurricaneMonitoring.min_threat_level === "none" ? "selected" : ""}>None</option>
-                  <option value="monitor" ${hurricaneMonitoring.min_threat_level === "monitor" ? "selected" : ""}>Monitor</option>
-                  <option value="watch" ${hurricaneMonitoring.min_threat_level === "watch" ? "selected" : ""}>Watch</option>
-                  <option value="high" ${hurricaneMonitoring.min_threat_level === "high" ? "selected" : ""}>High</option>
-                </select>
-              </div>
-              <div class="form-group">
-                <label>Max storm distance (mi)</label>
-                <input type="number" id="hurricane-monitoring-max-distance" min="1" max="5000" value="${hurricaneMonitoring.max_distance_miles}"/>
-              </div>
-            </div>
-          `, true, "hurricane-monitoring-enabled", hurricaneMonitoring.enabled !== false)}
+                  <div class="form-group">
+                    <label>Wind Gust Threshold (for mention)</label>
+                    <input type="number" id="wind-gust-threshold" min="0" max="100" value="${tts.wind_gust_threshold}"/>
+                  </div>
+                </div>
+              `)}
 
-          ${renderNestedSection("tornado-monitoring", "Tornado Monitoring", "Sensor geofield for tornado warnings", `
-            <p class="form-hint">Controls tornado sensors. Detail sensors are geofield-scoped — null means no warning polygon matches these thresholds. TTS alert thresholds are under <strong>Announcements → Tornado Warning Alerts</strong>.</p>
-            ${renderToggle("tornado-monitoring-only-home", tornadoMonitoring.only_affecting_home !== false, "Only when warning polygon includes home")}
-            <div class="form-group">
-              <label>Max distance when not home-only (mi)</label>
-              <input type="number" id="tornado-monitoring-max-distance" min="1" max="500" value="${tornadoMonitoring.max_distance_miles}"/>
-            </div>
-          `, true, "tornado-monitoring-enabled", tornadoMonitoring.enabled !== false)}
+              ${renderNestedSection("ai-rewrite", "AI Rewrite", "Rewrite TTS messages with an AI Task", `
+                <div class="form-group" style="margin-top: var(--form-gap);">
+                  <label>AI Task Entity</label>
+                  ${this._renderEntityAutocomplete("ai-task-entity", tts.ai_task_entity || "", "ai_task", "Type to search AI task entities...")}
+                </div>
+                <div class="form-group">
+                  <label>AI Rewrite Prompt</label>
+                  <textarea class="textarea-field" id="ai-rewrite-prompt">${tts.ai_rewrite_prompt}</textarea>
+                </div>
+              `, true, "use-ai-rewrite", tts.use_ai_rewrite)}
+            </section>
 
-          ${renderNestedSection("earthquake-monitoring", "Earthquake Monitoring", "Real-time USGS alerts near home; worldwide map display", `
-            <p class="form-hint">Nearby alerts and sensors use the real-time USGS feed with a home-radius filter. The hazard map shows worldwide seismic activity from a separate USGS feed. Detail sensors are geofield-scoped.</p>
-            <div class="form-row-inline">
-              <div class="form-group">
-                <label>Nearby min magnitude</label>
-                <input type="number" id="earthquake-min-magnitude" min="0" max="10" step="0.1" value="${earthquakeMonitoring.min_magnitude}"/>
-              </div>
-              <div class="form-group">
-                <label>Nearby radius (miles)</label>
-                <input type="number" id="earthquake-radius-miles" min="1" max="5000" step="1" value="${earthquakeMonitoring.radius_miles}"/>
-              </div>
+            <div class="settings-form-footer">
+              <button class="btn btn-secondary" id="cancel-btn">Cancel</button>
+              <button class="btn btn-primary" id="save-btn">Save changes</button>
             </div>
-            <div class="form-group">
-              <label>Nearby alert feed (USGS real-time)</label>
-              <select id="earthquake-feed-type">
-                <option value="all_hour" ${earthquakeMonitoring.feed_type === "all_hour" ? "selected" : ""}>All earthquakes — past hour</option>
-                <option value="all_day" ${earthquakeMonitoring.feed_type === "all_day" ? "selected" : ""}>All earthquakes — past day</option>
-                <option value="2.5_day" ${earthquakeMonitoring.feed_type === "2.5_day" ? "selected" : ""}>M2.5+ — past day</option>
-                <option value="4.5_week" ${earthquakeMonitoring.feed_type === "4.5_week" ? "selected" : ""}>M4.5+ — past week</option>
-              </select>
-            </div>
-            ${renderToggle("earthquake-map-worldwide", earthquakeMonitoring.map_show_worldwide !== false, "Show worldwide seismic activity on map")}
-            <div class="form-row-inline">
-              <div class="form-group">
-                <label>Map min magnitude</label>
-                <input type="number" id="earthquake-map-min-magnitude" min="0" max="10" step="0.1" value="${earthquakeMonitoring.map_min_magnitude ?? 4.5}"/>
-              </div>
-              <div class="form-group">
-                <label>Map feed</label>
-                <select id="earthquake-map-feed-type">
-                  <option value="all_hour" ${earthquakeMonitoring.map_feed_type === "all_hour" ? "selected" : ""}>All earthquakes — past hour</option>
-                  <option value="all_day" ${earthquakeMonitoring.map_feed_type === "all_day" ? "selected" : ""}>All earthquakes — past day</option>
-                  <option value="2.5_day" ${earthquakeMonitoring.map_feed_type === "2.5_day" ? "selected" : ""}>M2.5+ — past day</option>
-                  <option value="4.5_week" ${(earthquakeMonitoring.map_feed_type || "all_day") === "4.5_week" ? "selected" : ""}>M4.5+ — past week</option>
-                </select>
-              </div>
-            </div>
-            <div class="inline-toggle">
-              <span class="inline-toggle-label">Tsunami alerts</span>
-              <label class="toggle-switch">
-                <input type="checkbox" id="earthquake-tsunami-enabled" ${earthquakeMonitoring.tsunami_alert_enabled !== false ? "checked" : ""}/>
-                <span class="toggle-slider"></span>
-              </label>
-            </div>
-          `, true, "earthquake-monitoring-enabled", earthquakeMonitoring.enabled !== false)}
-
-          ${renderNestedSection("lightning-monitoring", "Lightning Monitoring", "Live Blitzortung strike tracking for sensors and map", `
-            <p class="form-hint">Enable backend lightning tracking for Home Assistant entities. Map markers require both tracking enabled and the Lightning layer on the hazard map. Detail sensors (distance, place) are geofield-scoped.</p>
-            ${renderToggle("lightning-show-on-map", lightningMonitoring.show_on_map !== false, "Show live lightning on hazard map")}
-            <div class="form-group">
-              <label>Sensor geofield radius (mi)</label>
-              <input type="number" id="lightning-geofield-radius-miles" min="1" max="500" value="${lightningMonitoring.geofield_radius_miles ?? 100}"/>
-            </div>
-            <div class="form-group">
-              <label>Strike retention (minutes)</label>
-              <input type="number" id="lightning-max-age-minutes" min="5" max="240" value="${lightningMonitoring.max_age_minutes ?? 60}"/>
-              <p class="form-hint">How long strike markers stay visible on the map. Data from <a href="https://www.blitzortung.org" target="_blank" rel="noopener noreferrer">Blitzortung.org</a>.</p>
-            </div>
-          `, true, "lightning-monitoring-enabled", lightningMonitoring.enabled !== false)}
-
-          ${renderNestedSection("ai-rewrite", "AI Rewrite", "Rewrite TTS messages with an AI Task", `
-            <div class="form-group" style="margin-top: var(--form-gap);">
-              <label>AI Task Entity</label>
-              ${this._renderEntityAutocomplete("ai-task-entity", tts.ai_task_entity || "", "ai_task", "Type to search AI task entities...")}
-            </div>
-            <div class="form-group">
-              <label>AI Rewrite Prompt</label>
-              <textarea class="textarea-field" id="ai-rewrite-prompt">${tts.ai_rewrite_prompt}</textarea>
-            </div>
-          `, true, "use-ai-rewrite", tts.use_ai_rewrite)}
-        `)}
-
-        <div class="settings-form-footer">
-          <button class="btn btn-secondary" id="cancel-btn">Cancel</button>
-          <button class="btn btn-primary" id="save-btn">Save changes</button>
+          </div>
         </div>
       </div>
     `;
@@ -5540,6 +6305,9 @@ class HomeWeatherPanel extends HTMLElement {
 
     const weatherEntity = s.getElementById("weather-entity");
     if (weatherEntity) this._settings.weather_entity = weatherEntity.value || null;
+
+    const nwsZone = s.getElementById("nws-zone");
+    if (nwsZone) this._settings.nws_zone = (nwsZone.value || "").trim();
 
     this._settings.tts = this._collectTtsSettings();
     this._settings.sun_alerts = this._collectSunAlertsSettings();
@@ -5684,13 +6452,16 @@ class HomeWeatherPanel extends HTMLElement {
     const getChecked = (id) => !!s.getElementById(id)?.checked;
     const levels = ["none", "monitor", "watch", "high"];
     const minThreat = getVal("tropical-alerts-min-threat", defaults.min_threat_level);
+    // Distance follows the hurricane zone (single source of truth in Alert Zones).
+    const existing = this._settings.tropical_alerts || {};
+    const zoneDistance = parseInt(getVal("hurricane-monitoring-max-distance", String(existing.max_distance_miles ?? defaults.max_distance_miles)), 10);
     return {
       enabled: getChecked("tropical-alerts-enabled"),
       sound_file: (getVal("tropical-alerts-sound-file", "") || "").trim(),
       sound_volume: Math.min(1, Math.max(0, parseFloat(getVal("tropical-alerts-sound-volume", "0.8")))),
       tts_volume: Math.min(1, Math.max(0, parseFloat(getVal("tropical-alerts-tts-volume", "0.9")))),
       min_threat_level: levels.includes(minThreat) ? minThreat : defaults.min_threat_level,
-      max_distance_miles: Math.min(5000, Math.max(1, parseInt(getVal("tropical-alerts-max-distance", String(defaults.max_distance_miles)), 10) || defaults.max_distance_miles)),
+      max_distance_miles: Math.min(5000, Math.max(1, zoneDistance || defaults.max_distance_miles)),
       announce_inside_cone: getChecked("tropical-announce-cone"),
       announce_threat_escalation: getChecked("tropical-announce-escalation"),
       announce_new_storm: getChecked("tropical-announce-new-storm"),
@@ -5708,13 +6479,18 @@ class HomeWeatherPanel extends HTMLElement {
     if (!s) return defaults;
     const getVal = (id, def) => (s.getElementById(id)?.value ?? def);
     const getChecked = (id) => !!s.getElementById(id)?.checked;
+    // Geofield options follow the tornado zone + monitoring settings
+    // (single source of truth in Alert Zones / Hazard Monitoring).
+    const existing = this._settings.tornado_alerts || {};
+    const zoneDistance = parseInt(getVal("tornado-monitoring-max-distance", String(existing.max_distance_miles ?? defaults.max_distance_miles)), 10);
+    const onlyHomeEl = s.getElementById("tornado-monitoring-only-home");
     return {
       enabled: getChecked("tornado-alerts-enabled"),
       sound_file: (getVal("tornado-alerts-sound-file", "") || "").trim(),
       sound_volume: Math.min(1, Math.max(0, parseFloat(getVal("tornado-alerts-sound-volume", "0.8")))),
       tts_volume: Math.min(1, Math.max(0, parseFloat(getVal("tornado-alerts-tts-volume", "0.9")))),
-      only_affecting_home: getChecked("tornado-alerts-only-home"),
-      max_distance_miles: Math.min(500, Math.max(1, parseInt(getVal("tornado-alerts-max-distance", String(defaults.max_distance_miles)), 10) || defaults.max_distance_miles)),
+      only_affecting_home: onlyHomeEl ? !!onlyHomeEl.checked : (existing.only_affecting_home !== false),
+      max_distance_miles: Math.min(500, Math.max(1, zoneDistance || defaults.max_distance_miles)),
       announce_cleared: getChecked("tornado-announce-cleared"),
     };
   }
@@ -5742,38 +6518,54 @@ class HomeWeatherPanel extends HTMLElement {
     };
   }
 
+  /** Read the zone/all segmented switch for a hazard from the Alert Zones pane. */
+  _getZoneModeFromForm(hazardKey, fallback = "zone") {
+    const s = this.shadowRoot;
+    const activeBtn = s?.querySelector(`.zone-mode-seg[data-zone-mode-for="${hazardKey}"] button.active`);
+    if (!activeBtn) return fallback;
+    return activeBtn.dataset.mode === "all" ? "all" : "zone";
+  }
+
   _collectHurricaneMonitoringSettings() {
     const s = this.shadowRoot;
-    const defaults = { enabled: true, max_distance_miles: 500, min_threat_level: "monitor" };
-    if (!s) return defaults;
+    const existing = this._settings.hurricane_monitoring || {};
+    const defaults = { enabled: true, zone_mode: "zone", max_distance_miles: 500, min_threat_level: "monitor" };
+    if (!s) return { ...defaults, ...existing };
     const getVal = (id, def) => (s.getElementById(id)?.value ?? def);
     const getChecked = (id) => !!s.getElementById(id)?.checked;
     const levels = ["none", "monitor", "watch", "high"];
     const minThreat = getVal("hurricane-monitoring-min-threat", defaults.min_threat_level);
     return {
+      ...existing,
       enabled: getChecked("hurricane-monitoring-enabled"),
+      zone_mode: this._getZoneModeFromForm("hurricane", existing.zone_mode || "zone"),
       min_threat_level: levels.includes(minThreat) ? minThreat : defaults.min_threat_level,
-      max_distance_miles: Math.min(5000, Math.max(1, parseInt(getVal("hurricane-monitoring-max-distance", String(defaults.max_distance_miles)), 10) || defaults.max_distance_miles)),
+      max_distance_miles: Math.min(5000, Math.max(1, parseInt(getVal("hurricane-monitoring-max-distance", String(existing.max_distance_miles ?? defaults.max_distance_miles)), 10) || defaults.max_distance_miles)),
     };
   }
 
   _collectTornadoMonitoringSettings() {
     const s = this.shadowRoot;
-    const defaults = { enabled: true, only_affecting_home: true, max_distance_miles: 25 };
-    if (!s) return defaults;
+    const existing = this._settings.tornado_monitoring || {};
+    const defaults = { enabled: true, zone_mode: "zone", only_affecting_home: true, max_distance_miles: 25 };
+    if (!s) return { ...defaults, ...existing };
     const getVal = (id, def) => (s.getElementById(id)?.value ?? def);
     const getChecked = (id) => !!s.getElementById(id)?.checked;
     return {
+      ...existing,
       enabled: getChecked("tornado-monitoring-enabled"),
+      zone_mode: this._getZoneModeFromForm("tornado", existing.zone_mode || "zone"),
       only_affecting_home: getChecked("tornado-monitoring-only-home"),
-      max_distance_miles: Math.min(500, Math.max(1, parseInt(getVal("tornado-monitoring-max-distance", String(defaults.max_distance_miles)), 10) || defaults.max_distance_miles)),
+      max_distance_miles: Math.min(500, Math.max(1, parseInt(getVal("tornado-monitoring-max-distance", String(existing.max_distance_miles ?? defaults.max_distance_miles)), 10) || defaults.max_distance_miles)),
     };
   }
 
   _collectEarthquakeMonitoringSettings() {
     const s = this.shadowRoot;
+    const existing = this._settings.earthquake_monitoring || {};
     const defaults = {
       enabled: true,
+      zone_mode: "zone",
       min_magnitude: 2.5,
       radius_miles: 500,
       feed_type: "all_hour",
@@ -5782,16 +6574,18 @@ class HomeWeatherPanel extends HTMLElement {
       map_min_magnitude: 4.5,
       map_feed_type: "all_day",
     };
-    if (!s) return defaults;
+    if (!s) return { ...defaults, ...existing };
     const getVal = (id, def) => (s.getElementById(id)?.value ?? def);
     const getChecked = (id) => !!s.getElementById(id)?.checked;
     const feedType = getVal("earthquake-feed-type", defaults.feed_type);
     const mapFeedType = getVal("earthquake-map-feed-type", defaults.map_feed_type);
     const validFeeds = ["all_hour", "all_day", "2.5_day", "4.5_week"];
     return {
+      ...existing,
       enabled: getChecked("earthquake-monitoring-enabled"),
+      zone_mode: this._getZoneModeFromForm("earthquake", existing.zone_mode || "zone"),
       min_magnitude: Math.min(10, Math.max(0, parseFloat(getVal("earthquake-min-magnitude", String(defaults.min_magnitude))) || defaults.min_magnitude)),
-      radius_miles: Math.min(5000, Math.max(1, parseInt(getVal("earthquake-radius-miles", String(defaults.radius_miles)), 10) || defaults.radius_miles)),
+      radius_miles: Math.min(5000, Math.max(1, parseInt(getVal("earthquake-radius-miles", String(existing.radius_miles ?? defaults.radius_miles)), 10) || defaults.radius_miles)),
       feed_type: validFeeds.includes(feedType) ? feedType : defaults.feed_type,
       tsunami_alert_enabled: getChecked("earthquake-tsunami-enabled"),
       map_show_worldwide: getChecked("earthquake-map-worldwide"),
@@ -5802,16 +6596,19 @@ class HomeWeatherPanel extends HTMLElement {
 
   _collectLightningMonitoringSettings() {
     const s = this.shadowRoot;
-    const defaults = { enabled: true, show_on_map: true, max_age_minutes: 60, max_strikes: 500, geofield_radius_miles: 100 };
-    if (!s) return defaults;
+    const existing = this._settings.lightning_monitoring || {};
+    const defaults = { enabled: true, zone_mode: "zone", show_on_map: true, max_age_minutes: 60, max_strikes: 500, geofield_radius_miles: 100 };
+    if (!s) return { ...defaults, ...existing };
     const getVal = (id, def) => (s.getElementById(id)?.value ?? def);
     const getChecked = (id) => !!s.getElementById(id)?.checked;
     return {
+      ...existing,
       enabled: getChecked("lightning-monitoring-enabled"),
+      zone_mode: this._getZoneModeFromForm("lightning", existing.zone_mode || "zone"),
       show_on_map: getChecked("lightning-show-on-map"),
-      geofield_radius_miles: Math.min(500, Math.max(1, parseInt(getVal("lightning-geofield-radius-miles", String(defaults.geofield_radius_miles)), 10) || defaults.geofield_radius_miles)),
+      geofield_radius_miles: Math.min(500, Math.max(1, parseInt(getVal("lightning-geofield-radius-miles", String(existing.geofield_radius_miles ?? defaults.geofield_radius_miles)), 10) || defaults.geofield_radius_miles)),
       max_age_minutes: Math.min(240, Math.max(5, parseInt(getVal("lightning-max-age-minutes", String(defaults.max_age_minutes)), 10) || defaults.max_age_minutes)),
-      max_strikes: defaults.max_strikes,
+      max_strikes: existing.max_strikes ?? defaults.max_strikes,
     };
   }
 
@@ -5821,7 +6618,7 @@ class HomeWeatherPanel extends HTMLElement {
 
   _collectLightningSettings() {
     const mon = this._collectLightningMonitoringSettings();
-    const { enabled, ...legacy } = mon;
+    const { enabled: _enabled, ...legacy } = mon;
     return legacy;
   }
 }

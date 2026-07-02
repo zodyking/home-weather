@@ -166,12 +166,14 @@ def get_tornado_geofield_config(config: dict[str, Any] | None) -> dict[str, Any]
     if monitoring:
         return {
             "enabled": monitoring.get("enabled", True),
+            "zone_mode": monitoring.get("zone_mode", "zone"),
             "only_affecting_home": monitoring.get("only_affecting_home", True),
             "max_distance_miles": float(monitoring.get("max_distance_miles", 25)),
         }
     tornado = (config or {}).get("tornado_alerts") or {}
     return {
         "enabled": True,
+        "zone_mode": "zone",
         "only_affecting_home": tornado.get("only_affecting_home", True),
         "max_distance_miles": float(tornado.get("max_distance_miles", 25)),
     }
@@ -182,6 +184,8 @@ def passes_tornado_geofield_filter(
     geofield_config: dict[str, Any],
 ) -> bool:
     """Return True when alert is within the user's configured tornado geofield."""
+    if geofield_config.get("zone_mode", "zone") == "all":
+        return True
     if geofield_config.get("only_affecting_home", True):
         return bool(alert.get("affecting_home"))
     dist = alert.get("distance_miles")

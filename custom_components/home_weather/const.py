@@ -89,16 +89,20 @@ DEFAULT_CONFIG: Final = {
     "nws_zone": "",
     "hurricane_monitoring": {
         "enabled": True,
+        # "zone": filter by radius around home; "all": bypass zone, report all data
+        "zone_mode": "zone",
         "max_distance_miles": 500,
         "min_threat_level": "monitor",
     },
     "tornado_monitoring": {
         "enabled": True,
+        "zone_mode": "zone",
         "only_affecting_home": True,
         "max_distance_miles": 25,
     },
     "earthquake_monitoring": {
         "enabled": True,
+        "zone_mode": "zone",
         "min_magnitude": 2.5,
         "radius_miles": 500,
         "feed_type": "all_hour",
@@ -109,6 +113,7 @@ DEFAULT_CONFIG: Final = {
     },
     "lightning_monitoring": {
         "enabled": True,
+        "zone_mode": "zone",
         "show_on_map": True,
         "max_age_minutes": 60,
         "max_strikes": 500,

@@ -86,6 +86,8 @@
       this._coordsEl = null;
       this._baseLayers = null;
       this._statusCollapsed = true;
+      this._showZones = false;
+      this._zoneConfig = [];
     }
 
     _isCompactLayout() {
@@ -127,6 +129,18 @@
 
     setShowWindRadii(show) {
       this._showWindRadii = !!show;
+      if (this._map && this._layerGroup) this._renderMap();
+    }
+
+    /**
+     * Toggle the "My zones" overlay: translucent per-hazard alert-radius
+     * circles around home, driven by the Alert Zones settings.
+     * @param {boolean} show
+     * @param {Array<{key:string,label:string,color:string,enabled:boolean,zone_mode:string,radius_miles:number}>} [zones]
+     */
+    setShowZones(show, zones) {
+      this._showZones = !!show;
+      if (Array.isArray(zones)) this._zoneConfig = zones;
       if (this._map && this._layerGroup) this._renderMap();
     }
 
@@ -2089,10 +2103,36 @@
         bounds.push([home.lat, home.lon]);
       }
 
+      if (this._showZones && home?.lat != null && home?.lon != null) {
+        this._drawZoneOverlay(home);
+      }
+
       if (fitView || !this._hasInitialFit) {
         this._fitMapView(bounds);
       }
       setTimeout(() => this._map?.invalidateSize(), 100);
+    }
+
+    /** Draw the configured alert-zone circles around home (My zones overlay). */
+    _drawZoneOverlay(home) {
+      const zones = Array.isArray(this._zoneConfig) ? this._zoneConfig : [];
+      zones.forEach((zone) => {
+        if (!zone || !zone.enabled || !(zone.radius_miles > 0)) return;
+        const bypassed = zone.zone_mode === "all";
+        const circle = global.L.circle([home.lat, home.lon], {
+          radius: zone.radius_miles * 1609.34,
+          color: zone.color || "#29b6f6",
+          weight: bypassed ? 1 : 2,
+          opacity: bypassed ? 0.35 : 0.75,
+          dashArray: bypassed ? "4 8" : "6 4",
+          fillColor: zone.color || "#29b6f6",
+          fillOpacity: bypassed ? 0.02 : 0.05,
+          interactive: true,
+          pane: "overlayPane",
+        }).addTo(this._layerGroup);
+        const mode = bypassed ? "Bypassed — showing all data" : `${Math.round(zone.radius_miles)} mi zone`;
+        circle.bindTooltip(`${this._esc(zone.label || zone.key)} · ${this._esc(mode)}`, { sticky: true, direction: "top" });
+      });
     }
 
     _fitMapView(stormBounds) {

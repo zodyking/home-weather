@@ -132,7 +132,7 @@ def test_setup_registers_time_based_trigger_without_master_switch():
     ) as mock_setup:
         import asyncio
 
-        asyncio.get_event_loop().run_until_complete(manager.async_setup())
+        asyncio.run(manager.async_setup())
 
     mock_setup.assert_awaited_once()
 
@@ -161,7 +161,7 @@ def test_setup_skips_time_based_when_no_sub_toggle_even_if_enabled_true():
     ) as mock_setup:
         import asyncio
 
-        asyncio.get_event_loop().run_until_complete(manager.async_setup())
+        asyncio.run(manager.async_setup())
 
     mock_setup.assert_not_awaited()
 
@@ -193,9 +193,7 @@ def test_sun_alerts_setup_uses_filtered_player_list():
     ) as mock_track:
         import asyncio
 
-        asyncio.get_event_loop().run_until_complete(
-            manager._setup_sun_alerts_trigger(config)
-        )
+        asyncio.run(manager._setup_sun_alerts_trigger(config))
 
     # No time interval registered because no player has TTS configured.
     mock_track.assert_not_called()

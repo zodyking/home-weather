@@ -30,6 +30,7 @@ def get_earthquake_config(config: dict[str, Any] | None) -> dict[str, Any]:
     """Return merged earthquake monitoring config with defaults."""
     defaults = {
         "enabled": True,
+        "zone_mode": "zone",
         "min_magnitude": 2.5,
         "radius_miles": 500,
         "feed_type": "all_hour",
@@ -146,10 +147,11 @@ def passes_earthquake_filters(
     if magnitude is None or magnitude < min_mag:
         return False
 
-    radius = float(eq_config.get("radius_miles", 500))
-    distance = event.get("distance_miles")
-    if distance is None or distance > radius:
-        return False
+    if eq_config.get("zone_mode", "zone") != "all":
+        radius = float(eq_config.get("radius_miles", 500))
+        distance = event.get("distance_miles")
+        if distance is None or distance > radius:
+            return False
 
     if not eq_config.get("tsunami_alert_enabled", True) and event.get("tsunami") == 1:
         return False

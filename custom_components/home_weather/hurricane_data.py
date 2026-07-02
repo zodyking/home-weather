@@ -870,12 +870,14 @@ def get_hurricane_geofield_config(config: dict[str, Any] | None) -> dict[str, An
     if monitoring:
         return {
             "enabled": monitoring.get("enabled", True),
+            "zone_mode": monitoring.get("zone_mode", "zone"),
             "max_distance_miles": float(monitoring.get("max_distance_miles", 500)),
             "min_threat_level": monitoring.get("min_threat_level", "monitor"),
         }
     tropical = (config or {}).get("tropical_alerts") or {}
     return {
         "enabled": True,
+        "zone_mode": "zone",
         "max_distance_miles": float(tropical.get("max_distance_miles", 500)),
         "min_threat_level": tropical.get("min_threat_level", "watch"),
     }
@@ -887,6 +889,8 @@ def storm_in_geofield(storm: dict[str, Any], geofield_config: dict[str, Any]) ->
     threat_level = threat.get("threatLevel", "none")
     if not _meets_min_threat(threat_level, geofield_config.get("min_threat_level", "watch")):
         return False
+    if geofield_config.get("zone_mode", "zone") == "all":
+        return True
     dist = threat.get("distanceToCenterMiles")
     max_dist = float(geofield_config.get("max_distance_miles", 500))
     return dist is not None and dist <= max_dist

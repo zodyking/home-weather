@@ -57,6 +57,7 @@ def get_lightning_config(config: dict[str, Any] | None) -> dict[str, Any]:
     """Return merged lightning monitoring config with defaults."""
     defaults = {
         "enabled": True,
+        "zone_mode": "zone",
         "show_on_map": True,
         "max_age_minutes": 60,
         "max_strikes": 500,
@@ -122,7 +123,10 @@ def build_lightning_payload(
         recent.append({**strike, "distance_miles": dist})
 
     recent.sort(key=lambda s: s.get("time_ms") or 0, reverse=True)
-    geofield = [s for s in recent if s.get("distance_miles", float("inf")) <= geofield_radius]
+    if lightning_config.get("zone_mode", "zone") == "all":
+        geofield = list(recent)
+    else:
+        geofield = [s for s in recent if s.get("distance_miles", float("inf")) <= geofield_radius]
     nearest = min(geofield, key=lambda s: s.get("distance_miles", float("inf"))) if geofield else None
 
     one_hour_ms = int(dt_util.utcnow().timestamp() * 1000) - 3600 * 1000
