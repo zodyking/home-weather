@@ -13,6 +13,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .hurricane_data import get_home_coordinates
+from .sensor_scope import is_sensor_bypass, pick_nearest_by_distance
 from .hurricane_geo import haversine_distance_miles
 
 _LOGGER = logging.getLogger(__name__)
@@ -237,6 +238,11 @@ def pick_primary_air_quality(areas: list[dict[str, Any]]) -> dict[str, Any] | No
     )
 
 
+def pick_nearest_air_quality(areas: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Return the nearest air quality reporting area."""
+    return pick_nearest_by_distance(areas)
+
+
 def _air_quality_event_tracking_signature(area: dict[str, Any]) -> dict[str, Any]:
     return {
         "aqi": area.get("aqi"),
@@ -347,7 +353,10 @@ def build_coordinator_payload(
         air_quality_config.get("alert_zone_mode", air_quality_config.get("zone_mode", "zone"))
     ).lower()
     alert_events = filtered if alert_mode == "all" else geofield_events
-    primary = pick_primary_air_quality(sensor_events)
+    if is_sensor_bypass(air_quality_config):
+        primary = pick_nearest_air_quality(sensor_events)
+    else:
+        primary = pick_primary_air_quality(sensor_events)
 
     geojson = build_air_quality_geojson(areas, air_quality_config, home=home)
 

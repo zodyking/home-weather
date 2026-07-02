@@ -21,6 +21,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.util import dt as dt_util
 
 from .hurricane_data import get_home_coordinates
+from .sensor_scope import is_sensor_bypass, pick_nearest_by_distance
 from .hurricane_geo import haversine_distance_miles
 
 _LOGGER = logging.getLogger(__name__)
@@ -503,7 +504,10 @@ def build_coordinator_payload(
         e for e in active_events if passes_volcano_filters(e, volcano_config)
     ]
     geofield_ids = {str(e["id"]) for e in geofield_events if e.get("id")}
-    nearest = pick_nearest_volcano(sensor_events)
+    if is_sensor_bypass(volcano_config):
+        nearest = pick_nearest_by_distance(sensor_events)
+    else:
+        nearest = pick_nearest_volcano(sensor_events)
     # The full worldwide catalog is always plotted; inactive volcanoes render
     # as dim catalog points while active ones glow with their alert color.
     # Alert scope: bypass fires spoken alerts for all active volcanoes

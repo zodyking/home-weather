@@ -37,4 +37,18 @@ def primary_geofield(data: dict[str, Any] | None, key: str = "primary_geofield")
 
 def has_sensor_data(data: dict[str, Any] | None, key: str = "primary_geofield") -> bool:
     """Return True when coordinator payload has a primary record for detail sensors."""
-    return primary_geofield(data, key) is not None
+    if primary_geofield(data, key):
+        return True
+    if not data:
+        return False
+    summary = data.get("sensor_summary") or {}
+    if summary.get("closest_storm_name") or summary.get("distance_miles") is not None:
+        return True
+    for count_key in ("active_count", "warning_active", "nearby_active"):
+        if int(data.get(count_key) or 0) > 0:
+            return True
+    for list_key in ("alerts", "events", "sensor_events"):
+        items = data.get(list_key)
+        if isinstance(items, list) and items:
+            return True
+    return False

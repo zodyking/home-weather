@@ -10,7 +10,7 @@ from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from ..hurricane_coordinator import HurricaneCoordinator
-from .base import hazard_device_info, has_sensor_data
+from .base import hazard_device_info, has_sensor_data, primary_geofield
 
 
 def create_hurricane_entities(
@@ -40,6 +40,9 @@ class _HurricaneEntity(CoordinatorEntity, SensorEntity):
     def _summary(self) -> dict[str, Any]:
         data = self.coordinator.data or {}
         return data.get("sensor_summary") or {}
+
+    def _closest_storm(self) -> dict[str, Any] | None:
+        return primary_geofield(self.coordinator.data)
 
 
 class _HurricaneBinaryEntity(CoordinatorEntity, BinarySensorEntity):
@@ -119,7 +122,11 @@ class HurricaneClosestStormNameSensor(_HurricaneEntity):
         data = self.coordinator.data or {}
         if not has_sensor_data(data):
             return None
-        return self._summary().get("closest_storm_name")
+        name = self._summary().get("closest_storm_name")
+        if name:
+            return name
+        storm = self._closest_storm()
+        return storm.get("name") if storm else None
 
 
 class HurricaneDistanceSensor(_HurricaneEntity):
@@ -137,6 +144,10 @@ class HurricaneDistanceSensor(_HurricaneEntity):
         if not has_sensor_data(data):
             return None
         dist = self._summary().get("distance_miles")
+        if dist is None:
+            storm = self._closest_storm()
+            threat = (storm or {}).get("threat") or {}
+            dist = threat.get("distanceToCenterMiles") or threat.get("nearestTrackDistanceMiles")
         return float(dist) if dist is not None else None
 
 

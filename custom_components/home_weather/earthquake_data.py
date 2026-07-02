@@ -12,6 +12,7 @@ from homeassistant.util import dt as dt_util
 
 from .hurricane_data import get_home_coordinates
 from .hurricane_geo import haversine_distance_miles
+from .sensor_scope import pick_nearest_by_distance
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -293,15 +294,7 @@ def sort_earthquakes_by_newest(events: list[dict[str, Any]]) -> list[dict[str, A
 
 def pick_nearest_earthquake(events: list[dict[str, Any]]) -> dict[str, Any] | None:
     """Return nearest qualifying earthquake."""
-    if not events:
-        return None
-    return min(
-        events,
-        key=lambda e: (
-            e.get("distance_miles") if e.get("distance_miles") is not None else float("inf"),
-            -(e.get("time") or 0),
-        ),
-    )
+    return pick_nearest_by_distance(events)
 
 
 def build_earthquake_geojson(

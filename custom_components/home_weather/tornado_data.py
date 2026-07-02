@@ -10,6 +10,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.util import dt as dt_util
 
 from .hurricane_data import get_home_coordinates
+from .sensor_scope import is_sensor_bypass, pick_nearest_by_distance
 from .tornado_geo import (
     SEVERITY_RANK,
     distance_to_polygon,
@@ -239,7 +240,10 @@ def build_coordinator_payload(
     else:
         geofield_alerts = filter_alerts_for_geofield(alerts, config)
         sensor_alerts = filter_alerts_for_sensor_scope(alerts, config)
-    primary = sensor_alerts[0] if sensor_alerts else None
+    if is_sensor_bypass(geofield_config):
+        primary = pick_nearest_by_distance(sensor_alerts)
+    else:
+        primary = sensor_alerts[0] if sensor_alerts else None
     affecting_home = any(a.get("affecting_home") for a in geofield_alerts)
     distances = [
         a["distance_miles"]

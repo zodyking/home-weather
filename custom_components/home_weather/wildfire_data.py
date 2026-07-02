@@ -16,6 +16,7 @@ from homeassistant.util import dt as dt_util
 
 from .hurricane_data import get_home_coordinates
 from .hurricane_geo import haversine_distance_miles
+from .sensor_scope import is_sensor_bypass, pick_nearest_by_distance
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -408,8 +409,11 @@ def build_coordinator_payload(
         wildfire_config.get("alert_zone_mode", wildfire_config.get("zone_mode", "zone"))
     ).lower()
     alert_events = incidents if alert_mode == "all" else geofield_events
-    primary = pick_nearest_wildfire(sensor_events)
-    nearest = pick_nearest_wildfire(incidents)
+    if is_sensor_bypass(wildfire_config):
+        primary = pick_nearest_by_distance(sensor_events)
+    else:
+        primary = pick_nearest_wildfire(sensor_events)
+    nearest = pick_nearest_by_distance(incidents) or pick_nearest_wildfire(incidents)
 
     active_uncontained = sum(
         1

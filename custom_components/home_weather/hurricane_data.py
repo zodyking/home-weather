@@ -17,6 +17,7 @@ from .hurricane_geo import (
     get_nearest_forecast_point,
     get_outlook_summary,
     get_storm_threat_status,
+    haversine_distance_miles,
     knots_to_mph,
     pick_highest_threat,
 )
@@ -909,6 +910,65 @@ def storm_in_sensor_scope(storm: dict[str, Any], geofield_config: dict[str, Any]
     return storm_in_geofield(storm, geofield_config)
 
 
+def storm_sensor_distance_miles(
+    storm: dict[str, Any],
+    home: dict[str, float] | None = None,
+) -> tuple[float | None, int | None]:
+    """Return the nearest distance to home and forecast hour for a storm."""
+    threat = storm.get("threat") or {}
+    distances: list[float] = []
+    hour = threat.get("nearestForecastHour")
+
+    for key in ("distanceToCenterMiles", "nearestTrackDistanceMiles"):
+        value = threat.get(key)
+        if value is not None:
+            distances.append(float(value))
+
+    if not distances and home:
+        nearest = get_nearest_forecast_point(home, storm.get("forecastPoints") or [])
+        if nearest:
+            distances.append(float(nearest["distanceMiles"]))
+            hour = nearest.get("hour")
+        center = storm.get("currentPosition") or {}
+        if center.get("lat") is not None and center.get("lon") is not None:
+            distances.append(
+                haversine_distance_miles(
+                    float(home["lat"]),
+                    float(home["lon"]),
+                    float(center["lat"]),
+                    float(center["lon"]),
+                )
+            )
+
+    if not distances:
+        return None, hour
+    return round(min(distances), 1), hour
+
+
+def pick_nearest_storm(
+    storms: list[dict[str, Any]],
+    home: dict[str, float] | None = None,
+) -> tuple[dict[str, Any] | None, float | None, int | None]:
+    """Return the nearest storm in sensor scope and its distance/hour."""
+    closest: dict[str, Any] | None = None
+    closest_dist: float | None = None
+    closest_hour: int | None = None
+
+    for storm in storms:
+        dist, hour = storm_sensor_distance_miles(storm, home)
+        if dist is None:
+            continue
+        if closest is None or dist < closest_dist:
+            closest = storm
+            closest_dist = dist
+            closest_hour = hour
+
+    if closest is None and storms:
+        fallback = storms[0]
+        return fallback, None, (fallback.get("threat") or {}).get("nearestForecastHour")
+    return closest, closest_dist, closest_hour
+
+
 def build_hurricane_sensor_payload(
     payload: dict[str, Any],
     config: dict[str, Any] | None = None,
@@ -940,14 +1000,8 @@ def build_hurricane_sensor_payload(
         }
     geofield_storms = [s for s in storms if storm_in_geofield(s, geofield_config)]
     sensor_storms = [s for s in storms if storm_in_sensor_scope(s, geofield_config)]
-
-    closest: dict[str, Any] | None = None
-    closest_dist = float("inf")
-    for storm in sensor_storms:
-        dist = (storm.get("threat") or {}).get("distanceToCenterMiles")
-        if dist is not None and dist < closest_dist:
-            closest_dist = dist
-            closest = storm
+    home = payload.get("home") or {}
+    closest, closest_dist, closest_hour = pick_nearest_storm(sensor_storms, home)
 
     inside_cone = any(
         (s.get("threat") or {}).get("insideCone") for s in geofield_storms
@@ -968,8 +1022,10 @@ def build_hurricane_sensor_payload(
         "sensor_summary": {
             "threat_level": summary.get("threatLevel", "none"),
             "closest_storm_name": closest.get("name") if closest else None,
-            "distance_miles": closest_dist if closest else None,
-            "closest_approach_hour": summary.get("estimatedClosestApproachHour"),
+            "distance_miles": closest_dist,
+            "closest_approach_hour": closest_hour
+            if closest_hour is not None
+            else summary.get("estimatedClosestApproachHour"),
             "formation_probability": summary.get("highestFormationProbability"),
             "active_storm_count": len(sensor_storms),
             "disturbance_count": summary.get("disturbanceCount") or 0,
