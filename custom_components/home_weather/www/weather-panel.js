@@ -7383,18 +7383,35 @@ class HomeWeatherPanel extends HTMLElement {
     host.setAttribute("data-hw-theme", mode);
   }
 
-  /** Collect appearance from the form (mode from control; overrides tracked live). */
+  /** Collect appearance from the form. Currently forced to dark mode. */
   _collectAppearanceSettings() {
-    const s = this.shadowRoot;
-    const current = this._getAppearance();
-    const activeMode = s?.querySelector(".theme-mode-seg button.active")?.dataset.themeMode;
-    return {
-      mode: activeMode === "light" ? "light" : activeMode === "dark" ? "dark" : current.mode,
-      overrides: current.overrides,
-    };
+    return { mode: "dark", overrides: {} };
   }
 
   _renderAppearanceTab(activePane) {
+    return `
+      <section class="settings-pane ${activePane === "appearance" ? "active" : ""}" data-settings-pane="appearance">
+        <div class="settings-pane-head">
+          <div class="settings-pane-title">Appearance</div>
+          <div class="settings-pane-sub">Customize the look and feel of Home Weather.</div>
+        </div>
+        <div class="settings-card" style="text-align:center;padding:48px 24px;">
+          <div style="margin-bottom:16px;">
+            <svg viewBox="0 0 24 24" fill="currentColor" width="48" height="48" style="opacity:0.4;"><path d="M12 3a9 9 0 109 9c0-.46-.04-.92-.1-1.36a5.39 5.39 0 01-4.4 2.26 5.4 5.4 0 01-5.4-5.4c0-1.81.9-3.42 2.26-4.4A9.1 9.1 0 0012 3z"/></svg>
+          </div>
+          <div class="settings-card-title" style="font-size:18px;margin-bottom:8px;">Dark Mode Active</div>
+          <p style="color:var(--hw-muted,#9e9e9e);margin:0 0 20px;font-size:14px;line-height:1.5;">
+            Home Weather is optimized for dark environments and hazard monitoring.<br/>
+            Theme customization options are coming in a future update.
+          </p>
+          <span style="display:inline-block;padding:6px 14px;background:rgba(255,255,255,0.08);border-radius:999px;font-size:12px;font-weight:600;color:#90caf9;letter-spacing:0.5px;">
+            COMING SOON
+          </span>
+        </div>
+      </section>`;
+  }
+
+  _renderAppearanceTabFull(activePane) {
     const { mode, overrides } = this._getAppearance();
     const base = this._themeBase(mode);
     const swatches = [
