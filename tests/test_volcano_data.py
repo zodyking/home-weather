@@ -282,7 +282,9 @@ def test_build_coordinator_payload():
     assert props["in_zone"] is True
 
 
-def test_build_coordinator_payload_hides_catalog_when_disabled():
+def test_build_coordinator_payload_always_plots_catalog():
+    """The full worldwide catalog is always plotted, even if the legacy
+    ``map_show_all_volcanoes`` flag is set to False."""
     catalog = parse_gvp_catalog(GVP_FEATURES, HOME)
     hans = parse_hans_records(
         [_hans_record("321050", "St. Helens", 46.2, -122.18, "WATCH", "ORANGE")]
@@ -293,9 +295,10 @@ def test_build_coordinator_payload_hides_catalog_when_disabled():
     )
     payload = build_coordinator_payload(catalog, active, cfg)
     features = payload["geojson"]["features"]
-    # Only the active volcano remains on the map
-    assert len(features) == 1
-    assert features[0]["properties"]["active"] is True
+    # Every catalog volcano stays on the map; inactive ones are just not glowing.
+    assert len(features) == 3
+    active_features = [f for f in features if f["properties"]["active"]]
+    assert len(active_features) == 1
 
 
 def test_build_volcano_geojson_active_replaces_catalog_point():

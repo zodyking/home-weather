@@ -19,9 +19,15 @@ USGS_FEED_BASE = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary"
 USGS_FEED_TYPES = {
     "all_hour": "all_hour.geojson",
     "all_day": "all_day.geojson",
+    "all_week": "all_week.geojson",
+    "all_month": "all_month.geojson",
     "2.5_day": "2.5_day.geojson",
     "4.5_week": "4.5_week.geojson",
 }
+
+# Map time-window options exposed in the UI. Each maps to an all-magnitude
+# USGS summary feed; magnitude is filtered client-side via map_min_magnitude.
+USGS_MAP_WINDOWS = ("all_hour", "all_day", "all_week", "all_month")
 
 EMPTY_GEOJSON: dict[str, Any] = {"type": "FeatureCollection", "features": []}
 
@@ -45,15 +51,61 @@ def get_earthquake_config(config: dict[str, Any] | None) -> dict[str, Any]:
     merged = {**defaults, **legacy, **monitoring}
     if merged["feed_type"] not in USGS_FEED_TYPES:
         merged["feed_type"] = "all_hour"
-    if merged["map_feed_type"] not in USGS_FEED_TYPES:
-        merged["map_feed_type"] = "4.5_week"
+    merged["map_feed_type"] = _normalize_map_window(merged.get("map_feed_type"))
     return merged
+
+
+def _normalize_map_window(value: Any) -> str:
+    """Coerce any stored map feed value to a supported time-window feed.
+
+    The UI now exposes a single time window (past hour/day/week/month) that
+    always uses the all-magnitude USGS feed; magnitude is filtered client-side.
+    Legacy values like ``4.5_week`` or ``2.5_day`` are mapped by their window.
+    """
+    text = str(value or "").lower()
+    if text in USGS_MAP_WINDOWS:
+        return text
+    if text.endswith("_hour"):
+        return "all_hour"
+    if text.endswith("_week"):
+        return "all_week"
+    if text.endswith("_month"):
+        return "all_month"
+    return "all_day"
 
 
 def build_feed_url(feed_type: str) -> str:
     """Build USGS summary feed URL for the configured feed type."""
     suffix = USGS_FEED_TYPES.get(feed_type, USGS_FEED_TYPES["2.5_day"])
     return f"{USGS_FEED_BASE}/{suffix}"
+
+
+def build_map_feed_url(map_feed_type: str, min_magnitude: float) -> str:
+    """Build the smallest USGS feed URL that covers the requested map window.
+
+    The UI exposes only a time window (``all_hour`` .. ``all_month``). To avoid
+    downloading the full all-magnitude feed unnecessarily, pick the USGS
+    magnitude tier at or below the configured map minimum magnitude; exact
+    magnitude filtering still happens client-side.
+    """
+    window = str(map_feed_type or "all_day").lower()
+    if "_" in window:
+        window = window.split("_", 1)[1]
+    if window not in ("hour", "day", "week", "month"):
+        window = "day"
+    try:
+        mag = float(min_magnitude)
+    except (TypeError, ValueError):
+        mag = 0.0
+    if mag >= 4.5:
+        tier = "4.5"
+    elif mag >= 2.5:
+        tier = "2.5"
+    elif mag >= 1.0:
+        tier = "1.0"
+    else:
+        tier = "all"
+    return f"{USGS_FEED_BASE}/{tier}_{window}.geojson"
 
 
 def _parse_timestamp(value: Any) -> int | None:
@@ -176,19 +228,6 @@ def passes_map_filters(
     return True
 
 
-def _start_of_today_ms() -> int:
-    """Return local-midnight today as USGS epoch milliseconds."""
-    now = dt_util.now()
-    start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    return int(start.timestamp() * 1000)
-
-
-def is_event_today(event: dict[str, Any], start_ms: int) -> bool:
-    """Return True when event time is on or after local midnight today."""
-    event_time = event.get("time")
-    return event_time is not None and event_time >= start_ms
-
-
 def parse_earthquake_features(
     features: list[dict[str, Any]],
     home: dict[str, float],
@@ -208,16 +247,15 @@ def parse_earthquake_features_for_map(
     home: dict[str, float],
     eq_config: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    """Parse USGS features for worldwide map display (magnitude only, no radius)."""
-    start_ms = _start_of_today_ms()
+    """Parse USGS features for worldwide map display (magnitude only, no radius).
+
+    Time filtering is handled by the selected USGS feed window (past hour/day/
+    week/month), so no additional date cutoff is applied here.
+    """
     events: list[dict[str, Any]] = []
     for feature in features:
         parsed = parse_earthquake_feature(feature, home)
-        if (
-            parsed
-            and passes_map_filters(parsed, eq_config)
-            and is_event_today(parsed, start_ms)
-        ):
+        if parsed and passes_map_filters(parsed, eq_config):
             events.append(parsed)
     return sort_earthquakes_by_newest(events)
 
@@ -424,7 +462,11 @@ def detect_earthquake_events(
 
 async def _fetch_usgs_feed(session: Any, feed_type: str) -> list[dict[str, Any]]:
     """Fetch a USGS summary GeoJSON feed and return feature list."""
-    url = build_feed_url(feed_type)
+    return await _fetch_usgs_url(session, build_feed_url(feed_type))
+
+
+async def _fetch_usgs_url(session: Any, url: str) -> list[dict[str, Any]]:
+    """Fetch a USGS summary GeoJSON URL and return its feature list."""
     async with session.get(url, timeout=30) as resp:
         if resp.status != 200:
             _LOGGER.warning("USGS earthquake feed returned %s for %s", resp.status, url)
@@ -453,16 +495,20 @@ async def async_fetch_earthquakes(
     session = async_get_clientsession(hass)
     alert_feed = eq_config["feed_type"]
     map_show_worldwide = bool(eq_config.get("map_show_worldwide", True))
-    map_feed = eq_config.get("map_feed_type", alert_feed)
+    map_url = build_map_feed_url(
+        eq_config.get("map_feed_type", "all_day"),
+        eq_config.get("map_min_magnitude", 4.5),
+    )
+    alert_url = build_feed_url(alert_feed)
 
     try:
-        if map_show_worldwide and map_feed != alert_feed:
+        if map_show_worldwide and map_url != alert_url:
             alert_features, map_features = await asyncio.gather(
-                _fetch_usgs_feed(session, alert_feed),
-                _fetch_usgs_feed(session, map_feed),
+                _fetch_usgs_url(session, alert_url),
+                _fetch_usgs_url(session, map_url),
             )
         else:
-            alert_features = await _fetch_usgs_feed(session, alert_feed)
+            alert_features = await _fetch_usgs_url(session, alert_url)
             map_features = alert_features if map_show_worldwide else []
     except Exception as err:
         _LOGGER.warning("USGS earthquake fetch failed: %s", err)

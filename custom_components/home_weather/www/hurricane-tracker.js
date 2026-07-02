@@ -92,7 +92,7 @@
       this._coordsEl = null;
       this._baseLayers = null;
       this._statusCollapsed = true;
-      this._showZones = false;
+      this._showZones = true;
       this._zoneConfig = [];
     }
 
@@ -142,7 +142,7 @@
      * Toggle the "My zones" overlay: translucent per-hazard alert-radius
      * circles around home, driven by the Alert Zones settings.
      * @param {boolean} show
-     * @param {Array<{key:string,label:string,color:string,enabled:boolean,zone_mode:string,radius_miles:number}>} [zones]
+     * @param {Array<{key:string,label:string,color:string,enabled:boolean,zone_mode:string,alert_zone_mode:string,has_alerts:boolean,radius_miles:number}>} [zones]
      */
     setShowZones(show, zones) {
       this._showZones = !!show;
@@ -1061,6 +1061,56 @@
         }
         .leaflet-tooltip.hw-name-label::before { display: none; }
         .hw-storm-label { border-left: 3px solid var(--hw-accent, #03a9f4); }
+        .leaflet-tooltip.hw-zone-label {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 3px;
+          max-width: 180px;
+          padding: 5px 10px;
+          background: var(--hw-surface, rgba(17, 20, 28, 0.92));
+          color: var(--hw-text, #ffffff);
+          border: 1px solid var(--hw-border-strong, rgba(255,255,255,0.16));
+          border-radius: 9px;
+          text-align: center;
+          white-space: normal;
+          line-height: 1.25;
+          box-shadow: 0 4px 14px rgba(0,0,0,0.4);
+          backdrop-filter: blur(8px);
+          pointer-events: none;
+        }
+        .leaflet-tooltip.hw-zone-label::before { display: none; }
+        .leaflet-tooltip.hw-zone-label.is-bypassed { opacity: 0.9; }
+        .hw-zone-label-title {
+          font-size: 11px;
+          font-weight: 700;
+          letter-spacing: 0.2px;
+        }
+        .hw-zone-label-scope {
+          display: flex;
+          flex-wrap: wrap;
+          justify-content: center;
+          gap: 4px;
+        }
+        .hw-zone-chip {
+          font-size: 9.5px;
+          font-weight: 700;
+          text-transform: uppercase;
+          letter-spacing: 0.3px;
+          padding: 1px 6px;
+          border-radius: 999px;
+          white-space: nowrap;
+        }
+        .hw-zone-chip.is-active {
+          color: #d7ffe4;
+          background: rgba(76, 175, 80, 0.22);
+          border: 1px solid rgba(76, 175, 80, 0.55);
+        }
+        .hw-zone-chip.is-bypass {
+          color: #ffe0b2;
+          background: rgba(255, 152, 0, 0.18);
+          border: 1px solid rgba(255, 152, 0, 0.5);
+        }
         .hw-volcano-label { border-left: 3px solid #fb8c00; }
         .hw-tornado-polygon {
           stroke: #e040fb;
@@ -2328,23 +2378,51 @@
 
     /** Draw the configured alert-zone circles around home (My zones overlay). */
     _drawZoneOverlay(home) {
+      const L = global.L;
       const zones = Array.isArray(this._zoneConfig) ? this._zoneConfig : [];
       zones.forEach((zone) => {
         if (!zone || !zone.enabled || !(zone.radius_miles > 0)) return;
-        const bypassed = zone.zone_mode === "all";
-        const circle = global.L.circle([home.lat, home.lon], {
-          radius: zone.radius_miles * 1609.34,
+        const sensorBypassed = zone.zone_mode === "all";
+        const alertBypassed = (zone.alert_zone_mode ?? zone.zone_mode) === "all";
+        const bypassed = sensorBypassed && (!zone.has_alerts || alertBypassed);
+        const radiusMeters = zone.radius_miles * 1609.34;
+        L.circle([home.lat, home.lon], {
+          radius: radiusMeters,
           color: zone.color || "#29b6f6",
           weight: bypassed ? 1 : 2,
           opacity: bypassed ? 0.35 : 0.75,
           dashArray: bypassed ? "4 8" : "6 4",
           fillColor: zone.color || "#29b6f6",
           fillOpacity: bypassed ? 0.02 : 0.05,
-          interactive: true,
+          interactive: false,
           pane: "overlayPane",
         }).addTo(this._layerGroup);
-        const mode = bypassed ? "Bypassed — showing all data" : `${Math.round(zone.radius_miles)} mi zone`;
-        circle.bindTooltip(`${this._esc(zone.label || zone.key)} · ${this._esc(mode)}`, { sticky: true, direction: "top" });
+
+        // Permanent, centered, wrapping label anchored at the zone's
+        // bottom-center (due south of home on the circle border).
+        const deltaLat = radiusMeters / 111320;
+        const southPoint = [home.lat - deltaLat, home.lon];
+        const scopeChip = (label, active) =>
+          `<span class="hw-zone-chip ${active ? "is-active" : "is-bypass"}">${label} ${active ? "Active" : "Bypassed"}</span>`;
+        const scopeLine = zone.has_alerts
+          ? `${scopeChip("Sensor", !sensorBypassed)}${scopeChip("Alerts", !alertBypassed)}`
+          : `${scopeChip("Sensor", !sensorBypassed)}`;
+        const html =
+          `<span class="hw-zone-label-title">${this._esc(zone.label || zone.key)}</span>` +
+          `<span class="hw-zone-label-scope">${scopeLine}</span>`;
+        const anchor = L.marker(southPoint, {
+          icon: L.divIcon({ className: "hw-zone-label-anchor", html: "", iconSize: [0, 0] }),
+          interactive: false,
+          keyboard: false,
+          pane: "overlayPane",
+        }).addTo(this._layerGroup);
+        anchor.bindTooltip(html, {
+          permanent: true,
+          direction: "center",
+          className: `hw-zone-label${bypassed ? " is-bypassed" : ""}`,
+          offset: [0, 0],
+          opacity: 1,
+        }).openTooltip();
       });
     }
 

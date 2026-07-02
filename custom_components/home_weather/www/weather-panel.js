@@ -13,7 +13,7 @@ class HomeWeatherPanel extends HTMLElement {
     this._forecastView = "7day";
     this._mapsMode = "storms";
     this._mapsWindRadii = false;
-    this._mapsShowZones = false;
+    this._mapsShowZones = true;
     this._mapsLayers = this._normalizeMapLayers({ hurricane: true, tornado: true, earthquakes: true, lightning: true, volcanoes: true });
     this._mapsSort = "newest";
     this._settingsPane = "general";
@@ -4884,9 +4884,13 @@ class HomeWeatherPanel extends HTMLElement {
     wireTestButton("test-nws-btn", "home_weather/test_nws_alert");
     wireTestButton("test-nws-siren-btn", "home_weather/test_nws_siren", "Playing\u2026");
     wireTestButton("test-tropical-btn", "home_weather/test_tropical_alert");
+    wireTestButton("test-tropical-siren-btn", "home_weather/test_tropical_siren", "Playing\u2026");
     wireTestButton("test-tornado-btn", "home_weather/test_tornado_alert");
+    wireTestButton("test-tornado-siren-btn", "home_weather/test_tornado_siren", "Playing\u2026");
     wireTestButton("test-earthquake-alert-btn", "home_weather/test_earthquake_alert");
+    wireTestButton("test-earthquake-siren-btn", "home_weather/test_earthquake_siren", "Playing\u2026");
     wireTestButton("test-volcano-alert-btn", "home_weather/test_volcano_alert");
+    wireTestButton("test-volcano-siren-btn", "home_weather/test_volcano_siren", "Playing\u2026");
     
     // Add media player
     const addMediaBtn = s.getElementById("add-media-btn");
@@ -5318,20 +5322,24 @@ class HomeWeatherPanel extends HTMLElement {
   _getZoneOverlayConfig() {
     const settings = this._settings || {};
     const hazards = [
-      { key: "hurricane", configKey: "hurricane_monitoring", radiusKey: "max_distance_miles", color: "#29b6f6", label: "Hurricane zone" },
-      { key: "tornado", configKey: "tornado_monitoring", radiusKey: "max_distance_miles", color: "#e040fb", label: "Tornado zone" },
-      { key: "earthquake", configKey: "earthquake_monitoring", radiusKey: "radius_miles", color: "#ffa726", label: "Earthquake zone" },
-      { key: "lightning", configKey: "lightning_monitoring", radiusKey: "geofield_radius_miles", color: "#ffee58", label: "Lightning zone" },
-      { key: "volcano", configKey: "volcano_monitoring", radiusKey: "radius_miles", color: "#ff7043", label: "Volcano zone" },
+      { key: "hurricane", configKey: "hurricane_monitoring", radiusKey: "max_distance_miles", color: "#29b6f6", label: "Hurricane zone", hasAlerts: true },
+      { key: "tornado", configKey: "tornado_monitoring", radiusKey: "max_distance_miles", color: "#e040fb", label: "Tornado zone", hasAlerts: true },
+      { key: "earthquake", configKey: "earthquake_monitoring", radiusKey: "radius_miles", color: "#ffa726", label: "Earthquake zone", hasAlerts: true },
+      { key: "lightning", configKey: "lightning_monitoring", radiusKey: "geofield_radius_miles", color: "#ffee58", label: "Lightning zone", hasAlerts: false },
+      { key: "volcano", configKey: "volcano_monitoring", radiusKey: "radius_miles", color: "#ff7043", label: "Volcano zone", hasAlerts: true },
     ];
     return hazards.map((h) => {
       const block = settings[h.configKey] || {};
+      const sensorMode = block.zone_mode === "all" ? "all" : "zone";
+      const alertMode = (block.alert_zone_mode ?? block.zone_mode) === "all" ? "all" : "zone";
       return {
         key: h.key,
         label: h.label,
         color: h.color,
         enabled: block.enabled !== false,
-        zone_mode: block.zone_mode === "all" ? "all" : "zone",
+        zone_mode: sensorMode,
+        alert_zone_mode: alertMode,
+        has_alerts: h.hasAlerts,
         radius_miles: Number(block[h.radiusKey]) || 0,
       };
     });
@@ -6350,6 +6358,15 @@ class HomeWeatherPanel extends HTMLElement {
     const defaultTornadoMonitoring = { enabled: true, zone_mode: "zone", alert_zone_mode: "zone", only_affecting_home: true, max_distance_miles: 25 };
     const tornadoMonitoring = { ...defaultTornadoMonitoring, ...(this._settings.tornado_monitoring || {}) };
     const earthquakeMonitoring = { ...defaultEarthquakes, alert_zone_mode: "zone", ...(this._settings.earthquake_monitoring || this._settings.earthquakes || {}) };
+    const normalizeEqWindow = (v) => {
+      const t = String(v || "").toLowerCase();
+      if (["all_hour", "all_day", "all_week", "all_month"].includes(t)) return t;
+      if (t.endsWith("_hour")) return "all_hour";
+      if (t.endsWith("_week")) return "all_week";
+      if (t.endsWith("_month")) return "all_month";
+      return "all_day";
+    };
+    const eqMapWindow = normalizeEqWindow(earthquakeMonitoring.map_feed_type);
     const defaultLightningMonitoring = { enabled: true, show_on_map: true, max_age_minutes: 60, max_strikes: 500, geofield_radius_miles: 100 };
     const lightningMonitoring = { ...defaultLightningMonitoring, ...(this._settings.lightning_monitoring || this._settings.lightning || {}) };
     const defaultVolcanoMonitoring = { enabled: true, zone_mode: "zone", alert_zone_mode: "zone", radius_miles: 500, min_alert_level: "advisory", map_show_all_volcanoes: true };
@@ -6387,6 +6404,41 @@ class HomeWeatherPanel extends HTMLElement {
       <div class="range-slider">
         <input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${value}"/>
         <span class="range-value" data-for="${id}">${Math.round(value * (suffix === "%" ? 100 : 1))}${suffix}</span>
+      </div>
+    `;
+
+    const renderAlertAudioSection = (prefix, alerts, {
+      sirenBtnId,
+      alertBtnId,
+      hintHtml = "",
+      behaviorTitle = "",
+      behaviorContent = "",
+      afterBehaviorHtml = "",
+    }) => `
+      <div class="form-group">
+        <label>Alert Sound</label>
+        <select id="${prefix}-sound-file">
+          <option value="">None</option>
+          ${(this._wwwSounds || []).map((f) => `<option value="${f}" ${alerts.sound_file === f ? "selected" : ""}>${f}</option>`).join("")}
+        </select>
+      </div>
+      <div class="form-row-inline">
+        <div class="form-group">
+          <label>Siren Volume</label>
+          ${renderSlider(`${prefix}-sound-volume`, alerts.sound_volume, 0, 1, 0.05, "%")}
+        </div>
+        <div class="form-group">
+          <label>TTS Volume</label>
+          ${renderSlider(`${prefix}-tts-volume`, alerts.tts_volume, 0, 1, 0.05, "%")}
+        </div>
+      </div>
+      ${hintHtml}
+      ${behaviorTitle ? `<div class="subsection-title">${behaviorTitle}</div>` : ""}
+      ${behaviorContent ? `<div class="toggle-group">${behaviorContent}</div>` : ""}
+      ${afterBehaviorHtml}
+      <div class="form-actions-row">
+        <button type="button" class="test-tts-btn btn-secondary-test" id="${sirenBtnId}">Test siren</button>
+        <button type="button" class="test-tts-btn" id="${alertBtnId}">Test alert</button>
       </div>
     `;
     
@@ -6665,30 +6717,23 @@ class HomeWeatherPanel extends HTMLElement {
               ${renderMonitoringCard("Tornado", "Zone and alerts", `
                 <p class="form-hint">Tornado warnings use your home location with the radius, thresholds, and scope from <strong>Alert Zones</strong> (Use zone or Bypass). Spoken alert behavior is in <strong>Announcements</strong>.</p>
               `)}
-              ${renderMonitoringCard("Earthquake", "USGS feeds and map display", `
-                <p class="form-hint">Nearby alerts and sensors use the real-time USGS feed within your earthquake zone. Magnitude and radius live in <strong>Alert Zones</strong>. The hazard map shows worldwide seismic activity from a separate feed.</p>
+              ${renderMonitoringCard("Earthquake", "USGS seismic data and map display", `
+                <p class="form-hint">Nearby alerts and sensors always use real-time seismic data within your earthquake zone. Magnitude and radius live in <strong>Alert Zones</strong>. The settings below control the hazard map display.</p>
                 <div class="form-group">
-                  <label>Nearby alert feed (USGS real-time)</label>
-                  <select id="earthquake-feed-type">
-                    <option value="all_hour" ${earthquakeMonitoring.feed_type === "all_hour" ? "selected" : ""}>All earthquakes — past hour</option>
-                    <option value="all_day" ${earthquakeMonitoring.feed_type === "all_day" ? "selected" : ""}>All earthquakes — past day</option>
-                    <option value="2.5_day" ${earthquakeMonitoring.feed_type === "2.5_day" ? "selected" : ""}>M2.5+ — past day</option>
-                    <option value="4.5_week" ${earthquakeMonitoring.feed_type === "4.5_week" ? "selected" : ""}>M4.5+ — past week</option>
+                  <label>Map time window</label>
+                  <select id="earthquake-map-window">
+                    <option value="all_hour" ${eqMapWindow === "all_hour" ? "selected" : ""}>Past hour</option>
+                    <option value="all_day" ${eqMapWindow === "all_day" ? "selected" : ""}>Past 24 hours</option>
+                    <option value="all_week" ${eqMapWindow === "all_week" ? "selected" : ""}>Past week</option>
+                    <option value="all_month" ${eqMapWindow === "all_month" ? "selected" : ""}>Past month</option>
                   </select>
+                  <p class="form-hint">How far back the map shows earthquakes. Default is the past 24 hours.</p>
                 </div>
                 ${renderToggle("earthquake-map-worldwide", earthquakeMonitoring.map_show_worldwide !== false, "Show worldwide seismic activity on map")}
                 <div class="form-group">
-                  <label>Map min magnitude</label>
+                  <label>Map minimum magnitude</label>
                   <input type="number" id="earthquake-map-min-magnitude" min="0" max="10" step="0.1" value="${earthquakeMonitoring.map_min_magnitude ?? 4.5}"/>
-                </div>
-                <div class="form-group">
-                  <label>Map feed</label>
-                  <select id="earthquake-map-feed-type">
-                    <option value="all_hour" ${earthquakeMonitoring.map_feed_type === "all_hour" ? "selected" : ""}>All earthquakes — past hour</option>
-                    <option value="all_day" ${earthquakeMonitoring.map_feed_type === "all_day" ? "selected" : ""}>All earthquakes — past day</option>
-                    <option value="2.5_day" ${earthquakeMonitoring.map_feed_type === "2.5_day" ? "selected" : ""}>M2.5+ — past day</option>
-                    <option value="4.5_week" ${(earthquakeMonitoring.map_feed_type || "all_day") === "4.5_week" ? "selected" : ""}>M4.5+ — past week</option>
-                  </select>
+                  <p class="form-hint">Hide quakes weaker than this on the map.</p>
                 </div>
                 <div class="inline-toggle">
                   <span class="inline-toggle-label">Tsunami alerts</span>
@@ -6709,8 +6754,7 @@ class HomeWeatherPanel extends HTMLElement {
               `)}
               ${renderMonitoringCard("Volcano", "Worldwide activity from GVP, GDACS, and USGS", `
                 <p class="form-hint">Sensors track active volcanoes inside your volcano zone using the min activity level set in <strong>Alert Zones</strong>. Sources: Smithsonian GVP catalog, GDACS live alerts, and USGS HANS.</p>
-                ${renderToggle("volcano-map-show-all", volcanoMonitoring.map_show_all_volcanoes !== false, "Show all worldwide volcanoes on hazard map")}
-                <p class="form-hint">Active volcanoes always appear on the map with pulsing markers and affected-area rings; this toggle controls the dormant catalog layer.</p>
+                <p class="form-hint">Every worldwide volcano is plotted on the hazard map: dormant volcanoes appear as dim catalog points, while active ones glow with their alert color and show affected-area rings. Toggle the Volcano layer from the map's layer menu to hide them all.</p>
               `)}
             </section>
 
@@ -6856,147 +6900,60 @@ class HomeWeatherPanel extends HTMLElement {
           `, true, "sun-alerts-enabled", sunAlerts.enabled)}
 
           ${renderNestedSection("nws-alerts", "NWS Weather Alerts", "National Weather Service warnings", `
-            <div class="form-group">
-              <label>Alert Sound</label>
-              <select id="nws-alerts-sound-file">
-                <option value="">None</option>
-                ${(this._wwwSounds || []).map((f) => `<option value="${f}" ${nwsAlerts.sound_file === f ? "selected" : ""}>${f}</option>`).join("")}
-              </select>
-            </div>
-            <div class="form-row-inline">
-              <div class="form-group">
-                <label>Siren Volume</label>
-                ${renderSlider("nws-alerts-sound-volume", nwsAlerts.sound_volume, 0, 1, 0.05, "%")}
-              </div>
-              <div class="form-group">
-                <label>TTS Volume</label>
-                ${renderSlider("nws-alerts-tts-volume", nwsAlerts.tts_volume, 0, 1, 0.05, "%")}
-              </div>
-            </div>
-            <div class="subsection-title">Behavior</div>
-            <div class="toggle-group">
-              ${renderToggle("nws-alerts-replay-forecast", nwsAlerts.replay_on_time_based_forecast !== false, "Replay active alerts after scheduled forecasts")}
-            </div>
-            <div class="form-actions-row">
-              <button type="button" class="test-tts-btn btn-secondary-test" id="test-nws-siren-btn">Test siren</button>
-              <button type="button" class="test-tts-btn" id="test-nws-btn">Test alert</button>
-            </div>
+            ${renderAlertAudioSection("nws-alerts", nwsAlerts, {
+              sirenBtnId: "test-nws-siren-btn",
+              alertBtnId: "test-nws-btn",
+              behaviorTitle: "Behavior",
+              behaviorContent: renderToggle("nws-alerts-replay-forecast", nwsAlerts.replay_on_time_based_forecast !== false, "Replay active alerts after scheduled forecasts"),
+            })}
           `, true, "nws-alerts-enabled", nwsAlerts.enabled)}
 
           ${renderNestedSection("tropical-alerts", "Hurricane Alerts", "Nearby storm warnings", `
-            <div class="form-group">
-              <label>Alert Sound</label>
-              <select id="tropical-alerts-sound-file">
-                <option value="">None</option>
-                ${(this._wwwSounds || []).map((f) => `<option value="${f}" ${tropicalAlerts.sound_file === f ? "selected" : ""}>${f}</option>`).join("")}
-              </select>
-            </div>
-            <div class="form-row-inline">
-              <div class="form-group">
-                <label>Siren Volume</label>
-                ${renderSlider("tropical-alerts-sound-volume", tropicalAlerts.sound_volume, 0, 1, 0.05, "%")}
-              </div>
-              <div class="form-group">
-                <label>TTS Volume</label>
-                ${renderSlider("tropical-alerts-tts-volume", tropicalAlerts.tts_volume, 0, 1, 0.05, "%")}
-              </div>
-            </div>
-            <div class="subsection-title">Announce When</div>
-            <div class="toggle-group">
-              ${renderToggle("tropical-announce-cone", tropicalAlerts.announce_inside_cone !== false, "Home enters forecast cone")}
-              ${renderToggle("tropical-announce-escalation", tropicalAlerts.announce_threat_escalation !== false, "Threat level escalates")}
-              ${renderToggle("tropical-announce-new-storm", tropicalAlerts.announce_new_storm !== false, "New nearby hurricane detected")}
-              ${renderToggle("tropical-announce-outlook", tropicalAlerts.announce_outlook_development !== false, "Outlook development")}
-            </div>
-            <p class="form-hint">Threat level, outlook probability, distance, and alert scope are set on the Hurricane card in <strong>Alert Zones</strong>.</p>
-            <div class="form-actions-row">
-              <button type="button" class="test-tts-btn" id="test-tropical-btn">Test alert</button>
-            </div>
+            ${renderAlertAudioSection("tropical-alerts", tropicalAlerts, {
+              sirenBtnId: "test-tropical-siren-btn",
+              alertBtnId: "test-tropical-btn",
+              behaviorTitle: "Announce When",
+              behaviorContent: `
+                ${renderToggle("tropical-announce-cone", tropicalAlerts.announce_inside_cone !== false, "Home enters forecast cone")}
+                ${renderToggle("tropical-announce-escalation", tropicalAlerts.announce_threat_escalation !== false, "Threat level escalates")}
+                ${renderToggle("tropical-announce-new-storm", tropicalAlerts.announce_new_storm !== false, "New nearby hurricane detected")}
+                ${renderToggle("tropical-announce-outlook", tropicalAlerts.announce_outlook_development !== false, "Outlook development")}
+              `,
+              afterBehaviorHtml: `<p class="form-hint">Threat level, outlook probability, distance, and alert scope are set on the Hurricane card in <strong>Alert Zones</strong>.</p>`,
+            })}
           `, true, "tropical-alerts-enabled", tropicalAlerts.enabled)}
 
           ${renderNestedSection("tornado-alerts", "Tornado Alerts", "Tornado warning announcements", `
-            <div class="form-group">
-              <label>Alert Sound</label>
-              <select id="tornado-alerts-sound-file">
-                <option value="">None</option>
-                ${(this._wwwSounds || []).map((f) => `<option value="${f}" ${tornadoAlerts.sound_file === f ? "selected" : ""}>${f}</option>`).join("")}
-              </select>
-            </div>
-            <div class="form-row-inline">
-              <div class="form-group">
-                <label>Siren Volume</label>
-                ${renderSlider("tornado-alerts-sound-volume", tornadoAlerts.sound_volume, 0, 1, 0.05, "%")}
-              </div>
-              <div class="form-group">
-                <label>TTS Volume</label>
-                ${renderSlider("tornado-alerts-tts-volume", tornadoAlerts.tts_volume, 0, 1, 0.05, "%")}
-              </div>
-            </div>
-            <div class="subsection-title">Behavior</div>
-            <div class="toggle-group">
-              ${renderToggle("tornado-announce-cleared", tornadoAlerts.announce_cleared === true, "Announce when warning clears")}
-            </div>
-            <div class="form-actions-row">
-              <button type="button" class="test-tts-btn" id="test-tornado-btn">Test alert</button>
-            </div>
+            ${renderAlertAudioSection("tornado-alerts", tornadoAlerts, {
+              sirenBtnId: "test-tornado-siren-btn",
+              alertBtnId: "test-tornado-btn",
+              behaviorTitle: "Behavior",
+              behaviorContent: renderToggle("tornado-announce-cleared", tornadoAlerts.announce_cleared === true, "Announce when warning clears"),
+            })}
           `, true, "tornado-alerts-enabled", tornadoAlerts.enabled)}
 
           ${renderNestedSection("earthquake-alerts", "Earthquake Alerts", "Nearby USGS seismic events", `
-            <div class="form-group">
-              <label>Alert Sound</label>
-              <select id="earthquake-alerts-sound-file">
-                <option value="">None</option>
-                ${(this._wwwSounds || []).map((f) => `<option value="${f}" ${earthquakeAlerts.sound_file === f ? "selected" : ""}>${f}</option>`).join("")}
-              </select>
-            </div>
-            <div class="form-row-inline">
-              <div class="form-group">
-                <label>Siren Volume</label>
-                ${renderSlider("earthquake-alerts-sound-volume", earthquakeAlerts.sound_volume, 0, 1, 0.05, "%")}
-              </div>
-              <div class="form-group">
-                <label>TTS Volume</label>
-                ${renderSlider("earthquake-alerts-tts-volume", earthquakeAlerts.tts_volume, 0, 1, 0.05, "%")}
-              </div>
-            </div>
-            <p class="form-hint">Minimum magnitude, distance, and alert scope are set on the Earthquake card in <strong>Alert Zones</strong>.</p>
-            <div class="subsection-title">Behavior</div>
-            <div class="toggle-group">
-              ${renderToggle("earthquake-alerts-tsunami-priority", earthquakeAlerts.tsunami_priority !== false, "Always announce tsunami-flagged events")}
-              ${renderToggle("earthquake-alerts-announce-updated", earthquakeAlerts.announce_updated === true, "Announce magnitude updates")}
-              ${renderToggle("earthquake-alerts-announce-cleared", earthquakeAlerts.announce_cleared === true, "Announce when event clears")}
-            </div>
-            <div class="form-actions-row">
-              <button type="button" class="test-tts-btn" id="test-earthquake-alert-btn">Test alert</button>
-            </div>
+            ${renderAlertAudioSection("earthquake-alerts", earthquakeAlerts, {
+              sirenBtnId: "test-earthquake-siren-btn",
+              alertBtnId: "test-earthquake-alert-btn",
+              hintHtml: `<p class="form-hint">Minimum magnitude, distance, and alert scope are set on the Earthquake card in <strong>Alert Zones</strong>.</p>`,
+              behaviorTitle: "Behavior",
+              behaviorContent: `
+                ${renderToggle("earthquake-alerts-tsunami-priority", earthquakeAlerts.tsunami_priority !== false, "Always announce tsunami-flagged events")}
+                ${renderToggle("earthquake-alerts-announce-updated", earthquakeAlerts.announce_updated === true, "Announce magnitude updates")}
+                ${renderToggle("earthquake-alerts-announce-cleared", earthquakeAlerts.announce_cleared === true, "Announce when event clears")}
+              `,
+            })}
           `, true, "earthquake-alerts-enabled", earthquakeAlerts.enabled)}
 
           ${renderNestedSection("volcano-alerts", "Volcano Alerts", "Volcanic activity warnings", `
-            <div class="form-group">
-              <label>Alert Sound</label>
-              <select id="volcano-alerts-sound-file">
-                <option value="">None</option>
-                ${(this._wwwSounds || []).map((f) => `<option value="${f}" ${volcanoAlerts.sound_file === f ? "selected" : ""}>${f}</option>`).join("")}
-              </select>
-            </div>
-            <div class="form-row-inline">
-              <div class="form-group">
-                <label>Siren Volume</label>
-                ${renderSlider("volcano-alerts-sound-volume", volcanoAlerts.sound_volume, 0, 1, 0.05, "%")}
-              </div>
-              <div class="form-group">
-                <label>TTS Volume</label>
-                ${renderSlider("volcano-alerts-tts-volume", volcanoAlerts.tts_volume, 0, 1, 0.05, "%")}
-              </div>
-            </div>
-            <p class="form-hint">Minimum activity level, distance, and alert scope are set on the Volcano card in <strong>Alert Zones</strong>.</p>
-            <div class="subsection-title">Behavior</div>
-            <div class="toggle-group">
-              ${renderToggle("volcano-alerts-announce-cleared", volcanoAlerts.announce_cleared === true, "Announce when activity clears")}
-            </div>
-            <div class="form-actions-row">
-              <button type="button" class="test-tts-btn" id="test-volcano-alert-btn">Test alert</button>
-            </div>
+            ${renderAlertAudioSection("volcano-alerts", volcanoAlerts, {
+              sirenBtnId: "test-volcano-siren-btn",
+              alertBtnId: "test-volcano-alert-btn",
+              hintHtml: `<p class="form-hint">Minimum activity level, distance, and alert scope are set on the Volcano card in <strong>Alert Zones</strong>.</p>`,
+              behaviorTitle: "Behavior",
+              behaviorContent: renderToggle("volcano-alerts-announce-cleared", volcanoAlerts.announce_cleared === true, "Announce when activity clears"),
+            })}
           `, true, "volcano-alerts-enabled", volcanoAlerts.enabled)}
 
           ${renderNestedSection("sensor-triggered", "Sensor Triggers", "Announce when entity state changes", `
@@ -7653,9 +7610,9 @@ class HomeWeatherPanel extends HTMLElement {
     if (!s) return { ...defaults, ...existing };
     const getVal = (id, def) => (s.getElementById(id)?.value ?? def);
     const getChecked = (id) => !!s.getElementById(id)?.checked;
-    const feedType = getVal("earthquake-feed-type", defaults.feed_type);
-    const mapFeedType = getVal("earthquake-map-feed-type", defaults.map_feed_type);
-    const validFeeds = ["all_hour", "all_day", "2.5_day", "4.5_week"];
+    const mapWindows = ["all_hour", "all_day", "all_week", "all_month"];
+    const rawWindow = getVal("earthquake-map-window", existing.map_feed_type || defaults.map_feed_type);
+    const mapFeedType = mapWindows.includes(rawWindow) ? rawWindow : defaults.map_feed_type;
     return {
       ...existing,
       enabled: getChecked("earthquake-monitoring-enabled"),
@@ -7663,11 +7620,11 @@ class HomeWeatherPanel extends HTMLElement {
       alert_zone_mode: this._getScopeModeFromForm("earthquake", existing.alert_zone_mode || existing.zone_mode || "zone"),
       min_magnitude: Math.min(10, Math.max(0, parseFloat(getVal("earthquake-min-magnitude", String(defaults.min_magnitude))) || defaults.min_magnitude)),
       radius_miles: Math.min(5000, Math.max(1, parseInt(getVal("earthquake-radius-miles", String(existing.radius_miles ?? defaults.radius_miles)), 10) || defaults.radius_miles)),
-      feed_type: validFeeds.includes(feedType) ? feedType : defaults.feed_type,
+      feed_type: existing.feed_type || defaults.feed_type,
       tsunami_alert_enabled: getChecked("earthquake-tsunami-enabled"),
       map_show_worldwide: getChecked("earthquake-map-worldwide"),
       map_min_magnitude: Math.min(10, Math.max(0, parseFloat(getVal("earthquake-map-min-magnitude", String(defaults.map_min_magnitude))) || defaults.map_min_magnitude)),
-      map_feed_type: validFeeds.includes(mapFeedType) ? mapFeedType : defaults.map_feed_type,
+      map_feed_type: mapFeedType,
     };
   }
 
@@ -7725,7 +7682,7 @@ class HomeWeatherPanel extends HTMLElement {
       alert_zone_mode: this._getScopeModeFromForm("volcano", existing.alert_zone_mode || existing.zone_mode || "zone"),
       radius_miles: Math.min(5000, Math.max(1, parseInt(getVal("volcano-radius-miles", String(existing.radius_miles ?? defaults.radius_miles)), 10) || defaults.radius_miles)),
       min_alert_level: levels.includes(minLevel) ? minLevel : defaults.min_alert_level,
-      map_show_all_volcanoes: getChecked("volcano-map-show-all"),
+      map_show_all_volcanoes: true,
     };
   }
 

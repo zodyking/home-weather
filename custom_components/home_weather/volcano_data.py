@@ -481,7 +481,8 @@ def build_coordinator_payload(
     ]
     geofield_ids = {str(e["id"]) for e in geofield_events if e.get("id")}
     nearest = pick_nearest_volcano(geofield_events)
-    include_catalog = bool(volcano_config.get("map_show_all_volcanoes", True))
+    # The full worldwide catalog is always plotted; inactive volcanoes render
+    # as dim catalog points while active ones glow with their alert color.
     # Alert scope: bypass fires spoken alerts for all active volcanoes
     # regardless of zone or level; otherwise it mirrors the sensor geofield.
     alert_mode = str(
@@ -502,7 +503,7 @@ def build_coordinator_payload(
         "nearest_color_code": nearest.get("color_code") if nearest else None,
         "primary_geofield": nearest,
         "geojson": build_volcano_geojson(
-            catalog if include_catalog else [],
+            catalog,
             active_events,
             geofield_ids=geofield_ids,
         ),

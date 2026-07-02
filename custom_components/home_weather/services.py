@@ -462,6 +462,22 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
         {"type": "home_weather/test_nws_siren"}
     )(_make_alert_test_handler("fire_test_nws_siren", "nws_siren_test_failed", require_weather=False))
 
+    handle_test_tropical_siren = websocket_api.websocket_command(
+        {"type": "home_weather/test_tropical_siren"}
+    )(_make_alert_test_handler("fire_test_tropical_siren", "tropical_siren_test_failed", require_weather=False))
+
+    handle_test_tornado_siren = websocket_api.websocket_command(
+        {"type": "home_weather/test_tornado_siren"}
+    )(_make_alert_test_handler("fire_test_tornado_siren", "tornado_siren_test_failed", require_weather=False))
+
+    handle_test_earthquake_siren = websocket_api.websocket_command(
+        {"type": "home_weather/test_earthquake_siren"}
+    )(_make_alert_test_handler("fire_test_earthquake_siren", "earthquake_siren_test_failed", require_weather=False))
+
+    handle_test_volcano_siren = websocket_api.websocket_command(
+        {"type": "home_weather/test_volcano_siren"}
+    )(_make_alert_test_handler("fire_test_volcano_siren", "volcano_siren_test_failed", require_weather=False))
+
     handle_test_tropical_alert = websocket_api.websocket_command(
         {"type": "home_weather/test_tropical_alert"}
     )(_make_alert_test_handler("fire_test_tropical_alert", "tropical_test_failed", require_weather=False))
@@ -744,6 +760,10 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, handle_test_sunset)
     websocket_api.async_register_command(hass, handle_test_nws_alert)
     websocket_api.async_register_command(hass, handle_test_nws_siren)
+    websocket_api.async_register_command(hass, handle_test_tropical_siren)
+    websocket_api.async_register_command(hass, handle_test_tornado_siren)
+    websocket_api.async_register_command(hass, handle_test_earthquake_siren)
+    websocket_api.async_register_command(hass, handle_test_volcano_siren)
     websocket_api.async_register_command(hass, handle_test_tropical_alert)
     websocket_api.async_register_command(hass, handle_test_tornado_alert)
     websocket_api.async_register_command(hass, handle_test_earthquake_alert)

@@ -51,8 +51,8 @@ from .tts_notifications import (
     passes_tornado_tts_filter,
     passes_volcano_tts_filter,
     play_hazard_alert_notification,
+    play_hazard_siren,
     play_nws_alert_notification,
-    play_nws_siren,
     replay_active_nws_alerts,
 )
 
@@ -600,41 +600,69 @@ class TTSTriggerManager:
         await play_nws_alert_notification(self.hass, config, sample, media_players, request_id=request_id)
         _LOGGER.info("Test NWS alert dispatched")
 
-    async def fire_test_nws_siren(self, *, request_id: str | None = None) -> None:
-        """Play the configured NWS siren only (no TTS)."""
+    async def _fire_test_section_siren(
+        self,
+        section_key: str,
+        alert_kind: str,
+        *,
+        request_id: str | None = None,
+    ) -> None:
+        """Play the configured siren for an alert section (no TTS)."""
         config = self._get_config()
         media_players = media_players_with_tts(config.get("media_players", []))
         if not media_players:
-            _LOGGER.warning("No media players with TTS configured for NWS siren test")
+            _LOGGER.warning("No media players with TTS configured for %s test", alert_kind)
             _fire_tts_status(
                 self.hass, "skipped",
                 request_id=request_id, reason="No media players with TTS configured",
-                alert_kind="nws_siren",
+                alert_kind=alert_kind,
             )
             return
-        nws = config.get("nws_alerts", {})
+        section = config.get(section_key, {})
         from .sounds_setup import normalize_nws_sound_filename, sound_file_exists
 
-        sound_file = normalize_nws_sound_filename(nws.get("sound_file") or "")
+        sound_file = normalize_nws_sound_filename(section.get("sound_file") or "")
         if not sound_file:
-            _LOGGER.warning("No NWS siren sound file configured")
+            _LOGGER.warning("No siren sound file configured for %s", section_key)
             _fire_tts_status(
                 self.hass, "skipped",
                 request_id=request_id, reason="No siren sound file configured",
-                alert_kind="nws_siren",
+                alert_kind=alert_kind,
             )
             return
         if not sound_file_exists(self.hass, sound_file):
-            _LOGGER.warning("NWS siren sound file not found: %s", sound_file)
+            _LOGGER.warning("Siren sound file not found: %s", sound_file)
             _fire_tts_status(
                 self.hass, "failed",
                 request_id=request_id,
                 reason="Sound file not found in config/www/home_weather/sounds/",
-                alert_kind="nws_siren",
+                alert_kind=alert_kind,
             )
             return
-        await play_nws_siren(self.hass, config, media_players, request_id=request_id)
-        _LOGGER.info("Test NWS siren dispatched")
+        await play_hazard_siren(
+            self.hass, section, media_players, request_id=request_id, alert_kind=alert_kind,
+        )
+        _LOGGER.info("Test %s dispatched", alert_kind)
+
+    async def fire_test_nws_siren(self, *, request_id: str | None = None) -> None:
+        """Play the configured NWS siren only (no TTS)."""
+        await self._fire_test_section_siren("nws_alerts", "nws_siren", request_id=request_id)
+
+    async def fire_test_tropical_siren(self, *, request_id: str | None = None) -> None:
+        """Play the configured hurricane siren only (no TTS)."""
+        await self._fire_test_section_siren("tropical_alerts", "tropical_siren", request_id=request_id)
+
+    async def fire_test_tornado_siren(self, *, request_id: str | None = None) -> None:
+        """Play the configured tornado siren only (no TTS)."""
+        await self._fire_test_section_siren("tornado_alerts", "tornado_siren", request_id=request_id)
+
+    async def fire_test_earthquake_siren(self, *, request_id: str | None = None) -> None:
+        """Play the configured earthquake siren only (no TTS)."""
+        await self._fire_test_section_siren("earthquake_alerts", "earthquake_siren", request_id=request_id)
+
+    async def fire_test_volcano_siren(self, *, request_id: str | None = None) -> None:
+        """Play the configured volcano siren only (no TTS)."""
+        await self._fire_test_section_siren("volcano_alerts", "volcano_siren", request_id=request_id)
 
     async def fire_test_tropical_alert(self, *, request_id: str | None = None) -> None:
         """Play sample tropical cyclone TTS alert."""
