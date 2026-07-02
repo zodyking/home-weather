@@ -16,6 +16,10 @@ def hazard_device_info(entry: ConfigEntry, hazard: str) -> dict[str, Any]:
         "hurricane": "Hurricane",
         "lightning": "Lightning",
         "volcano": "Volcano",
+        "wildfire": "Wildfire",
+        "air_quality": "Air Quality",
+        "space": "Space",
+        "solar_weather": "Solar Weather",
     }
     return {
         "identifiers": {(DOMAIN, entry.entry_id, hazard)},
@@ -29,3 +33,8 @@ def primary_geofield(data: dict[str, Any] | None, key: str = "primary_geofield")
     if not data:
         return None
     return data.get(key) or data.get("primary_event") or data.get("primary_alert")
+
+
+def has_sensor_data(data: dict[str, Any] | None, key: str = "primary_geofield") -> bool:
+    """Return True when coordinator payload has a primary record for detail sensors."""
+    return primary_geofield(data, key) is not None

@@ -63,6 +63,9 @@ def get_air_quality_config(config: dict[str, Any] | None) -> dict[str, Any]:
     """Return merged air quality monitoring settings."""
     defaults = {
         "enabled": True,
+        "zone_mode": "zone",
+        "alert_zone_mode": "zone",
+        "radius_miles": 50,
         "show_on_map": True,
         "min_category_level": 1,
     }
@@ -176,6 +179,7 @@ def parse_reporting_area_dat(text: str) -> list[dict[str, Any]]:
     areas = []
     for key, row in by_key.items():
         row = dict(row)
+        row["id"] = key
         row["pollutants"] = sorted(pollutants.get(key, {row["pollutant"]}))
         areas.append(row)
     return areas
@@ -190,6 +194,101 @@ def passes_air_quality_filter(
         return False
     min_level = int(air_quality_config.get("min_category_level") or 1)
     return int(area.get("category_level") or 1) >= min_level
+
+
+def passes_air_quality_geofield_filter(
+    area: dict[str, Any],
+    air_quality_config: dict[str, Any],
+) -> bool:
+    """Return True when a reporting area is inside the configured radius (ignores sensor bypass)."""
+    if not passes_air_quality_filter(area, air_quality_config):
+        return False
+    radius = float(air_quality_config.get("radius_miles") or 50)
+    distance = area.get("distance_miles")
+    if distance is None or distance > radius:
+        return False
+    return True
+
+
+def passes_air_quality_sensor_scope_filter(
+    area: dict[str, Any],
+    air_quality_config: dict[str, Any],
+) -> bool:
+    """Return True when a reporting area meets sensor-scope filters (may bypass radius)."""
+    if not passes_air_quality_filter(area, air_quality_config):
+        return False
+    if air_quality_config.get("zone_mode", "zone") == "all":
+        return True
+    return passes_air_quality_geofield_filter(area, air_quality_config)
+
+
+def pick_primary_air_quality(areas: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Return the primary air quality area (highest AQI, then nearest)."""
+    if not areas:
+        return None
+    return min(
+        areas,
+        key=lambda item: (
+            -(item.get("aqi") or 0),
+            item.get("distance_miles")
+            if item.get("distance_miles") is not None
+            else float("inf"),
+        ),
+    )
+
+
+def _air_quality_event_tracking_signature(area: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "aqi": area.get("aqi"),
+        "category_level": area.get("category_level"),
+        "category": area.get("category"),
+    }
+
+
+def _air_quality_event_payload(area: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": area.get("id"),
+        "name": area.get("name"),
+        "state": area.get("state"),
+        "aqi": area.get("aqi"),
+        "category": area.get("category"),
+        "category_level": area.get("category_level"),
+        "pollutant": area.get("pollutant"),
+        "distance_miles": area.get("distance_miles"),
+        "lat": area.get("lat"),
+        "lon": area.get("lon"),
+    }
+
+
+def detect_air_quality_events(
+    previous: dict[str, dict[str, Any]],
+    current_events: list[dict[str, Any]],
+) -> list[tuple[str, dict[str, Any]]]:
+    """Return bus events to fire: (event_type, payload)."""
+    events_out: list[tuple[str, dict[str, Any]]] = []
+    current_by_id = {str(e["id"]): e for e in current_events if e.get("id")}
+    current_ids = set(current_by_id)
+
+    for area_id, area in current_by_id.items():
+        payload = _air_quality_event_payload(area)
+        prev = previous.get(area_id)
+        if prev is None:
+            events_out.append(("home_weather_air_quality_unhealthy", payload))
+            continue
+        if _air_quality_event_tracking_signature(prev) != _air_quality_event_tracking_signature(
+            area
+        ):
+            events_out.append(("home_weather_air_quality_updated", payload))
+
+    for area_id in set(previous) - current_ids:
+        events_out.append(
+            (
+                "home_weather_air_quality_cleared",
+                _air_quality_event_payload(previous[area_id]),
+            )
+        )
+
+    return events_out
 
 
 def build_air_quality_geojson(
@@ -238,6 +337,18 @@ def build_coordinator_payload(
             haversine_distance_miles(home["lat"], home["lon"], lat, lon), 1
         )
 
+    geofield_events = [
+        a for a in filtered if passes_air_quality_geofield_filter(a, air_quality_config)
+    ]
+    sensor_events = [
+        a for a in filtered if passes_air_quality_sensor_scope_filter(a, air_quality_config)
+    ]
+    alert_mode = str(
+        air_quality_config.get("alert_zone_mode", air_quality_config.get("zone_mode", "zone"))
+    ).lower()
+    alert_events = filtered if alert_mode == "all" else geofield_events
+    primary = pick_primary_air_quality(sensor_events)
+
     geojson = build_air_quality_geojson(areas, air_quality_config, home=home)
 
     level_counts = {level: 0 for level in range(1, 7)}
@@ -265,13 +376,19 @@ def build_coordinator_payload(
 
     return {
         "areas": sorted_areas,
+        "geofield_events": geofield_events,
+        "sensor_events": sensor_events,
+        "alert_events": alert_events,
         "area_count": len(areas),
         "filtered_count": len(filtered),
+        "geofield_count": len(geofield_events),
+        "in_geofield": len(geofield_events) > 0,
         "map_count": len(geojson.get("features") or []),
         "level_counts": level_counts,
         "unhealthy_count": unhealthy_count,
         "worst_area": worst,
         "nearest_unhealthy": nearest_unhealthy,
+        "primary_geofield": primary,
         "geojson": geojson,
         "source": "EPA AirNow",
     }

@@ -117,5 +117,7 @@ def _migrate_alert_thresholds_into_monitoring(
         "tornado_monitoring",
         "earthquake_monitoring",
         "volcano_monitoring",
+        "wildfire_monitoring",
+        "air_quality_monitoring",
     ):
         _default_alert_mode(block_key)

@@ -1,4 +1,4 @@
-"""Air quality coordinator for Home Weather."""
+"""Space map coordinator for Home Weather."""
 from __future__ import annotations
 
 import logging
@@ -9,14 +9,14 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import DOMAIN, UPDATE_INTERVAL
+from .space_data import async_fetch_space, detect_space_events, empty_payload
 from .storage import HomeWeatherStorage
-from .air_quality_data import async_fetch_air_quality, detect_air_quality_events
 
 _LOGGER = logging.getLogger(__name__)
 
 
-class AirQualityCoordinator(DataUpdateCoordinator[dict[str, Any]]):
-    """Coordinator that polls EPA AirNow reporting-area data."""
+class SpaceCoordinator(DataUpdateCoordinator[dict[str, Any]]):
+    """Coordinator that polls NASA JPL Horizons and NOAA SWPC for space data."""
 
     def __init__(
         self,
@@ -26,7 +26,7 @@ class AirQualityCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         super().__init__(
             hass,
             _LOGGER,
-            name=f"{DOMAIN}_air_quality",
+            name=f"{DOMAIN}_space",
             update_interval=timedelta(seconds=UPDATE_INTERVAL),
         )
         self.storage = storage
@@ -35,22 +35,22 @@ class AirQualityCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_update_data(self) -> dict[str, Any]:
         try:
             config = await self.storage.async_get()
-            payload = await async_fetch_air_quality(self.hass, config)
+            payload = await async_fetch_space(self.hass, config)
             await self._fire_change_events(payload.get("alert_events") or [])
             return payload
         except Exception as err:
-            _LOGGER.error("Error updating air quality data: %s", err)
-            raise UpdateFailed(f"Error updating air quality data: {err}") from err
+            _LOGGER.error("Error updating space data: %s", err)
+            if self.data:
+                return self.data
+            return empty_payload()
 
     async def _fire_change_events(self, events: list[dict[str, Any]]) -> None:
-        """Fire HA bus events when unhealthy air is detected, updated, or cleared."""
-        bus_events = detect_air_quality_events(self._tracked_events, events)
+        """Fire HA bus events when space alert conditions change."""
+        bus_events = detect_space_events(self._tracked_events, events)
         current_by_id = {str(e["id"]): e for e in events if e.get("id")}
 
         for event_type, event_data in bus_events:
             self.hass.bus.async_fire(event_type, event_data)
-            _LOGGER.info(
-                "Fired %s for air quality %s", event_type, event_data.get("name")
-            )
+            _LOGGER.info("Fired %s for space event %s", event_type, event_data.get("name"))
 
         self._tracked_events = dict(current_by_id)

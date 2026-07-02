@@ -6,12 +6,15 @@ from datetime import timedelta
 from homeassistant.util import dt as dt_util
 
 from custom_components.home_weather.earthquake_data import (
+    build_coordinator_payload,
     get_earthquake_config,
     passes_earthquake_filters,
+    passes_earthquake_geofield_filter,
 )
 from custom_components.home_weather.hurricane_data import (
     get_hurricane_geofield_config,
     storm_in_geofield,
+    storm_in_sensor_scope,
 )
 from custom_components.home_weather.lightning_data import (
     build_lightning_payload,
@@ -20,6 +23,7 @@ from custom_components.home_weather.lightning_data import (
 from custom_components.home_weather.tornado_data import (
     build_coordinator_payload,
     filter_alerts_for_geofield,
+    filter_alerts_for_sensor_scope,
     get_tornado_geofield_config,
     parse_tornado_features,
 )
@@ -79,7 +83,7 @@ def test_tornado_zone_mode_defaults_to_zone():
     assert cfg["zone_mode"] == "zone"
 
 
-def test_tornado_bypass_includes_all_alerts():
+def test_tornado_bypass_includes_all_alerts_for_sensors():
     alerts = parse_tornado_features(
         [_tornado_feature("near", NEAR_POLYGON), _tornado_feature("far", FAR_POLYGON)],
         HOME,
@@ -92,7 +96,9 @@ def test_tornado_bypass_includes_all_alerts():
         }
     }
     geofield = filter_alerts_for_geofield(alerts, config)
-    assert len(geofield) == 2
+    sensor_scope = filter_alerts_for_sensor_scope(alerts, config)
+    assert len(geofield) == 1
+    assert len(sensor_scope) == 2
 
     payload = build_coordinator_payload(alerts, config)
     assert payload["active_count"] == 2
@@ -133,7 +139,7 @@ def test_hurricane_zone_mode_defaults_to_zone():
     assert cfg["zone_mode"] == "zone"
 
 
-def test_hurricane_bypass_ignores_distance_but_keeps_threat_filter():
+def test_hurricane_bypass_ignores_distance_for_sensors_but_not_geofield():
     config = {
         "hurricane_monitoring": {
             "enabled": True,
@@ -143,10 +149,11 @@ def test_hurricane_bypass_ignores_distance_but_keeps_threat_filter():
         }
     }
     geofield_config = get_hurricane_geofield_config(config)
-    assert storm_in_geofield(_storm(2500.0), geofield_config)
-    assert storm_in_geofield(_storm(None), geofield_config)
+    assert storm_in_sensor_scope(_storm(2500.0), geofield_config)
+    assert storm_in_sensor_scope(_storm(None), geofield_config)
+    assert not storm_in_geofield(_storm(2500.0), geofield_config)
     # min threat still applies in bypass mode
-    assert not storm_in_geofield(_storm(100.0, threat_level="none"), geofield_config)
+    assert not storm_in_sensor_scope(_storm(100.0, threat_level="none"), geofield_config)
 
 
 def test_hurricane_zone_mode_zone_filters_distance():
@@ -172,7 +179,7 @@ def test_earthquake_zone_mode_defaults_to_zone():
     assert cfg["zone_mode"] == "zone"
 
 
-def test_earthquake_bypass_ignores_radius_but_keeps_magnitude():
+def test_earthquake_bypass_ignores_radius_for_sensors_but_not_geofield():
     far_event = {"magnitude": 5.0, "distance_miles": 8000.0, "tsunami": 0}
     weak_event = {"magnitude": 1.0, "distance_miles": 8000.0, "tsunami": 0}
     config = get_earthquake_config(
@@ -185,6 +192,7 @@ def test_earthquake_bypass_ignores_radius_but_keeps_magnitude():
         }
     )
     assert passes_earthquake_filters(far_event, config)
+    assert not passes_earthquake_geofield_filter(far_event, config)
     assert not passes_earthquake_filters(weak_event, config)
 
 
@@ -229,7 +237,7 @@ def test_lightning_zone_mode_defaults_to_zone():
     assert cfg["zone_mode"] == "zone"
 
 
-def test_lightning_bypass_includes_all_strikes(monkeypatch):
+def test_lightning_bypass_includes_all_strikes_for_sensors(monkeypatch):
     now_ms = 1_700_000_000_000
     monkeypatch.setattr(
         "custom_components.home_weather.lightning_data.dt_util.utcnow",
@@ -243,8 +251,10 @@ def test_lightning_bypass_includes_all_strikes(monkeypatch):
         }
     }
     payload = build_lightning_payload(_strikes(now_ms), HOME, config)
-    assert payload["geofield_count"] == 2
+    assert payload["geofield_count"] == 1
     assert payload["in_geofield"] is True
+    assert payload["primary_geofield"] is not None
+    assert payload["primary_geofield"]["id"] == "near"
 
 
 def test_lightning_zone_mode_zone_filters_radius(monkeypatch):

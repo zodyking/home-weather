@@ -11,6 +11,10 @@ from .entities.hurricane import create_hurricane_entities
 from .entities.lightning import create_lightning_entities
 from .entities.tornado import create_tornado_entities
 from .entities.volcano import create_volcano_entities
+from .entities.wildfire import create_wildfire_entities
+from .entities.air_quality import create_air_quality_entities
+from .entities.space import create_space_entities
+from .entities.solar_weather import create_solar_weather_entities
 
 
 async def async_setup_entry(
@@ -33,5 +37,17 @@ async def async_setup_entry(
     )
     entities.extend(
         create_volcano_entities(entry_data["volcano_coordinator"], entry)
+    )
+    entities.extend(
+        create_wildfire_entities(entry_data["wildfire_coordinator"], entry)
+    )
+    entities.extend(
+        create_air_quality_entities(entry_data["air_quality_coordinator"], entry)
+    )
+    entities.extend(
+        create_space_entities(entry_data["space_coordinator"], entry)
+    )
+    entities.extend(
+        create_solar_weather_entities(entry_data["space_coordinator"], entry)
     )
     async_add_entities(entities)

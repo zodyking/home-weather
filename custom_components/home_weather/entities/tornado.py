@@ -11,7 +11,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
 from ..tornado_coordinator import TornadoCoordinator
-from .base import hazard_device_info, primary_geofield
+from .base import hazard_device_info, has_sensor_data, primary_geofield
 
 
 def create_tornado_entities(
@@ -90,7 +90,7 @@ class TornadoDistanceSensor(_TornadoEntity):
     @property
     def native_value(self) -> float | None:
         data = self.coordinator.data or {}
-        if not data.get("in_geofield"):
+        if not has_sensor_data(data):
             return None
         return data.get("nearest_distance_miles")
 

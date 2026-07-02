@@ -1,0 +1,118 @@
+"""Unit tests for NASA JPL / NOAA space map data."""
+from __future__ import annotations
+
+from custom_components.home_weather.space_data import (
+    _detect_overhead_passes,
+    _k_index_to_g_scale,
+    _parse_horizons_vectors,
+    build_coordinator_payload,
+    detect_space_events,
+    empty_payload,
+    get_neo_alerts_config,
+    get_space_config,
+    get_spacecraft_alerts_config,
+)
+from custom_components.home_weather.tts_notifications import (
+    passes_neo_tts_filter,
+    passes_spacecraft_tts_filter,
+    passes_solar_weather_tts_filter,
+)
+
+SAMPLE_HORIZONS_TEXT = """
+$$SOE
+2025-Jul-02 12:00     1.234567E+00  2.345678E+00  3.456789E-01  1.100000E+01  2.200000E+00  3.300000E+00
+$$EOE
+"""
+
+
+def test_parse_horizons_vectors():
+    parsed = _parse_horizons_vectors(SAMPLE_HORIZONS_TEXT)
+    assert parsed is not None
+    assert parsed["x_au"] == 1.234567
+    assert parsed["y_au"] == 2.345678
+    assert parsed["velocity_kms"] is not None
+
+
+def test_k_index_to_g_scale():
+    assert _k_index_to_g_scale(4) == 0
+    assert _k_index_to_g_scale(5) == 1
+    assert _k_index_to_g_scale(7) == 3
+
+
+def test_detect_overhead_passes():
+    samples = [
+        {"time": "2025-Jul-02 12:00", "altitude_deg": 5, "azimuth_deg": 90},
+        {"time": "2025-Jul-02 12:02", "altitude_deg": 25, "azimuth_deg": 120},
+        {"time": "2025-Jul-02 12:04", "altitude_deg": 45, "azimuth_deg": 180},
+        {"time": "2025-Jul-02 12:06", "altitude_deg": 8, "azimuth_deg": 240},
+    ]
+    passes = _detect_overhead_passes("-255544", "ISS", samples, 10)
+    assert len(passes) == 1
+    assert passes[0]["max_elevation_deg"] == 45.0
+
+
+def test_build_coordinator_payload_counts():
+    bodies = [
+        {"type": "planet", "name": "Earth"},
+        {"type": "moon", "name": "Moon"},
+        {"type": "spacecraft", "name": "ISS"},
+    ]
+    small_bodies = [{"type": "asteroid", "name": "Apophis"}]
+    payload = build_coordinator_payload(
+        bodies,
+        small_bodies,
+        {"name": "Apophis", "lunar_distance": 2.0, "diameter_m": 300},
+        [{"craft_id": "-255544", "craft_name": "ISS", "max_elevation_deg": 55}],
+        {"k_index": 6, "g_scale": 2, "geomagnetic_storm_active": True},
+        [],
+        get_neo_alerts_config({"neo_alerts": {"max_lunar_distances": 5}}),
+        get_spacecraft_alerts_config({}),
+    )
+    assert payload["catalog_counts"]["planets"] == 1
+    assert payload["catalog_counts"]["moons"] == 1
+    assert payload["catalog_counts"]["spacecraft"] == 1
+    assert payload["catalog_counts"]["asteroids"] == 1
+    assert payload["spacecraft_overhead"] is True
+    assert payload["neo_close_approach_soon"] is True
+    assert any(e["type"] == "geomagnetic_storm" for e in payload["alert_events"])
+
+
+def test_detect_space_events_new_and_cleared():
+    tracked = {"pass_1": {"id": "pass_1", "type": "spacecraft_pass", "name": "ISS"}}
+    events = [{"id": "storm_1", "type": "geomagnetic_storm", "k_index": 6}]
+    bus = detect_space_events(tracked, events)
+    types = [t for t, _ in bus]
+    assert "home_weather_solar_storm" in types
+    assert "home_weather_spacecraft_overhead_cleared" in types
+
+
+def test_disabled_space_config_empty_shape():
+    cfg = get_space_config({"space_monitoring": {"enabled": False}})
+    assert cfg["enabled"] is False
+    empty = empty_payload()
+    assert empty["bodies"] == []
+    assert empty["catalog_counts"]["total"] == 0
+
+
+def test_tts_filters():
+    spacecraft_cfg = get_spacecraft_alerts_config({"spacecraft_alerts": {"min_elevation_deg": 20}})
+    assert passes_spacecraft_tts_filter(
+        {"craft_id": "-255544", "max_elevation_deg": 55},
+        spacecraft_cfg,
+        "home_weather_spacecraft_overhead",
+    )
+    assert not passes_spacecraft_tts_filter(
+        {"craft_id": "-255544", "max_elevation_deg": 5},
+        spacecraft_cfg,
+        "home_weather_spacecraft_overhead",
+    )
+    assert passes_solar_weather_tts_filter(
+        {"type": "geomagnetic_storm", "k_index": 6, "g_scale": 2},
+        {"min_k_index": 5, "announce_geomagnetic_storm": True},
+        "home_weather_solar_storm",
+    )
+    assert passes_neo_tts_filter(
+        {"lunar_distance": 2.0, "diameter_m": 200},
+        {"max_lunar_distances": 5, "min_diameter_m": 100},
+        "home_weather_neo_close_approach",
+    )

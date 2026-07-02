@@ -14,7 +14,9 @@ from custom_components.home_weather.sounds_setup import (
     resolve_nws_sound_path,
 )
 from custom_components.home_weather.tts_notifications import (
+    _extract_tts_platform_from_entity,
     format_active_nws_alerts_for_tts,
+    is_chime_tts_available,
     nws_local_playback,
 )
 
@@ -364,3 +366,181 @@ def test_wait_for_media_player_idle_without_start_returns_on_idle():
 
     assert result is True
     assert counter["i"] == 1
+
+
+def test_is_chime_tts_available_returns_false_when_not_installed():
+    """Chime TTS availability check returns False when integration is missing."""
+    hass = MagicMock()
+    hass.config.components = {"homeassistant", "media_player", "tts"}
+    assert is_chime_tts_available(hass) is False
+
+
+def test_is_chime_tts_available_returns_true_when_installed():
+    """Chime TTS availability check returns True when integration is loaded."""
+    hass = MagicMock()
+    hass.config.components = {"homeassistant", "media_player", "tts", "chime_tts"}
+    assert is_chime_tts_available(hass) is True
+
+
+def test_extract_tts_platform_from_entity():
+    """TTS platform extraction handles various entity ID formats."""
+    assert _extract_tts_platform_from_entity("tts.google_translate_say") == "google_translate"
+    assert _extract_tts_platform_from_entity("tts.piper") == "piper"
+    assert _extract_tts_platform_from_entity("tts.cloud_say") == "cloud"
+    assert _extract_tts_platform_from_entity("") == ""
+    assert _extract_tts_platform_from_entity("custom_platform") == "custom_platform"
+
+
+def test_dispatch_chime_tts_returns_false_when_not_available():
+    """dispatch_chime_tts falls back gracefully when Chime TTS not installed."""
+    from unittest.mock import AsyncMock
+    import asyncio
+
+    from custom_components.home_weather.tts_notifications import dispatch_chime_tts
+
+    hass = MagicMock()
+    hass.config.components = {"homeassistant", "media_player", "tts"}
+
+    result = asyncio.run(
+        dispatch_chime_tts(
+            hass,
+            "media_player.kitchen",
+            "tts.google_translate_say",
+            "Test message",
+            "/local/home_weather/sounds/siren.mp3",
+        )
+    )
+
+    assert result is False
+
+
+def test_play_hazard_alert_uses_legacy_when_chime_not_installed():
+    """Hazard alert uses legacy siren + TTS when Chime TTS is not installed."""
+    from unittest.mock import AsyncMock, patch
+    import asyncio
+
+    from custom_components.home_weather.tts_notifications import play_hazard_alert_notification
+
+    hass = MagicMock()
+    hass.config.components = {"homeassistant", "media_player", "tts"}  # No chime_tts
+    players = [{"entity_id": "media_player.kitchen", "tts_entity_id": "tts.google"}]
+    config = {
+        "tropical_alerts": {"tts_volume": 0.9, "sound_file": "siren.mp3"},
+        "tts": {},
+    }
+    order: list[str] = []
+
+    async def _siren(*_args, **_kwargs):
+        order.append("siren")
+
+    async def _send(*_args, **_kwargs):
+        order.append("send")
+
+    async def _wait(*_args, **_kwargs):
+        order.append("wait")
+
+    with patch(
+        "custom_components.home_weather.tts_notifications.play_hazard_siren",
+        new=AsyncMock(side_effect=_siren),
+    ), patch(
+        "custom_components.home_weather.tts_notifications.send_tts",
+        new=AsyncMock(side_effect=_send),
+    ), patch(
+        "custom_components.home_weather.tts_notifications.wait_for_media_players_after_tts",
+        new=AsyncMock(side_effect=_wait),
+    ), patch(
+        "custom_components.home_weather.tts_notifications.apply_ai_rewrite",
+        new=AsyncMock(side_effect=lambda _h, _c, msg, **_kw: msg),
+    ):
+        asyncio.run(
+            play_hazard_alert_notification(
+                hass, config, "tropical_alerts", "Storm alert.", players,
+            )
+        )
+
+    assert order == ["siren", "send", "wait"]
+
+
+def test_play_hazard_alert_auto_uses_chime_tts_when_installed():
+    """Hazard alert automatically uses Chime TTS when installed."""
+    from unittest.mock import AsyncMock, patch
+    import asyncio
+
+    from custom_components.home_weather.tts_notifications import play_hazard_alert_notification
+
+    hass = MagicMock()
+    hass.config.components = {"homeassistant", "media_player", "tts", "chime_tts"}
+    players = [{"entity_id": "media_player.kitchen", "tts_entity_id": "tts.google_translate_say"}]
+    config = {
+        "tropical_alerts": {"tts_volume": 0.9, "sound_file": "siren.mp3"},
+        "tts": {},
+    }
+    chime_called = []
+
+    async def _chime(*args, **kwargs):
+        chime_called.append(True)
+        return True
+
+    async def _siren(*_args, **_kwargs):
+        raise AssertionError("Legacy siren should not be called")
+
+    with patch(
+        "custom_components.home_weather.tts_notifications.dispatch_chime_tts",
+        new=AsyncMock(side_effect=_chime),
+    ), patch(
+        "custom_components.home_weather.tts_notifications.play_hazard_siren",
+        new=AsyncMock(side_effect=_siren),
+    ), patch(
+        "custom_components.home_weather.tts_notifications.apply_ai_rewrite",
+        new=AsyncMock(side_effect=lambda _h, _c, msg, **_kw: msg),
+    ):
+        asyncio.run(
+            play_hazard_alert_notification(
+                hass, config, "tropical_alerts", "Storm alert.", players,
+            )
+        )
+
+    assert chime_called == [True]
+
+
+def test_play_hazard_alert_falls_back_on_chime_failure():
+    """Hazard alert falls back to legacy when Chime TTS fails."""
+    from unittest.mock import AsyncMock, patch
+    import asyncio
+
+    from custom_components.home_weather.tts_notifications import play_hazard_alert_notification
+
+    hass = MagicMock()
+    hass.config.components = {"homeassistant", "media_player", "tts", "chime_tts"}
+    hass.services = MagicMock()
+    hass.services.async_call = AsyncMock()
+    players = [{"entity_id": "media_player.kitchen", "tts_entity_id": "tts.google_translate_say"}]
+    config = {
+        "tropical_alerts": {"tts_volume": 0.9, "sound_file": "siren.mp3"},
+        "tts": {},
+    }
+    fallback_order: list[str] = []
+
+    async def _chime_fails(*args, **kwargs):
+        return False
+
+    async def _legacy_fallback(*args, **kwargs):
+        fallback_order.append("legacy_fallback")
+
+    with patch(
+        "custom_components.home_weather.tts_notifications.dispatch_chime_tts",
+        new=AsyncMock(side_effect=_chime_fails),
+    ), patch(
+        "custom_components.home_weather.tts_notifications._legacy_hazard_alert_single_player",
+        new=AsyncMock(side_effect=_legacy_fallback),
+    ), patch(
+        "custom_components.home_weather.tts_notifications.apply_ai_rewrite",
+        new=AsyncMock(side_effect=lambda _h, _c, msg, **_kw: msg),
+    ):
+        asyncio.run(
+            play_hazard_alert_notification(
+                hass, config, "tropical_alerts", "Storm alert.", players,
+            )
+        )
+
+    assert fallback_order == ["legacy_fallback"]

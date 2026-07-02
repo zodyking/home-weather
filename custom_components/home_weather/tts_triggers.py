@@ -48,9 +48,19 @@ from .tts_notifications import (
     format_tropical_alert_for_tts,
     format_travel_advisory_for_tts,
     format_volcano_alert_for_tts,
+    format_wildfire_alert_for_tts,
+    format_air_quality_alert_for_tts,
+    format_spacecraft_alert_for_tts,
+    format_solar_weather_alert_for_tts,
+    format_neo_alert_for_tts,
     passes_earthquake_tts_filter,
     passes_tornado_tts_filter,
     passes_volcano_tts_filter,
+    passes_wildfire_tts_filter,
+    passes_air_quality_tts_filter,
+    passes_spacecraft_tts_filter,
+    passes_solar_weather_tts_filter,
+    passes_neo_tts_filter,
     play_hazard_alert_notification,
     play_hazard_siren,
     play_nws_alert_notification,
@@ -94,7 +104,17 @@ def _is_alerts_active(config: dict[str, Any]) -> bool:
         return True
     if (config.get("volcano_alerts") or {}).get("enabled", False):
         return True
+    if (config.get("wildfire_alerts") or {}).get("enabled", False):
+        return True
+    if (config.get("air_quality_alerts") or {}).get("enabled", False):
+        return True
     if (config.get("travel_alerts") or {}).get("enabled", False):
+        return True
+    if (config.get("spacecraft_alerts") or {}).get("enabled", False):
+        return True
+    if (config.get("solar_weather_alerts") or {}).get("enabled", False):
+        return True
+    if (config.get("neo_alerts") or {}).get("enabled", False):
         return True
     return False
 
@@ -250,8 +270,18 @@ class TTSTriggerManager:
             setups.append(("earthquake_alerts", self._setup_earthquake_alerts_trigger(config)))
         if (config.get("volcano_alerts") or {}).get("enabled", False):
             setups.append(("volcano_alerts", self._setup_volcano_alerts_trigger(config)))
+        if (config.get("wildfire_alerts") or {}).get("enabled", False):
+            setups.append(("wildfire_alerts", self._setup_wildfire_alerts_trigger(config)))
+        if (config.get("air_quality_alerts") or {}).get("enabled", False):
+            setups.append(("air_quality_alerts", self._setup_air_quality_alerts_trigger(config)))
         if (config.get("travel_alerts") or {}).get("enabled", False):
             setups.append(("travel_alerts", self._setup_travel_alerts_trigger(config)))
+        if (config.get("spacecraft_alerts") or {}).get("enabled", False):
+            setups.append(("spacecraft_alerts", self._setup_spacecraft_alerts_trigger(config)))
+        if (config.get("solar_weather_alerts") or {}).get("enabled", False):
+            setups.append(("solar_weather_alerts", self._setup_solar_weather_alerts_trigger(config)))
+        if (config.get("neo_alerts") or {}).get("enabled", False):
+            setups.append(("neo_alerts", self._setup_neo_alerts_trigger(config)))
 
         successful: list[str] = []
         for name, coro in setups:
@@ -669,6 +699,16 @@ class TTSTriggerManager:
         """Play the configured volcano siren only (no TTS)."""
         await self._fire_test_section_siren("volcano_alerts", "volcano_siren", request_id=request_id)
 
+    async def fire_test_wildfire_siren(self, *, request_id: str | None = None) -> None:
+        """Play the configured wildfire siren only (no TTS)."""
+        await self._fire_test_section_siren("wildfire_alerts", "wildfire_siren", request_id=request_id)
+
+    async def fire_test_air_quality_siren(self, *, request_id: str | None = None) -> None:
+        """Play the configured air quality siren only (no TTS)."""
+        await self._fire_test_section_siren(
+            "air_quality_alerts", "air_quality_siren", request_id=request_id
+        )
+
     async def fire_test_tropical_alert(self, *, request_id: str | None = None) -> None:
         """Play sample tropical cyclone TTS alert."""
         config = self._get_config()
@@ -757,6 +797,54 @@ class TTSTriggerManager:
             request_id=request_id, alert_kind="volcano_alert",
         )
 
+    async def fire_test_wildfire_alert(self, *, request_id: str | None = None) -> None:
+        """Play sample wildfire TTS alert."""
+        config = self._get_config()
+        media_players = media_players_with_tts(config.get("media_players", []))
+        if not media_players:
+            _fire_tts_status(
+                self.hass, "skipped", request_id=request_id,
+                reason="No media players with TTS configured", alert_kind="wildfire_alert",
+            )
+            return
+        sample = {
+            "name": "Sample Wildfire",
+            "location": "Sample County, CA",
+            "state": "CA",
+            "acres": 2500,
+            "percent_contained": 15,
+            "distance_miles": 42,
+        }
+        msg = format_wildfire_alert_for_tts(sample)
+        await play_hazard_alert_notification(
+            self.hass, config, "wildfire_alerts", msg, media_players,
+            request_id=request_id, alert_kind="wildfire_alert",
+        )
+
+    async def fire_test_air_quality_alert(self, *, request_id: str | None = None) -> None:
+        """Play sample air quality TTS alert."""
+        config = self._get_config()
+        media_players = media_players_with_tts(config.get("media_players", []))
+        if not media_players:
+            _fire_tts_status(
+                self.hass, "skipped", request_id=request_id,
+                reason="No media players with TTS configured", alert_kind="air_quality_alert",
+            )
+            return
+        sample = {
+            "name": "Sample City",
+            "state": "NY",
+            "aqi": 156,
+            "category": "Unhealthy",
+            "category_level": 4,
+            "distance_miles": 8,
+        }
+        msg = format_air_quality_alert_for_tts(sample)
+        await play_hazard_alert_notification(
+            self.hass, config, "air_quality_alerts", msg, media_players,
+            request_id=request_id, alert_kind="air_quality_alert",
+        )
+
     async def fire_test_travel_alert(self, *, request_id: str | None = None) -> None:
         """Play sample travel advisory TTS alert."""
         config = self._get_config()
@@ -782,6 +870,81 @@ class TTSTriggerManager:
     async def fire_test_travel_siren(self, *, request_id: str | None = None) -> None:
         """Play the configured travel advisory siren only (no TTS)."""
         await self._fire_test_section_siren("travel_alerts", "travel_siren", request_id=request_id)
+
+    async def fire_test_spacecraft_alert(self, *, request_id: str | None = None) -> None:
+        """Play sample spacecraft overhead TTS alert."""
+        config = self._get_config()
+        media_players = media_players_with_tts(config.get("media_players", []))
+        if not media_players:
+            _fire_tts_status(
+                self.hass, "skipped", request_id=request_id,
+                reason="No media players with TTS configured", alert_kind="spacecraft_alert",
+            )
+            return
+        sample = {
+            "name": "International Space Station",
+            "craft_name": "International Space Station",
+            "max_elevation_deg": 72,
+        }
+        msg = format_spacecraft_alert_for_tts(sample)
+        await play_hazard_alert_notification(
+            self.hass, config, "spacecraft_alerts", msg, media_players,
+            request_id=request_id, alert_kind="spacecraft_alert",
+        )
+
+    async def fire_test_spacecraft_siren(self, *, request_id: str | None = None) -> None:
+        """Play the configured spacecraft alert siren only (no TTS)."""
+        await self._fire_test_section_siren(
+            "spacecraft_alerts", "spacecraft_siren", request_id=request_id
+        )
+
+    async def fire_test_solar_weather_alert(self, *, request_id: str | None = None) -> None:
+        """Play sample solar weather TTS alert."""
+        config = self._get_config()
+        media_players = media_players_with_tts(config.get("media_players", []))
+        if not media_players:
+            _fire_tts_status(
+                self.hass, "skipped", request_id=request_id,
+                reason="No media players with TTS configured", alert_kind="solar_weather_alert",
+            )
+            return
+        sample = {"type": "geomagnetic_storm", "k_index": 6, "g_scale": 2}
+        msg = format_solar_weather_alert_for_tts(sample)
+        await play_hazard_alert_notification(
+            self.hass, config, "solar_weather_alerts", msg, media_players,
+            request_id=request_id, alert_kind="solar_weather_alert",
+        )
+
+    async def fire_test_solar_weather_siren(self, *, request_id: str | None = None) -> None:
+        """Play the configured solar weather siren only (no TTS)."""
+        await self._fire_test_section_siren(
+            "solar_weather_alerts", "solar_weather_siren", request_id=request_id
+        )
+
+    async def fire_test_neo_alert(self, *, request_id: str | None = None) -> None:
+        """Play sample NEO close approach TTS alert."""
+        config = self._get_config()
+        media_players = media_players_with_tts(config.get("media_players", []))
+        if not media_players:
+            _fire_tts_status(
+                self.hass, "skipped", request_id=request_id,
+                reason="No media players with TTS configured", alert_kind="neo_alert",
+            )
+            return
+        sample = {
+            "name": "Sample Asteroid",
+            "lunar_distance": 2.5,
+            "close_approach_date": "2026-07-15",
+        }
+        msg = format_neo_alert_for_tts(sample)
+        await play_hazard_alert_notification(
+            self.hass, config, "neo_alerts", msg, media_players,
+            request_id=request_id, alert_kind="neo_alert",
+        )
+
+    async def fire_test_neo_siren(self, *, request_id: str | None = None) -> None:
+        """Play the configured NEO alert siren only (no TTS)."""
+        await self._fire_test_section_siren("neo_alerts", "neo_siren", request_id=request_id)
 
     async def _setup_upcoming_change_trigger(self, tts_config: dict[str, Any]) -> None:
         """Set up trigger for upcoming precipitation alerts.
@@ -1794,6 +1957,108 @@ class TTSTriggerManager:
         )
         _LOGGER.info("Volcano alert TTS fired: %s", event_type)
 
+    async def _setup_wildfire_alerts_trigger(self, config: dict[str, Any]) -> None:
+        """Listen for wildfire coordinator bus events."""
+        media_players = media_players_with_tts(config.get("media_players", []))
+        if not media_players:
+            _LOGGER.warning("Wildfire alerts enabled but no media players with TTS configured")
+            return
+
+        for event_type in (
+            "home_weather_wildfire_detected",
+            "home_weather_wildfire_updated",
+            "home_weather_wildfire_cleared",
+        ):
+            def _make_listener(et: str) -> Callable[[Event], None]:
+                @callback
+                def _on_event(ev: Event) -> None:
+                    self.hass.async_create_task(
+                        self._handle_wildfire_bus_event(ev, et)
+                    )
+                return _on_event
+
+            self._unsub_callbacks.append(
+                self.hass.bus.async_listen(event_type, _make_listener(event_type))
+            )
+        _LOGGER.info("Wildfire alerts trigger set up (bus listeners)")
+
+    async def _handle_wildfire_bus_event(
+        self,
+        event: Event,
+        event_type: str,
+    ) -> None:
+        config = self._get_config()
+        wildfire_cfg = config.get("wildfire_alerts") or {}
+        if not wildfire_cfg.get("enabled"):
+            return
+        media_players = media_players_with_tts(config.get("media_players", []))
+        if not media_players:
+            return
+        payload = dict(event.data or {})
+        monitoring = config.get("wildfire_monitoring") or {}
+        if not passes_wildfire_tts_filter(payload, wildfire_cfg, event_type, monitoring):
+            return
+        cleared = event_type == "home_weather_wildfire_cleared"
+        updated = event_type == "home_weather_wildfire_updated"
+        msg = format_wildfire_alert_for_tts(payload, cleared=cleared, updated=updated)
+        await play_hazard_alert_notification(
+            self.hass, config, "wildfire_alerts", msg, media_players,
+            alert_kind="wildfire_alert",
+        )
+        _LOGGER.info("Wildfire alert TTS fired: %s", event_type)
+
+    async def _setup_air_quality_alerts_trigger(self, config: dict[str, Any]) -> None:
+        """Listen for air quality coordinator bus events."""
+        media_players = media_players_with_tts(config.get("media_players", []))
+        if not media_players:
+            _LOGGER.warning("Air quality alerts enabled but no media players with TTS configured")
+            return
+
+        for event_type in (
+            "home_weather_air_quality_unhealthy",
+            "home_weather_air_quality_updated",
+            "home_weather_air_quality_cleared",
+        ):
+            def _make_listener(et: str) -> Callable[[Event], None]:
+                @callback
+                def _on_event(ev: Event) -> None:
+                    self.hass.async_create_task(
+                        self._handle_air_quality_bus_event(ev, et)
+                    )
+                return _on_event
+
+            self._unsub_callbacks.append(
+                self.hass.bus.async_listen(event_type, _make_listener(event_type))
+            )
+        _LOGGER.info("Air quality alerts trigger set up (bus listeners)")
+
+    async def _handle_air_quality_bus_event(
+        self,
+        event: Event,
+        event_type: str,
+    ) -> None:
+        config = self._get_config()
+        air_quality_cfg = config.get("air_quality_alerts") or {}
+        if not air_quality_cfg.get("enabled"):
+            return
+        media_players = media_players_with_tts(config.get("media_players", []))
+        if not media_players:
+            return
+        payload = dict(event.data or {})
+        monitoring = config.get("air_quality_monitoring") or {}
+        if not passes_air_quality_tts_filter(
+            payload, air_quality_cfg, event_type, monitoring
+        ):
+            return
+        cleared = event_type == "home_weather_air_quality_cleared"
+        updated = event_type == "home_weather_air_quality_updated"
+        msg = format_air_quality_alert_for_tts(payload, cleared=cleared, updated=updated)
+        await play_hazard_alert_notification(
+            self.hass, config, "air_quality_alerts", msg, media_players,
+            alert_kind="air_quality_alert",
+        )
+        _LOGGER.info("Air quality alert TTS fired: %s", event_type)
+
     async def _setup_travel_alerts_trigger(self, config: dict[str, Any]) -> None:
         """Listen for travel advisory coordinator bus events."""
         media_players = media_players_with_tts(config.get("media_players", []))
@@ -1842,3 +2107,145 @@ class TTSTriggerManager:
             alert_kind="travel_alert",
         )
         _LOGGER.info("Travel alert TTS fired: %s", event_type)
+
+    async def _setup_spacecraft_alerts_trigger(self, config: dict[str, Any]) -> None:
+        """Listen for spacecraft overhead bus events."""
+        media_players = media_players_with_tts(config.get("media_players", []))
+        if not media_players:
+            _LOGGER.warning("Spacecraft alerts enabled but no media players with TTS configured")
+            return
+
+        for event_type in (
+            "home_weather_spacecraft_overhead",
+            "home_weather_spacecraft_overhead_updated",
+            "home_weather_spacecraft_overhead_cleared",
+        ):
+            def _make_listener(et: str) -> Callable[[Event], None]:
+                @callback
+                def _on_event(ev: Event) -> None:
+                    self.hass.async_create_task(
+                        self._handle_spacecraft_bus_event(ev, et)
+                    )
+                return _on_event
+
+            self._unsub_callbacks.append(
+                self.hass.bus.async_listen(event_type, _make_listener(event_type))
+            )
+        _LOGGER.info("Spacecraft alerts trigger set up (bus listeners)")
+
+    async def _handle_spacecraft_bus_event(
+        self,
+        event: Event,
+        event_type: str,
+    ) -> None:
+        config = self._get_config()
+        spacecraft_cfg = config.get("spacecraft_alerts") or {}
+        if not spacecraft_cfg.get("enabled"):
+            return
+        media_players = media_players_with_tts(config.get("media_players", []))
+        if not media_players:
+            return
+        payload = dict(event.data or {})
+        if not passes_spacecraft_tts_filter(payload, spacecraft_cfg, event_type):
+            return
+        msg = format_spacecraft_alert_for_tts(payload)
+        await play_hazard_alert_notification(
+            self.hass, config, "spacecraft_alerts", msg, media_players,
+            alert_kind="spacecraft_alert",
+        )
+        _LOGGER.info("Spacecraft alert TTS fired: %s", event_type)
+
+    async def _setup_solar_weather_alerts_trigger(self, config: dict[str, Any]) -> None:
+        """Listen for solar weather bus events."""
+        media_players = media_players_with_tts(config.get("media_players", []))
+        if not media_players:
+            _LOGGER.warning("Solar weather alerts enabled but no media players with TTS configured")
+            return
+
+        for event_type in (
+            "home_weather_solar_storm",
+            "home_weather_solar_storm_updated",
+            "home_weather_solar_storm_cleared",
+            "home_weather_solar_flare",
+            "home_weather_solar_flare_updated",
+        ):
+            def _make_listener(et: str) -> Callable[[Event], None]:
+                @callback
+                def _on_event(ev: Event) -> None:
+                    self.hass.async_create_task(
+                        self._handle_solar_weather_bus_event(ev, et)
+                    )
+                return _on_event
+
+            self._unsub_callbacks.append(
+                self.hass.bus.async_listen(event_type, _make_listener(event_type))
+            )
+        _LOGGER.info("Solar weather alerts trigger set up (bus listeners)")
+
+    async def _handle_solar_weather_bus_event(
+        self,
+        event: Event,
+        event_type: str,
+    ) -> None:
+        config = self._get_config()
+        solar_cfg = config.get("solar_weather_alerts") or {}
+        if not solar_cfg.get("enabled"):
+            return
+        media_players = media_players_with_tts(config.get("media_players", []))
+        if not media_players:
+            return
+        payload = dict(event.data or {})
+        if not passes_solar_weather_tts_filter(payload, solar_cfg, event_type):
+            return
+        msg = format_solar_weather_alert_for_tts(payload)
+        await play_hazard_alert_notification(
+            self.hass, config, "solar_weather_alerts", msg, media_players,
+            alert_kind="solar_weather_alert",
+        )
+        _LOGGER.info("Solar weather alert TTS fired: %s", event_type)
+
+    async def _setup_neo_alerts_trigger(self, config: dict[str, Any]) -> None:
+        """Listen for NEO close approach bus events."""
+        media_players = media_players_with_tts(config.get("media_players", []))
+        if not media_players:
+            _LOGGER.warning("NEO alerts enabled but no media players with TTS configured")
+            return
+
+        for event_type in (
+            "home_weather_neo_close_approach",
+            "home_weather_neo_close_approach_updated",
+        ):
+            def _make_listener(et: str) -> Callable[[Event], None]:
+                @callback
+                def _on_event(ev: Event) -> None:
+                    self.hass.async_create_task(
+                        self._handle_neo_bus_event(ev, et)
+                    )
+                return _on_event
+
+            self._unsub_callbacks.append(
+                self.hass.bus.async_listen(event_type, _make_listener(event_type))
+            )
+        _LOGGER.info("NEO alerts trigger set up (bus listeners)")
+
+    async def _handle_neo_bus_event(
+        self,
+        event: Event,
+        event_type: str,
+    ) -> None:
+        config = self._get_config()
+        neo_cfg = config.get("neo_alerts") or {}
+        if not neo_cfg.get("enabled"):
+            return
+        media_players = media_players_with_tts(config.get("media_players", []))
+        if not media_players:
+            return
+        payload = dict(event.data or {})
+        if not passes_neo_tts_filter(payload, neo_cfg, event_type):
+            return
+        msg = format_neo_alert_for_tts(payload)
+        await play_hazard_alert_notification(
+            self.hass, config, "neo_alerts", msg, media_players,
+            alert_kind="neo_alert",
+        )
+        _LOGGER.info("NEO alert TTS fired: %s", event_type)

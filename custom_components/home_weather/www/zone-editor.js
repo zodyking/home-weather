@@ -71,6 +71,28 @@
       max: 5000,
       hint: "Active volcanoes inside this radius count as nearby for sensors.",
     },
+    {
+      key: "wildfire",
+      configKey: "wildfire_monitoring",
+      radiusKey: "radius_miles",
+      label: "Wildfire",
+      icon: "fire",
+      color: "#ff5722",
+      min: 1,
+      max: 500,
+      hint: "Wildfires inside this radius count as nearby for sensors and alerts.",
+    },
+    {
+      key: "air_quality",
+      configKey: "air_quality_monitoring",
+      radiusKey: "radius_miles",
+      label: "Air Quality",
+      icon: "air-quality",
+      color: "#42a5f5",
+      min: 1,
+      max: 500,
+      hint: "Reporting areas inside this radius drive air quality sensors.",
+    },
   ];
 
   function clamp(value, min, max) {

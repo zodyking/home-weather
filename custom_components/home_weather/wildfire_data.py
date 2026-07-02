@@ -47,6 +47,9 @@ def get_wildfire_config(config: dict[str, Any] | None) -> dict[str, Any]:
     """Return merged wildfire monitoring settings."""
     defaults = {
         "enabled": True,
+        "zone_mode": "zone",
+        "alert_zone_mode": "zone",
+        "radius_miles": 100,
         "show_on_map": True,
         "show_perimeters": True,
         "min_acres": 100,
@@ -138,11 +141,15 @@ def arcgis_point_feature(
     state = _state_label(attrs.get("POOState"))
     county = str(attrs.get("POOCounty") or "").strip()
     location = ", ".join(p for p in (county, state) if p) or state or "Unknown"
+    incident_id = str(attrs.get("LocalIncidentIdentifier") or "").strip()
+    if not incident_id:
+        incident_id = f"{name}|{state}|{round(y, 4)}|{round(x, 4)}"
 
     return {
         "type": "Feature",
         "geometry": {"type": "Point", "coordinates": [x, y]},
         "properties": {
+            "id": incident_id,
             "layer": layer,
             "name": name,
             "acres": round(acres, 1) if acres else 0,
@@ -246,6 +253,101 @@ def passes_wildfire_filter(
     return True
 
 
+def passes_wildfire_geofield_filter(
+    incident: dict[str, Any],
+    wildfire_config: dict[str, Any],
+) -> bool:
+    """Return True when an incident is inside the configured radius (ignores sensor bypass)."""
+    if not passes_wildfire_filter(incident, wildfire_config):
+        return False
+    radius = float(wildfire_config.get("radius_miles") or 100)
+    distance = incident.get("distance_miles")
+    if distance is None or distance > radius:
+        return False
+    return True
+
+
+def passes_wildfire_sensor_scope_filter(
+    incident: dict[str, Any],
+    wildfire_config: dict[str, Any],
+) -> bool:
+    """Return True when an incident meets sensor-scope filters (may bypass radius)."""
+    if not passes_wildfire_filter(incident, wildfire_config):
+        return False
+    if wildfire_config.get("zone_mode", "zone") == "all":
+        return True
+    return passes_wildfire_geofield_filter(incident, wildfire_config)
+
+
+def pick_nearest_wildfire(incidents: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Return the nearest wildfire incident (largest acres wins ties)."""
+    if not incidents:
+        return None
+    return min(
+        incidents,
+        key=lambda item: (
+            item.get("distance_miles")
+            if item.get("distance_miles") is not None
+            else float("inf"),
+            -(item.get("acres") or 0),
+        ),
+    )
+
+
+def _wildfire_event_tracking_signature(incident: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "acres": incident.get("acres"),
+        "percent_contained": incident.get("percent_contained"),
+        "category": incident.get("category"),
+    }
+
+
+def _wildfire_event_payload(incident: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": incident.get("id"),
+        "name": incident.get("name"),
+        "location": incident.get("location"),
+        "state": incident.get("state"),
+        "acres": incident.get("acres"),
+        "percent_contained": incident.get("percent_contained"),
+        "category": incident.get("category"),
+        "distance_miles": incident.get("distance_miles"),
+        "lat": incident.get("lat"),
+        "lon": incident.get("lon"),
+    }
+
+
+def detect_wildfire_events(
+    previous: dict[str, dict[str, Any]],
+    current_events: list[dict[str, Any]],
+) -> list[tuple[str, dict[str, Any]]]:
+    """Return bus events to fire: (event_type, payload)."""
+    events_out: list[tuple[str, dict[str, Any]]] = []
+    current_by_id = {str(e["id"]): e for e in current_events if e.get("id")}
+    current_ids = set(current_by_id)
+
+    for incident_id, incident in current_by_id.items():
+        payload = _wildfire_event_payload(incident)
+        prev = previous.get(incident_id)
+        if prev is None:
+            events_out.append(("home_weather_wildfire_detected", payload))
+            continue
+        if _wildfire_event_tracking_signature(prev) != _wildfire_event_tracking_signature(
+            incident
+        ):
+            events_out.append(("home_weather_wildfire_updated", payload))
+
+    for incident_id in set(previous) - current_ids:
+        events_out.append(
+            (
+                "home_weather_wildfire_cleared",
+                _wildfire_event_payload(previous[incident_id]),
+            )
+        )
+
+    return events_out
+
+
 def build_wildfire_geojson(
     point_features: list[dict[str, Any]],
     perimeter_features: list[dict[str, Any]],
@@ -295,9 +397,20 @@ def build_coordinator_payload(
             props["lon"] = coords[0]
             props["lat"] = coords[1]
         incidents.append(props)
-    incidents.sort(key=lambda item: (-(item.get("acres") or 0), item.get("distance_miles") or 99999))
 
-    nearest = incidents[0] if incidents else None
+    geofield_events = [
+        i for i in incidents if passes_wildfire_geofield_filter(i, wildfire_config)
+    ]
+    sensor_events = [
+        i for i in incidents if passes_wildfire_sensor_scope_filter(i, wildfire_config)
+    ]
+    alert_mode = str(
+        wildfire_config.get("alert_zone_mode", wildfire_config.get("zone_mode", "zone"))
+    ).lower()
+    alert_events = incidents if alert_mode == "all" else geofield_events
+    primary = pick_nearest_wildfire(sensor_events)
+    nearest = pick_nearest_wildfire(incidents)
+
     active_uncontained = sum(
         1
         for item in incidents
@@ -307,12 +420,17 @@ def build_coordinator_payload(
 
     return {
         "incidents": incidents,
+        "geofield_events": geofield_events,
+        "alert_events": alert_events,
         "incident_count": len(filtered_points),
+        "geofield_count": len(geofield_events),
+        "in_geofield": len(geofield_events) > 0,
         "perimeter_count": len(filtered_perimeters),
         "active_uncontained_count": active_uncontained,
         "map_count": len(geojson.get("features") or []),
         "nearest_incident": nearest,
         "nearest_distance_miles": nearest.get("distance_miles") if nearest else None,
+        "primary_geofield": primary,
         "geojson": geojson,
         "source": "NIFC WFIGS",
     }

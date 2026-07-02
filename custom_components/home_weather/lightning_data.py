@@ -125,16 +125,23 @@ def build_lightning_payload(
         recent.append({**strike, "distance_miles": dist})
 
     recent.sort(key=lambda s: s.get("time_ms") or 0, reverse=True)
+    geofield = [
+        s for s in recent if s.get("distance_miles", float("inf")) <= geofield_radius
+    ]
     if lightning_config.get("zone_mode", "zone") == "all":
-        geofield = list(recent)
+        sensor_strikes = list(recent)
     else:
-        geofield = [s for s in recent if s.get("distance_miles", float("inf")) <= geofield_radius]
-    nearest = min(geofield, key=lambda s: s.get("distance_miles", float("inf"))) if geofield else None
+        sensor_strikes = geofield
+    nearest = (
+        min(sensor_strikes, key=lambda s: s.get("distance_miles", float("inf")))
+        if sensor_strikes
+        else None
+    )
 
     one_hour_ms = int(dt_util.utcnow().timestamp() * 1000) - 3600 * 1000
     if strikes_last_hour is None:
         strikes_last_hour = sum(
-            1 for s in geofield if (s.get("time_ms") or 0) >= one_hour_ms
+            1 for s in sensor_strikes if (s.get("time_ms") or 0) >= one_hour_ms
         )
 
     last_strike_time: datetime | None = None
@@ -177,15 +184,13 @@ def empty_lightning_payload(*, feed_status: str = "off") -> dict[str, Any]:
     }
 
 
-def strike_in_monitoring_zone(
+def strike_in_geofield(
     strike: dict[str, Any],
     home: dict[str, float],
     config: dict[str, Any] | None = None,
 ) -> bool:
-    """Return True when a strike should count toward geofield stats."""
+    """Return True when a strike is inside the configured geofield radius."""
     lightning_config = get_lightning_config(config)
-    if lightning_config.get("zone_mode", "zone") == "all":
-        return True
     radius = float(lightning_config.get("geofield_radius_miles", 100))
     dist = haversine_distance_miles(
         float(home["lat"]),
@@ -194,6 +199,18 @@ def strike_in_monitoring_zone(
         float(strike["lon"]),
     )
     return dist <= radius
+
+
+def strike_in_monitoring_zone(
+    strike: dict[str, Any],
+    home: dict[str, float],
+    config: dict[str, Any] | None = None,
+) -> bool:
+    """Return True when a strike should count toward sensor-scope stats."""
+    lightning_config = get_lightning_config(config)
+    if lightning_config.get("zone_mode", "zone") == "all":
+        return True
+    return strike_in_geofield(strike, home, config)
 
 
 class LightningHourlyCounter:

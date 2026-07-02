@@ -187,14 +187,22 @@ def passes_tornado_geofield_filter(
     alert: dict[str, Any],
     geofield_config: dict[str, Any],
 ) -> bool:
-    """Return True when alert is within the user's configured tornado geofield."""
-    if geofield_config.get("zone_mode", "zone") == "all":
-        return True
+    """Return True when alert is inside the configured tornado geofield (ignores sensor bypass)."""
     if geofield_config.get("only_affecting_home", True):
         return bool(alert.get("affecting_home"))
     dist = alert.get("distance_miles")
     max_dist = float(geofield_config.get("max_distance_miles", 25))
     return dist is not None and dist <= max_dist
+
+
+def passes_tornado_sensor_scope_filter(
+    alert: dict[str, Any],
+    geofield_config: dict[str, Any],
+) -> bool:
+    """Return True when alert meets sensor-scope filters (may bypass the geofield)."""
+    if geofield_config.get("zone_mode", "zone") == "all":
+        return True
+    return passes_tornado_geofield_filter(alert, geofield_config)
 
 
 def filter_alerts_for_geofield(
@@ -207,6 +215,18 @@ def filter_alerts_for_geofield(
     return sort_tornado_alerts_by_priority(filtered)
 
 
+def filter_alerts_for_sensor_scope(
+    alerts: list[dict[str, Any]],
+    config: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Filter parsed alerts to those visible to hazard detail sensors."""
+    geofield_config = get_tornado_geofield_config(config)
+    filtered = [
+        a for a in alerts if passes_tornado_sensor_scope_filter(a, geofield_config)
+    ]
+    return sort_tornado_alerts_by_priority(filtered)
+
+
 def build_coordinator_payload(
     alerts: list[dict[str, Any]],
     config: dict[str, Any] | None = None,
@@ -215,13 +235,15 @@ def build_coordinator_payload(
     geofield_config = get_tornado_geofield_config(config)
     if not geofield_config.get("enabled", True):
         geofield_alerts: list[dict[str, Any]] = []
+        sensor_alerts: list[dict[str, Any]] = []
     else:
         geofield_alerts = filter_alerts_for_geofield(alerts, config)
-    primary = geofield_alerts[0] if geofield_alerts else None
+        sensor_alerts = filter_alerts_for_sensor_scope(alerts, config)
+    primary = sensor_alerts[0] if sensor_alerts else None
     affecting_home = any(a.get("affecting_home") for a in geofield_alerts)
     distances = [
         a["distance_miles"]
-        for a in geofield_alerts
+        for a in sensor_alerts
         if a.get("distance_miles") is not None
     ]
     nearest_distance = min(distances) if distances else None
@@ -251,13 +273,13 @@ def build_coordinator_payload(
     return {
         "all_alerts": alerts,
         "geofield_alerts": geofield_alerts,
-        "alerts": geofield_alerts,
+        "alerts": sensor_alerts,
         "alert_alerts": alert_alerts,
-        "active_count": len(geofield_alerts),
+        "active_count": len(sensor_alerts),
         "map_count": len(alerts),
         "affecting_home": affecting_home,
         "in_geofield": len(geofield_alerts) > 0,
-        "warning_active": len(geofield_alerts) > 0,
+        "warning_active": len(sensor_alerts) > 0,
         "nearest_distance_miles": nearest_distance,
         "primary_alert": primary,
         "primary_geofield": primary,

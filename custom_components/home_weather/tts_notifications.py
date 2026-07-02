@@ -27,7 +27,7 @@ from .condition_labels import (
     normalize_weather_condition,
     precip_already_matches_upcoming,
 )
-from .const import NUMBER_WORDS, NWS_SOUNDS_SUBPATH
+from .const import CHIME_TTS_DOMAIN, NUMBER_WORDS, NWS_SOUNDS_SUBPATH
 from .sounds_setup import (
     build_nws_local_media_id,
     normalize_nws_sound_filename,
@@ -695,6 +695,109 @@ async def send_tts(
             )
 
 
+def is_chime_tts_available(hass: HomeAssistant) -> bool:
+    """Check if Chime TTS integration is installed and loaded."""
+    return CHIME_TTS_DOMAIN in hass.config.components
+
+
+def _extract_tts_platform_from_entity(tts_entity_id: str) -> str:
+    """Extract TTS platform name from entity ID for Chime TTS.
+
+    Chime TTS expects just the platform name (e.g., "google_translate")
+    not the full entity ID. The tts_entity_id is typically like
+    "tts.google_translate_say" or "tts.piper".
+    """
+    if not tts_entity_id:
+        return ""
+    if tts_entity_id.startswith("tts."):
+        platform = tts_entity_id[4:]
+        if platform.endswith("_say"):
+            platform = platform[:-4]
+        return platform
+    return tts_entity_id
+
+
+async def dispatch_chime_tts(
+    hass: HomeAssistant,
+    media_player_entity_id: str,
+    tts_entity_id: str,
+    message: str,
+    chime_path: str,
+    *,
+    volume: float = 0.8,
+    request_id: str | None = None,
+    alert_kind: str = "",
+) -> bool:
+    """Use chime_tts.say for seamless siren + TTS playback.
+
+    Automatically used when Chime TTS is installed. Files are not cached
+    (deleted after playing) to avoid storage buildup.
+
+    Returns True if Chime TTS handled the playback, False if it's not
+    available and the caller should fall back to the legacy method.
+    """
+    if not is_chime_tts_available(hass):
+        _LOGGER.debug("Chime TTS not available, falling back to legacy method")
+        return False
+
+    if not media_player_entity_id or not message:
+        return False
+
+    tts_platform = _extract_tts_platform_from_entity(tts_entity_id)
+    if not tts_platform:
+        _LOGGER.warning(
+            "Could not extract TTS platform from %s for Chime TTS", tts_entity_id
+        )
+        return False
+
+    try:
+        _LOGGER.info(
+            "Using Chime TTS for %s: chime=%s, platform=%s",
+            media_player_entity_id, chime_path, tts_platform,
+        )
+
+        service_data: dict[str, Any] = {
+            "entity_id": media_player_entity_id,
+            "message": message,
+            "tts_platform": tts_platform,
+            "volume_level": volume,
+            "cache": False,  # Don't cache - delete after playing
+        }
+
+        if chime_path:
+            service_data["chime_path"] = chime_path
+
+        await hass.services.async_call(
+            CHIME_TTS_DOMAIN,
+            "say",
+            service_data,
+            blocking=True,
+        )
+
+        _LOGGER.info("Chime TTS playback completed for %s", media_player_entity_id)
+        _fire_tts_status(
+            hass, "sent",
+            request_id=request_id,
+            entity_id=media_player_entity_id,
+            message_preview=message,
+            alert_kind=alert_kind,
+        )
+        return True
+
+    except Exception as exc:
+        _LOGGER.error(
+            "Chime TTS failed for %s: %s", media_player_entity_id, exc, exc_info=True
+        )
+        _fire_tts_status(
+            hass, "failed",
+            request_id=request_id,
+            entity_id=media_player_entity_id,
+            reason=f"Chime TTS error: {exc}",
+            alert_kind=alert_kind,
+        )
+        return False
+
+
 def _build_ai_rewrite_instructions(prompt: str, message: str) -> str:
     """Build instructions for ai_task.generate_data."""
     system = (prompt or "").strip() or (
@@ -1142,7 +1245,11 @@ async def replay_active_nws_alerts(
     *,
     request_id: str | None = None,
 ) -> None:
-    """Replay active alerts: siren once, then combined TTS summary."""
+    """Replay active alerts: siren once, then combined TTS summary.
+
+    When use_chime_tts is enabled in config and Chime TTS is installed,
+    combines the siren audio and TTS into a single seamless playback.
+    """
     nws = config.get("nws_alerts", {})
     if not nws.get("enabled") or not alerts or not media_players_config:
         return
@@ -1162,6 +1269,39 @@ async def replay_active_nws_alerts(
         return
 
     tts_vol = max(0, min(1, float(nws.get("tts_volume", 0.9))))
+    sound_file_raw = nws.get("sound_file") or ""
+
+    # Auto-use Chime TTS when available for seamless siren + TTS playback
+    if sound_file_raw and is_chime_tts_available(hass):
+        chime_path = build_nws_local_media_id(normalize_nws_sound_filename(sound_file_raw))
+
+        for mp in media_players_config:
+            eid = mp.get("entity_id")
+            tts_entity = mp.get("tts_entity_id")
+            if not eid or not tts_entity:
+                continue
+
+            success = await dispatch_chime_tts(
+                hass,
+                eid,
+                tts_entity,
+                msg,
+                chime_path,
+                volume=tts_vol,
+                request_id=request_id,
+                alert_kind="nws_alert_replay",
+            )
+            if not success:
+                _LOGGER.warning(
+                    "Chime TTS failed for %s in replay, using legacy method", eid
+                )
+                await _legacy_nws_replay_single_player(
+                    hass, config, mp, msg, tts_vol, request_id=request_id,
+                )
+
+        _LOGGER.info("Chime TTS NWS replay completed")
+        return
+
     await play_nws_siren(hass, config, media_players_config, request_id=request_id)
 
     for mp in media_players_config:
@@ -1189,6 +1329,38 @@ async def replay_active_nws_alerts(
     await wait_for_media_players_after_tts(
         hass, media_player_entity_ids(media_players_config),
     )
+
+
+async def _legacy_nws_replay_single_player(
+    hass: HomeAssistant,
+    config: dict[str, Any],
+    mp: dict[str, Any],
+    message: str,
+    tts_vol: float,
+    *,
+    request_id: str | None = None,
+) -> None:
+    """Fallback for a single player when Chime TTS fails for NWS replay."""
+    eid = mp.get("entity_id")
+    if not eid:
+        return
+
+    await play_nws_siren(hass, config, [mp], request_id=request_id)
+
+    try:
+        await hass.services.async_call(
+            "media_player", "volume_set",
+            {"entity_id": eid, "volume_level": tts_vol},
+            blocking=True,
+        )
+    except Exception as exc:
+        _LOGGER.warning("NWS replay volume_set failed for %s: %s", eid, exc)
+
+    await send_tts(
+        hass, [mp], message, volume_override=tts_vol,
+        request_id=request_id, alert_kind="nws_alert_replay",
+    )
+    await wait_for_media_players_after_tts(hass, [eid])
 
 
 
@@ -1298,7 +1470,11 @@ async def play_nws_alert_notification(
     *,
     request_id: str | None = None,
 ) -> None:
-    """Play siren sound (if configured) then TTS for an NWS weather alert."""
+    """Play siren sound (if configured) then TTS for an NWS weather alert.
+
+    When use_chime_tts is enabled in config and Chime TTS is installed,
+    combines the siren audio and TTS into a single seamless playback.
+    """
     nws = config.get("nws_alerts", {})
     tts_vol = max(0, min(1, float(nws.get("tts_volume", 0.9))))
     msg = format_nws_alert_for_tts(alert_properties)
@@ -1313,6 +1489,39 @@ async def play_nws_alert_notification(
             request_id=request_id, reason="No media players configured",
             alert_kind="nws_alert",
         )
+        return
+
+    sound_file_raw = nws.get("sound_file") or ""
+
+    # Auto-use Chime TTS when available for seamless siren + TTS playback
+    if sound_file_raw and is_chime_tts_available(hass):
+        chime_path = build_nws_local_media_id(normalize_nws_sound_filename(sound_file_raw))
+
+        for mp in media_players_config:
+            eid = mp.get("entity_id")
+            tts_entity = mp.get("tts_entity_id")
+            if not eid or not tts_entity:
+                continue
+
+            success = await dispatch_chime_tts(
+                hass,
+                eid,
+                tts_entity,
+                msg,
+                chime_path,
+                volume=tts_vol,
+                request_id=request_id,
+                alert_kind="nws_alert",
+            )
+            if not success:
+                _LOGGER.warning(
+                    "Chime TTS failed for %s, using legacy NWS method", eid
+                )
+                await _legacy_nws_alert_single_player(
+                    hass, config, mp, msg, tts_vol, request_id=request_id,
+                )
+
+        _LOGGER.info("Chime TTS NWS alert completed")
         return
 
     await play_nws_siren(hass, config, media_players_config, request_id=request_id)
@@ -1337,6 +1546,38 @@ async def play_nws_alert_notification(
     await wait_for_media_players_after_tts(
         hass, media_player_entity_ids(media_players_config),
     )
+
+
+async def _legacy_nws_alert_single_player(
+    hass: HomeAssistant,
+    config: dict[str, Any],
+    mp: dict[str, Any],
+    message: str,
+    tts_vol: float,
+    *,
+    request_id: str | None = None,
+) -> None:
+    """Fallback for a single player when Chime TTS fails for NWS alerts."""
+    eid = mp.get("entity_id")
+    if not eid:
+        return
+
+    await play_nws_siren(hass, config, [mp], request_id=request_id)
+
+    try:
+        await hass.services.async_call(
+            "media_player", "volume_set",
+            {"entity_id": eid, "volume_level": tts_vol},
+            blocking=True,
+        )
+    except Exception as exc:
+        _LOGGER.warning("NWS alert volume_set failed for %s: %s", eid, exc)
+
+    await send_tts(
+        hass, [mp], message, volume_override=tts_vol,
+        request_id=request_id, alert_kind="nws_alert",
+    )
+    await wait_for_media_players_after_tts(hass, [eid])
 
 
 def _round_miles(value: float | None) -> str:
@@ -1555,6 +1796,102 @@ def passes_volcano_tts_filter(
     return dist is None or dist <= max_dist
 
 
+def format_wildfire_alert_for_tts(
+    payload: dict[str, Any],
+    *,
+    cleared: bool = False,
+    updated: bool = False,
+) -> str:
+    """Build spoken wildfire alert."""
+    name = payload.get("name") or "A wildfire"
+    if cleared:
+        return (
+            f"Wildfire update. {name} is no longer within your wildfire alert zone."
+        )
+    dist = payload.get("distance_miles")
+    acres = payload.get("acres")
+    location = payload.get("location") or payload.get("state") or "unknown location"
+    prefix = "Wildfire update." if updated else "Wildfire alert."
+    parts = [prefix, f"{name} near {location}"]
+    if dist is not None:
+        parts.append(f"is {_round_miles(dist)} from home")
+    if acres is not None:
+        parts.append(f"covering about {int(round(acres))} acres")
+    contained = payload.get("percent_contained")
+    if contained is not None:
+        parts.append(f"and is {int(round(contained))} percent contained")
+    return ", ".join(parts) + "."
+
+
+def passes_wildfire_tts_filter(
+    payload: dict[str, Any],
+    wildfire_config: dict[str, Any],
+    event_type: str,
+    monitoring_config: dict[str, Any] | None = None,
+) -> bool:
+    """Return True when wildfire payload meets TTS announce criteria."""
+    if event_type == "home_weather_wildfire_cleared":
+        return bool(wildfire_config.get("announce_cleared", False))
+    monitoring = monitoring_config or {}
+    if _alert_zone_mode(monitoring) == "all":
+        return True
+    dist = payload.get("distance_miles")
+    max_dist = float(monitoring.get("radius_miles", 100))
+    if dist is None or dist > max_dist:
+        return False
+    min_acres = float(monitoring.get("min_acres", 100))
+    acres = payload.get("acres")
+    return acres is not None and acres >= min_acres
+
+
+def format_air_quality_alert_for_tts(
+    payload: dict[str, Any],
+    *,
+    cleared: bool = False,
+    updated: bool = False,
+) -> str:
+    """Build spoken air quality alert."""
+    name = payload.get("name") or "Your area"
+    state = payload.get("state") or ""
+    area_label = f"{name}, {state}".strip(", ")
+    if cleared:
+        return (
+            f"Air quality update. Conditions in {area_label} are no longer "
+            "within your air quality alert range."
+        )
+    aqi = payload.get("aqi")
+    category = payload.get("category") or "elevated"
+    dist = payload.get("distance_miles")
+    prefix = "Air quality update." if updated else "Air quality alert."
+    parts = [prefix, f"Air quality in {area_label} is {category}"]
+    if aqi is not None:
+        parts[-1] += f" with an A Q I of {aqi}"
+    if dist is not None:
+        parts.append(f"about {_round_miles(dist)} from home")
+    return ", ".join(parts) + "."
+
+
+def passes_air_quality_tts_filter(
+    payload: dict[str, Any],
+    air_quality_config: dict[str, Any],
+    event_type: str,
+    monitoring_config: dict[str, Any] | None = None,
+) -> bool:
+    """Return True when air quality payload meets TTS announce criteria."""
+    if event_type == "home_weather_air_quality_cleared":
+        return bool(air_quality_config.get("announce_cleared", False))
+    monitoring = monitoring_config or {}
+    if _alert_zone_mode(monitoring) == "all":
+        return True
+    dist = payload.get("distance_miles")
+    max_dist = float(monitoring.get("radius_miles", 50))
+    if dist is None or dist > max_dist:
+        return False
+    min_level = int(monitoring.get("min_category_level") or 1)
+    level = int(payload.get("category_level") or 1)
+    return level >= min_level
+
+
 async def play_hazard_siren(
     hass: HomeAssistant,
     section: dict[str, Any],
@@ -1621,7 +1958,12 @@ async def play_hazard_alert_notification(
     request_id: str | None = None,
     alert_kind: str = "",
 ) -> None:
-    """Play optional siren then TTS for a hazard alert section."""
+    """Play optional siren then TTS for a hazard alert section.
+
+    When use_chime_tts is enabled in config and Chime TTS is installed,
+    combines the siren audio and TTS into a single seamless playback.
+    Otherwise falls back to the legacy two-call method.
+    """
     section = config.get(section_key) or {}
     tts_vol = max(0, min(1, float(section.get("tts_volume", 0.9))))
     tts_config = config.get("tts", {})
@@ -1636,6 +1978,43 @@ async def play_hazard_alert_notification(
         )
         return
     if not msg.strip():
+        return
+
+    sound_file_raw = section.get("sound_file") or ""
+
+    # Auto-use Chime TTS when available for seamless siren + TTS playback
+    if sound_file_raw and is_chime_tts_available(hass):
+        chime_path = build_nws_local_media_id(normalize_nws_sound_filename(sound_file_raw))
+        all_succeeded = True
+
+        for mp in media_players_config:
+            eid = mp.get("entity_id")
+            tts_entity = mp.get("tts_entity_id")
+            if not eid or not tts_entity:
+                continue
+
+            success = await dispatch_chime_tts(
+                hass,
+                eid,
+                tts_entity,
+                msg,
+                chime_path,
+                volume=tts_vol,
+                request_id=request_id,
+                alert_kind=alert_kind,
+            )
+            if not success:
+                all_succeeded = False
+                _LOGGER.warning(
+                    "Chime TTS failed for %s, using legacy method", eid
+                )
+                await _legacy_hazard_alert_single_player(
+                    hass, section, mp, msg, tts_vol,
+                    request_id=request_id, alert_kind=alert_kind,
+                )
+
+        if all_succeeded:
+            _LOGGER.info("Chime TTS hazard alert completed for all players")
         return
 
     await play_hazard_siren(
@@ -1665,6 +2044,42 @@ async def play_hazard_alert_notification(
     )
 
 
+async def _legacy_hazard_alert_single_player(
+    hass: HomeAssistant,
+    section: dict[str, Any],
+    mp: dict[str, Any],
+    message: str,
+    tts_vol: float,
+    *,
+    request_id: str | None = None,
+    alert_kind: str = "",
+) -> None:
+    """Fallback for a single player when Chime TTS fails."""
+    eid = mp.get("entity_id")
+    if not eid:
+        return
+
+    await play_hazard_siren(
+        hass, section, [mp],
+        request_id=request_id, alert_kind=f"{alert_kind}_siren",
+    )
+
+    try:
+        await hass.services.async_call(
+            "media_player", "volume_set",
+            {"entity_id": eid, "volume_level": tts_vol},
+            blocking=True,
+        )
+    except Exception as exc:
+        _LOGGER.warning("Hazard alert volume_set failed for %s: %s", eid, exc)
+
+    await send_tts(
+        hass, [mp], message, volume_override=tts_vol,
+        request_id=request_id, alert_kind=alert_kind,
+    )
+    await wait_for_media_players_after_tts(hass, [eid])
+
+
 def format_travel_advisory_for_tts(
     payload: dict[str, Any],
     *,
@@ -1681,3 +2096,111 @@ def format_travel_advisory_for_tts(
         snippet = summary[:320].rsplit(" ", 1)[0] if len(summary) > 320 else summary
         parts.append(snippet)
     return " ".join(parts)
+
+
+def _xray_class_rank(class_char: str) -> int:
+    order = {"A": 0, "B": 1, "C": 2, "M": 3, "X": 4}
+    return order.get((class_char or "A").upper()[:1], 0)
+
+
+def format_spacecraft_alert_for_tts(payload: dict[str, Any]) -> str:
+    """Build spoken spacecraft overhead alert."""
+    name = payload.get("name") or payload.get("craft_name") or "A spacecraft"
+    elev = payload.get("max_elevation_deg")
+    if elev is not None:
+        return f"Space alert. {name} is passing overhead at about {int(round(elev))} degrees elevation."
+    return f"Space alert. {name} is passing overhead."
+
+
+def format_solar_weather_alert_for_tts(payload: dict[str, Any]) -> str:
+    """Build spoken solar weather alert."""
+    event_type = payload.get("type") or ""
+    if event_type == "geomagnetic_storm" or payload.get("k_index") is not None:
+        k_index = payload.get("k_index")
+        g_scale = payload.get("g_scale")
+        if g_scale:
+            return (
+                f"Solar weather alert. Geomagnetic storm conditions detected. "
+                f"Planetary K-index is {k_index}, G-scale {g_scale}."
+            )
+        return f"Solar weather alert. Elevated geomagnetic activity. Planetary K-index is {k_index}."
+    xray = payload.get("xray_class") or "M"
+    return f"Solar weather alert. A class {xray} solar flare event has been reported."
+
+
+def format_neo_alert_for_tts(payload: dict[str, Any]) -> str:
+    """Build spoken NEO close approach alert."""
+    name = payload.get("name") or "A near-Earth object"
+    ld = payload.get("lunar_distance")
+    date = payload.get("close_approach_date") or ""
+    parts = [f"Space alert. {name} will make a close approach to Earth"]
+    if ld is not None:
+        parts.append(f"within {ld:.1f} lunar distances")
+    if date:
+        parts.append(f"on {date}")
+    return ", ".join(parts) + "."
+
+
+def passes_spacecraft_tts_filter(
+    payload: dict[str, Any],
+    spacecraft_config: dict[str, Any],
+    event_type: str,
+) -> bool:
+    """Return True when spacecraft pass meets TTS criteria."""
+    if event_type.endswith("_cleared"):
+        return False
+    min_elev = float(spacecraft_config.get("min_elevation_deg") or 10)
+    elev = payload.get("max_elevation_deg")
+    if elev is not None and elev < min_elev:
+        return False
+    craft_ids = spacecraft_config.get("craft_ids") or []
+    if craft_ids and payload.get("craft_id") not in [str(c) for c in craft_ids]:
+        return False
+    if event_type.endswith("_updated") and not spacecraft_config.get("announce_pass_peak"):
+        return False
+    return bool(spacecraft_config.get("announce_pass_start", True))
+
+
+def passes_solar_weather_tts_filter(
+    payload: dict[str, Any],
+    solar_config: dict[str, Any],
+    event_type: str,
+) -> bool:
+    """Return True when solar weather event meets TTS criteria."""
+    if event_type.endswith("_cleared"):
+        return False
+    event_kind = payload.get("type") or ""
+    if event_kind == "geomagnetic_storm" or payload.get("k_index") is not None:
+        if not solar_config.get("announce_geomagnetic_storm", True):
+            return False
+        min_k = float(solar_config.get("min_k_index") or 5)
+        k_val = float(payload.get("k_index") or 0)
+        min_g = int(solar_config.get("min_g_scale") or 1)
+        g_val = int(payload.get("g_scale") or 0)
+        return k_val >= min_k or g_val >= min_g
+    if event_kind == "solar_flare" or payload.get("xray_class"):
+        if not solar_config.get("announce_flare_events", True):
+            return False
+        min_class = str(solar_config.get("min_xray_class") or "M").upper()[:1]
+        event_class = str(payload.get("xray_class") or "C").upper()[:1]
+        return _xray_class_rank(event_class) >= _xray_class_rank(min_class)
+    return True
+
+
+def passes_neo_tts_filter(
+    payload: dict[str, Any],
+    neo_config: dict[str, Any],
+    event_type: str,
+) -> bool:
+    """Return True when NEO close approach meets TTS criteria."""
+    if event_type.endswith("_cleared"):
+        return False
+    max_ld = float(neo_config.get("max_lunar_distances") or 5)
+    ld = payload.get("lunar_distance")
+    if ld is None or float(ld) > max_ld:
+        return False
+    min_diam = float(neo_config.get("min_diameter_m") or 100)
+    diam = payload.get("diameter_m")
+    if diam is not None and float(diam) < min_diam:
+        return False
+    return True

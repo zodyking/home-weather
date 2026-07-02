@@ -190,14 +190,39 @@ def parse_earthquake_feature(
     }
 
 
+def _passes_earthquake_magnitude_and_tsunami(
+    event: dict[str, Any],
+    eq_config: dict[str, Any],
+) -> bool:
+    magnitude = event.get("magnitude")
+    min_mag = float(eq_config.get("min_magnitude", 2.5))
+    if magnitude is None or magnitude < min_mag:
+        return False
+    if not eq_config.get("tsunami_alert_enabled", True) and event.get("tsunami") == 1:
+        return False
+    return True
+
+
+def passes_earthquake_geofield_filter(
+    event: dict[str, Any],
+    eq_config: dict[str, Any],
+) -> bool:
+    """Return True when an event is inside the configured radius (ignores sensor bypass)."""
+    if not _passes_earthquake_magnitude_and_tsunami(event, eq_config):
+        return False
+    radius = float(eq_config.get("radius_miles", 500))
+    distance = event.get("distance_miles")
+    if distance is None or distance > radius:
+        return False
+    return True
+
+
 def passes_earthquake_filters(
     event: dict[str, Any],
     eq_config: dict[str, Any],
 ) -> bool:
-    """Return True when an event meets magnitude, radius, and tsunami filters."""
-    magnitude = event.get("magnitude")
-    min_mag = float(eq_config.get("min_magnitude", 2.5))
-    if magnitude is None or magnitude < min_mag:
+    """Return True when an event meets sensor-scope filters (may bypass radius)."""
+    if not _passes_earthquake_magnitude_and_tsunami(event, eq_config):
         return False
 
     if eq_config.get("zone_mode", "zone") != "all":
@@ -205,9 +230,6 @@ def passes_earthquake_filters(
         distance = event.get("distance_miles")
         if distance is None or distance > radius:
             return False
-
-    if not eq_config.get("tsunami_alert_enabled", True) and event.get("tsunami") == 1:
-        return False
 
     return True
 
@@ -346,37 +368,40 @@ def build_coordinator_payload(
     events: list[dict[str, Any]],
     map_events: list[dict[str, Any]] | None = None,
     alert_events: list[dict[str, Any]] | None = None,
+    *,
+    geofield_events: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Build coordinator payload from nearby and worldwide map earthquakes.
 
-    ``alert_events`` is the list the TTS coordinator fires bus events from. It
-    equals ``events`` unless the alert scope bypasses the zone, in which case it
-    is the full parsed feed so spoken alerts can fire beyond the sensor zone.
+    ``events`` carries sensor-scope data (may bypass the zone). ``geofield_events``
+    always reflects true in-radius membership for binary sensors. ``alert_events``
+    is the list the TTS coordinator fires bus events from.
     """
-    nearby_ids = {str(e["id"]) for e in events if e.get("id")}
+    zone_events = geofield_events if geofield_events is not None else events
+    nearby_ids = {str(e["id"]) for e in zone_events if e.get("id")}
     if map_events is None:
         display_events = events
     else:
         display_events = merge_map_display_events(events, map_events)
-    nearest = pick_nearest_earthquake(events)
-    tsunami_in_geofield = any(e.get("tsunami") == 1 for e in events)
+    nearest_sensor = pick_nearest_earthquake(events)
+    tsunami_in_geofield = any(e.get("tsunami") == 1 for e in zone_events)
     return {
         "events": events,
-        "geofield_events": events,
+        "geofield_events": zone_events,
         "alert_events": alert_events if alert_events is not None else events,
         "map_events": display_events,
         "active_count": len(events),
-        "geofield_count": len(events),
+        "geofield_count": len(zone_events),
         "map_count": len(display_events),
         "nearby_active": len(events) > 0,
-        "in_geofield": len(events) > 0,
+        "in_geofield": len(zone_events) > 0,
         "tsunami_in_geofield": tsunami_in_geofield,
-        "nearest_distance_miles": nearest.get("distance_miles") if nearest else None,
-        "nearest_magnitude": nearest.get("magnitude") if nearest else None,
-        "nearest_depth_km": nearest.get("depth_km") if nearest else None,
-        "nearest_place": nearest.get("place") if nearest else None,
-        "primary_event": nearest,
-        "primary_geofield": nearest,
+        "nearest_distance_miles": nearest_sensor.get("distance_miles") if nearest_sensor else None,
+        "nearest_magnitude": nearest_sensor.get("magnitude") if nearest_sensor else None,
+        "nearest_depth_km": nearest_sensor.get("depth_km") if nearest_sensor else None,
+        "nearest_place": nearest_sensor.get("place") if nearest_sensor else None,
+        "primary_event": nearest_sensor,
+        "primary_geofield": nearest_sensor,
         "geojson": build_earthquake_geojson(display_events, nearby_ids=nearby_ids),
         "last_updated": dt_util.utcnow().isoformat(),
     }
@@ -514,7 +539,18 @@ async def async_fetch_earthquakes(
         _LOGGER.warning("USGS earthquake fetch failed: %s", err)
         return empty_coordinator_payload()
 
-    events = parse_earthquake_features(alert_features, home, eq_config)
+    parsed_events: list[dict[str, Any]] = []
+    for feature in alert_features:
+        parsed = parse_earthquake_feature(feature, home)
+        if parsed:
+            parsed_events.append(parsed)
+
+    events = sort_earthquakes_by_newest(
+        [e for e in parsed_events if passes_earthquake_filters(e, eq_config)]
+    )
+    geofield_events = sort_earthquakes_by_newest(
+        [e for e in parsed_events if passes_earthquake_geofield_filter(e, eq_config)]
+    )
     if map_show_worldwide:
         map_events = parse_earthquake_features_for_map(map_features, home, eq_config)
     else:
@@ -526,12 +562,12 @@ async def async_fetch_earthquakes(
         eq_config.get("alert_zone_mode", eq_config.get("zone_mode", "zone"))
     ).lower()
     if alert_mode == "all":
-        alert_events: list[dict[str, Any]] = []
-        for feature in alert_features:
-            parsed = parse_earthquake_feature(feature, home)
-            if parsed:
-                alert_events.append(parsed)
-        alert_events = sort_earthquakes_by_newest(alert_events)
+        alert_events = sort_earthquakes_by_newest(parsed_events)
     else:
         alert_events = events
-    return build_coordinator_payload(events, map_events, alert_events)
+    return build_coordinator_payload(
+        events,
+        map_events,
+        alert_events,
+        geofield_events=geofield_events,
+    )

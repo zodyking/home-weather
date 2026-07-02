@@ -25,6 +25,22 @@ from .entities.volcano import (
     VolcanoActivityBinarySensor,
     VolcanoInGeofieldBinarySensor,
 )
+from .entities.wildfire import (
+    WildfireActiveIncidentsBinarySensor,
+    WildfireInGeofieldBinarySensor,
+)
+from .entities.air_quality import (
+    AirQualityInGeofieldBinarySensor,
+    AirQualityUnhealthyDetectedBinarySensor,
+)
+from .entities.space import (
+    SpaceNeoCloseApproachBinarySensor,
+    SpaceOverheadBinarySensor,
+)
+from .entities.solar_weather import (
+    SolarWeatherFlareActiveBinarySensor,
+    SolarWeatherGeomagneticStormBinarySensor,
+)
 
 
 async def async_setup_entry(
@@ -63,6 +79,30 @@ async def async_setup_entry(
             ),
             VolcanoActivityBinarySensor(
                 entry_data["volcano_coordinator"], entry
+            ),
+            WildfireInGeofieldBinarySensor(
+                entry_data["wildfire_coordinator"], entry
+            ),
+            WildfireActiveIncidentsBinarySensor(
+                entry_data["wildfire_coordinator"], entry
+            ),
+            AirQualityInGeofieldBinarySensor(
+                entry_data["air_quality_coordinator"], entry
+            ),
+            AirQualityUnhealthyDetectedBinarySensor(
+                entry_data["air_quality_coordinator"], entry
+            ),
+            SpaceOverheadBinarySensor(
+                entry_data["space_coordinator"], entry
+            ),
+            SpaceNeoCloseApproachBinarySensor(
+                entry_data["space_coordinator"], entry
+            ),
+            SolarWeatherGeomagneticStormBinarySensor(
+                entry_data["space_coordinator"], entry
+            ),
+            SolarWeatherFlareActiveBinarySensor(
+                entry_data["space_coordinator"], entry
             ),
         ]
     )

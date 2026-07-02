@@ -888,16 +888,25 @@ def get_hurricane_geofield_config(config: dict[str, Any] | None) -> dict[str, An
 
 
 def storm_in_geofield(storm: dict[str, Any], geofield_config: dict[str, Any]) -> bool:
-    """Return True when a storm meets geofield distance and threat thresholds."""
+    """Return True when a storm is inside the configured geofield (ignores sensor bypass)."""
+    threat = storm.get("threat") or {}
+    threat_level = threat.get("threatLevel", "none")
+    if not _meets_min_threat(threat_level, geofield_config.get("min_threat_level", "watch")):
+        return False
+    dist = threat.get("distanceToCenterMiles")
+    max_dist = float(geofield_config.get("max_distance_miles", 500))
+    return dist is not None and dist <= max_dist
+
+
+def storm_in_sensor_scope(storm: dict[str, Any], geofield_config: dict[str, Any]) -> bool:
+    """Return True when a storm meets sensor-scope filters (may bypass distance)."""
     threat = storm.get("threat") or {}
     threat_level = threat.get("threatLevel", "none")
     if not _meets_min_threat(threat_level, geofield_config.get("min_threat_level", "watch")):
         return False
     if geofield_config.get("zone_mode", "zone") == "all":
         return True
-    dist = threat.get("distanceToCenterMiles")
-    max_dist = float(geofield_config.get("max_distance_miles", 500))
-    return dist is not None and dist <= max_dist
+    return storm_in_geofield(storm, geofield_config)
 
 
 def build_hurricane_sensor_payload(
@@ -930,10 +939,11 @@ def build_hurricane_sensor_payload(
             "last_updated": dt_util.utcnow().isoformat(),
         }
     geofield_storms = [s for s in storms if storm_in_geofield(s, geofield_config)]
+    sensor_storms = [s for s in storms if storm_in_sensor_scope(s, geofield_config)]
 
     closest: dict[str, Any] | None = None
     closest_dist = float("inf")
-    for storm in geofield_storms:
+    for storm in sensor_storms:
         dist = (storm.get("threat") or {}).get("distanceToCenterMiles")
         if dist is not None and dist < closest_dist:
             closest_dist = dist
@@ -961,7 +971,7 @@ def build_hurricane_sensor_payload(
             "distance_miles": closest_dist if closest else None,
             "closest_approach_hour": summary.get("estimatedClosestApproachHour"),
             "formation_probability": summary.get("highestFormationProbability"),
-            "active_storm_count": len(storms),
+            "active_storm_count": len(sensor_storms),
             "disturbance_count": summary.get("disturbanceCount") or 0,
             "inside_cone": inside_cone,
         },

@@ -10,7 +10,7 @@ from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from ..hurricane_coordinator import HurricaneCoordinator
-from .base import hazard_device_info
+from .base import hazard_device_info, has_sensor_data
 
 
 def create_hurricane_entities(
@@ -117,7 +117,7 @@ class HurricaneClosestStormNameSensor(_HurricaneEntity):
     @property
     def native_value(self) -> str | None:
         data = self.coordinator.data or {}
-        if not data.get("in_geofield"):
+        if not has_sensor_data(data):
             return None
         return self._summary().get("closest_storm_name")
 
@@ -134,7 +134,7 @@ class HurricaneDistanceSensor(_HurricaneEntity):
     @property
     def native_value(self) -> float | None:
         data = self.coordinator.data or {}
-        if not data.get("in_geofield"):
+        if not has_sensor_data(data):
             return None
         dist = self._summary().get("distance_miles")
         return float(dist) if dist is not None else None
@@ -152,7 +152,7 @@ class HurricaneClosestApproachHourSensor(_HurricaneEntity):
     @property
     def native_value(self) -> int | None:
         data = self.coordinator.data or {}
-        if not data.get("in_geofield"):
+        if not has_sensor_data(data):
             return None
         hour = self._summary().get("closest_approach_hour")
         return int(hour) if hour is not None else None

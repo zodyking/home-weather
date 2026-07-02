@@ -5,7 +5,9 @@ from custom_components.home_weather.wildfire_data import (
     arcgis_point_feature,
     arcgis_polygon_feature,
     build_coordinator_payload,
+    detect_wildfire_events,
     passes_wildfire_filter,
+    passes_wildfire_geofield_filter,
     wildfire_color,
 )
 
@@ -101,3 +103,55 @@ def test_build_coordinator_payload():
     assert payload["perimeter_count"] == 1
     assert payload["map_count"] == 2
     assert payload["nearest_incident"]["name"] == "Test Fire"
+
+
+def test_geofield_filters_by_radius():
+    point = arcgis_point_feature(
+        SAMPLE_POINT["attributes"], SAMPLE_POINT["geometry"], home=HOME, layer="incident"
+    )
+    props = point["properties"]
+    cfg = {
+        "enabled": True,
+        "zone_mode": "zone",
+        "radius_miles": 50,
+        "min_acres": 100,
+        "exclude_prescribed": True,
+    }
+    assert passes_wildfire_geofield_filter({**props, "distance_miles": 40}, cfg)
+    assert not passes_wildfire_geofield_filter({**props, "distance_miles": 120}, cfg)
+
+
+def test_build_coordinator_payload_geofield_and_alerts():
+    point = arcgis_point_feature(
+        SAMPLE_POINT["attributes"], SAMPLE_POINT["geometry"], home=HOME, layer="incident"
+    )
+    cfg = {
+        "enabled": True,
+        "zone_mode": "zone",
+        "alert_zone_mode": "zone",
+        "radius_miles": 5000,
+        "show_on_map": True,
+        "show_perimeters": True,
+        "min_acres": 100,
+        "exclude_prescribed": True,
+    }
+    payload = build_coordinator_payload([point], [], cfg)
+    assert payload["in_geofield"] is True
+    assert payload["geofield_count"] == 1
+    assert payload["primary_geofield"]["name"] == "Test Fire"
+    assert len(payload["alert_events"]) == 1
+
+
+def test_detect_wildfire_events_new_and_cleared():
+    incident = {
+        "id": "wf-1",
+        "name": "Test Fire",
+        "acres": 1500,
+        "percent_contained": 25,
+        "category": "WF",
+        "distance_miles": 40,
+    }
+    events = detect_wildfire_events({}, [incident])
+    assert events[0][0] == "home_weather_wildfire_detected"
+    cleared = detect_wildfire_events({"wf-1": incident}, [])
+    assert cleared[0][0] == "home_weather_wildfire_cleared"

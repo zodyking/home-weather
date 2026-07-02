@@ -372,11 +372,31 @@ def merge_activity(
     return events
 
 
+def passes_volcano_geofield_filter(
+    event: dict[str, Any],
+    volcano_config: dict[str, Any],
+) -> bool:
+    """Return True when an active volcano is inside the configured radius (ignores sensor bypass)."""
+    level = event.get("activity_level")
+    min_level = volcano_config.get("min_alert_level", "advisory")
+    if level not in ACTIVITY_RANK:
+        return False
+    if ACTIVITY_RANK[level] < ACTIVITY_RANK.get(min_level, 1):
+        return False
+
+    radius = float(volcano_config.get("radius_miles", 500))
+    distance = event.get("distance_miles")
+    if distance is None or distance > radius:
+        return False
+
+    return True
+
+
 def passes_volcano_filters(
     event: dict[str, Any],
     volcano_config: dict[str, Any],
 ) -> bool:
-    """Return True when an active volcano meets level and zone filters."""
+    """Return True when an active volcano meets sensor-scope filters (may bypass radius)."""
     level = event.get("activity_level")
     min_level = volcano_config.get("min_alert_level", "advisory")
     if level not in ACTIVITY_RANK:
@@ -477,10 +497,13 @@ def build_coordinator_payload(
 ) -> dict[str, Any]:
     """Build coordinator payload from the catalog and merged activity."""
     geofield_events = [
+        e for e in active_events if passes_volcano_geofield_filter(e, volcano_config)
+    ]
+    sensor_events = [
         e for e in active_events if passes_volcano_filters(e, volcano_config)
     ]
     geofield_ids = {str(e["id"]) for e in geofield_events if e.get("id")}
-    nearest = pick_nearest_volcano(geofield_events)
+    nearest = pick_nearest_volcano(sensor_events)
     # The full worldwide catalog is always plotted; inactive volcanoes render
     # as dim catalog points while active ones glow with their alert color.
     # Alert scope: bypass fires spoken alerts for all active volcanoes

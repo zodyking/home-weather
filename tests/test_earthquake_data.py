@@ -207,8 +207,20 @@ def test_build_coordinator_payload_no_worldwide_fallback(monkeypatch):
     assert payload["primary_event"] is None
     assert payload["nearest_place"] is None
 
+def test_build_coordinator_payload_bypass_keeps_geofield_binary_accurate():
+    far_event = {
+        "id": "far",
+        "magnitude": 3.9,
+        "distance_miles": 1553.9,
+        "tsunami": 0,
+        "time": 1,
+    }
+    payload = build_coordinator_payload([far_event], geofield_events=[])
+    assert payload["in_geofield"] is False
+    assert payload["active_count"] == 1
+    assert payload["primary_geofield"]["id"] == "far"
+    assert payload["tsunami_in_geofield"] is False
 
-def test_build_coordinator_payload_alert_events_default_to_events(monkeypatch):
     events = parse_earthquake_features([NEAR_EQ], HOME, DEFAULT_EQ_CONFIG)
     payload = build_coordinator_payload(events)
     assert payload["alert_events"] == events

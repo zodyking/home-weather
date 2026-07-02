@@ -35,12 +35,26 @@ class HomeWeatherPanel extends HTMLElement {
     this._alertsLoading = false;
     this._hurricaneTracker = null;
     this._hurricaneTrackerPromise = null;
+    this._spaceMap = null;
+    this._spaceMapPromise = null;
+    this._spaceMode = "solar_system";
+    this._spaceLayers = {
+      planets: true,
+      dwarf_planets: true,
+      moons: true,
+      spacecraft: true,
+      asteroids: true,
+      comets: true,
+    };
+    this._spaceRefreshTimer = null;
     this._version = null;
     this._updateStatus = "checking";  // "latest" | "available" | "checking" | "error"
     this._latestRelease = null;  // { version, name, body, date, url, isCommit }
     this._updateCheckInterval = null;
     this._clockTimeout = null;
     this._dashboardSettled = false;
+    this._settingsNotice = null;
+    this._settingsNoticeTimer = null;
   }
 
   get _isNarrow() {
@@ -637,6 +651,24 @@ class HomeWeatherPanel extends HTMLElement {
     this._render();
   }
 
+  _clearSettingsNotice() {
+    if (this._settingsNoticeTimer) {
+      clearTimeout(this._settingsNoticeTimer);
+      this._settingsNoticeTimer = null;
+    }
+    this._settingsNotice = null;
+  }
+
+  _showSettingsNotice(message) {
+    this._clearSettingsNotice();
+    this._settingsNotice = message;
+    this._settingsNoticeTimer = setTimeout(() => {
+      this._settingsNotice = null;
+      this._settingsNoticeTimer = null;
+      if (this._currentView === "settings") this._render();
+    }, 3200);
+  }
+
   async _saveSettings() {
     if (!this._hass) return;
     this._syncSettingsFromForm();
@@ -645,11 +677,13 @@ class HomeWeatherPanel extends HTMLElement {
       this._render();
       await this._hass.callWS({ type: "home_weather/set_config", config: this._settings });
       this._config = { ...this._settings };
-      this._currentView = "forecast";
       await this._loadWeatherData();
+      this._loadWebhookInfo();
+      this._showSettingsNotice("Settings have been saved");
     } catch (e) {
       console.error("Error saving:", e);
       this._error = "Failed to save settings";
+      this._showSettingsNotice("Failed to save settings");
     } finally {
       this._loading = false;
       this._render();
@@ -2105,9 +2139,9 @@ class HomeWeatherPanel extends HTMLElement {
           --hw-danger: #f44336;
           --hw-warning: #ff9800;
           --hw-success: #4caf50;
-          --hw-border: rgba(255, 255, 255, 0.08);
-          --hw-border-strong: rgba(255, 255, 255, 0.12);
-          --hw-hover: rgba(255, 255, 255, 0.04);
+          --hw-border: #252525;
+          --hw-border-strong: #333333;
+          --hw-hover: #222222;
           /* Match Home Assistant's header/sidebar bar height so the panel's
              menu bar lines up with the "Home Assistant" section on the left.
              Fallback matches the Dashboard topbar so every page is consistent. */
@@ -2217,7 +2251,7 @@ class HomeWeatherPanel extends HTMLElement {
         .glass { background: var(--hw-surface); border: 1px solid var(--hw-border-strong); border-radius: var(--radius-xl); box-shadow: var(--shadow-md); }
         :host([data-hw-theme="light"]) .settings-card,
         :host([data-hw-theme="light"]) .settings-sidenav,
-        :host([data-hw-theme="light"]) .zone-card,
+        :host([data-hw-theme="light"]) .collapsible-section--zone,
         :host([data-hw-theme="light"]) .hourly-card,
         :host([data-hw-theme="light"]) .daily-card,
         :host([data-hw-theme="light"]) .moon-card-fill,
@@ -2241,10 +2275,8 @@ class HomeWeatherPanel extends HTMLElement {
           min-height: var(--header-height, 64px);
           max-height: var(--header-height, 64px);
           padding: 0 calc(var(--space-3) + var(--safe-right)) 0 calc(var(--space-3) + var(--safe-left));
-          background: var(--app-header-background-color, rgba(28, 28, 28, 0.72));
-          backdrop-filter: blur(14px) saturate(140%);
-          -webkit-backdrop-filter: blur(14px) saturate(140%);
-          border-bottom: var(--app-header-border-bottom, 1px solid var(--hw-border));
+          background: var(--hw-surface);
+          border-bottom: 1px solid var(--hw-border-strong);
         }
         .topbar .icon-btn { flex-shrink: 0; width: 40px; min-width: 40px; height: 40px; min-height: 40px; }
         .topbar-back-btn {
@@ -2888,7 +2920,130 @@ class HomeWeatherPanel extends HTMLElement {
           overflow: hidden;
           z-index: 1;
         }
+        .space-map-page {
+          display: flex;
+          flex-direction: column;
+          flex: 1;
+          min-height: 0;
+          width: 100%;
+          height: 100%;
+          position: relative;
+          overflow: hidden;
+        }
+        .space-canvas-wrap {
+          flex: 1;
+          min-height: 0;
+          width: 100%;
+          position: relative;
+          background: #020617;
+        }
+        .space-canvas-wrap canvas {
+          display: block;
+          width: 100% !important;
+          height: 100% !important;
+        }
+        .space-loading, .space-error, .space-sun-loading {
+          position: absolute;
+          inset: 0;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: var(--hw-muted);
+          font-size: var(--fs-body);
+        }
+        .space-controls {
+          position: absolute;
+          right: var(--space-3);
+          bottom: var(--space-3);
+          display: flex;
+          gap: var(--space-2);
+          z-index: 2;
+        }
+        .space-ctrl-btn {
+          min-width: 40px;
+          min-height: 40px;
+          border-radius: 999px;
+          border: 1px solid var(--hw-border);
+          background: var(--hw-elevated);
+          color: var(--hw-text);
+          cursor: pointer;
+        }
+        .space-info-card {
+          position: absolute;
+          left: var(--space-3);
+          bottom: var(--space-3);
+          min-width: 180px;
+          max-width: 260px;
+          padding: var(--space-3);
+          border-radius: var(--radius-md);
+          border: 1px solid var(--hw-border);
+          background: color-mix(in srgb, var(--hw-surface) 92%, transparent);
+          backdrop-filter: blur(8px);
+          z-index: 2;
+        }
+        .space-info-title { font-weight: 700; margin-bottom: 2px; }
+        .space-info-type { font-size: var(--fs-xs); color: var(--hw-muted); margin-bottom: var(--space-2); text-transform: capitalize; }
+        .space-info-row { display: flex; justify-content: space-between; gap: var(--space-2); font-size: var(--fs-xs); padding: 2px 0; }
+        .space-sun-layout {
+          display: grid;
+          grid-template-columns: 1.2fr 0.8fr;
+          gap: var(--space-3);
+          flex: 1;
+          min-height: 0;
+          padding: var(--space-3);
+          box-sizing: border-box;
+        }
+        @media (max-width: 768px) {
+          .space-sun-layout { grid-template-columns: 1fr; }
+        }
+        .space-sun-visual {
+          display: flex;
+          flex-direction: column;
+          gap: var(--space-2);
+          min-height: 0;
+          overflow: auto;
+        }
+        .space-sun-disk-wrap {
+          border-radius: var(--radius-md);
+          overflow: hidden;
+          border: 1px solid var(--hw-border);
+          background: #000;
+        }
+        .space-sun-disk, .space-sun-xray {
+          width: 100%;
+          height: auto;
+          display: block;
+        }
+        .space-sun-sidebar {
+          display: flex;
+          flex-direction: column;
+          gap: var(--space-2);
+          min-height: 0;
+          overflow: auto;
+        }
+        .space-sun-title { font-size: var(--fs-h2); font-weight: 700; }
+        .space-sun-stat {
+          display: flex;
+          justify-content: space-between;
+          gap: var(--space-2);
+          padding: var(--space-2) 0;
+          border-bottom: 1px solid var(--hw-border);
+          font-size: var(--fs-body);
+        }
+        .space-sun-subtitle { font-size: var(--fs-xs); color: var(--hw-muted); margin-top: var(--space-2); }
+        .space-sun-region { font-size: var(--fs-xs); padding: 4px 0; }
+        .space-sun-muted { font-size: var(--fs-xs); color: var(--hw-muted); }
+        .space-sun-attribution { margin-top: auto; font-size: var(--fs-eyebrow); color: var(--hw-muted); }
         #zone-editor-root {
+          flex: 1;
+          width: 100%;
+          height: 100%;
+          min-height: 0;
+          position: relative;
+          overflow: hidden;
+          z-index: 1;
+        }
+        #space-map-root {
           flex: 1;
           width: 100%;
           height: 100%;
@@ -3284,10 +3439,33 @@ class HomeWeatherPanel extends HTMLElement {
           justify-content: flex-end;
           margin-top: 8px;
           padding: 16px 0 calc(16px + var(--safe-bottom));
-          background: var(--hw-footer-bg, var(--hw-surface));
-          backdrop-filter: blur(12px) saturate(140%);
-          -webkit-backdrop-filter: blur(12px) saturate(140%);
+          background: var(--hw-surface);
           border-top: 1px solid var(--hw-border-strong);
+        }
+        .settings-toast {
+          position: fixed;
+          left: 50%;
+          bottom: calc(88px + var(--safe-bottom));
+          z-index: 30;
+          transform: translateX(-50%) translateY(12px);
+          max-width: min(420px, calc(100vw - 32px));
+          padding: 12px 18px;
+          border-radius: 10px;
+          background: var(--hw-elevated);
+          color: var(--hw-text);
+          border: 1px solid var(--hw-border-strong);
+          box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+          font-size: 14px;
+          font-weight: 500;
+          text-align: center;
+          pointer-events: none;
+          opacity: 0;
+          animation: settingsToastIn 0.28s var(--ease) forwards;
+        }
+        .settings-toast--error { border-color: rgba(244, 67, 54, 0.45); color: var(--hw-danger); }
+        @keyframes settingsToastIn {
+          from { opacity: 0; transform: translateX(-50%) translateY(12px); }
+          to { opacity: 1; transform: translateX(-50%) translateY(0); }
         }
         .form-actions-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: var(--form-gap-lg); padding-top: var(--form-gap); border-top: 1px solid var(--hw-border); }
         .btn-secondary-test { background: var(--secondary-background-color); color: var(--primary-text-color); border: 1px solid var(--input-border); }
@@ -4053,24 +4231,12 @@ class HomeWeatherPanel extends HTMLElement {
           .settings-sidenav button { width: auto; flex-shrink: 0; min-height: 40px; }
         }
 
-        /* Alert zone cards in settings */
-        .zone-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); gap: 12px; }
-        .zone-card {
-          background: var(--hw-surface);
-          border: 1px solid var(--hw-border);
+        /* Alert zone fields in settings collapsibles */
+        .collapsible-section.is-disabled { opacity: 0.6; }
+        .collapsible-section.collapsible-section--zone {
           border-left: 4px solid var(--zone-color, var(--hw-accent));
-          border-radius: var(--radius-md);
-          padding: 14px 16px;
-          display: flex;
-          flex-direction: column;
-          gap: 0;
-          min-width: 0;
         }
-        .zone-card-head { display: flex; align-items: center; gap: 10px; padding-bottom: 12px; border-bottom: 1px solid var(--hw-border); }
-        .zone-card-head img { width: 20px; height: 20px; flex-shrink: 0; }
-        .zone-card-title { font-size: 14px; font-weight: 600; color: var(--hw-text); flex: 1; }
         .zone-card-body { display: flex; flex-direction: column; gap: 0; padding-top: 4px; }
-        .zone-card-desc { margin: 10px 0 4px !important; }
         .zone-card-field {
           display: flex;
           flex-direction: column;
@@ -4131,7 +4297,6 @@ class HomeWeatherPanel extends HTMLElement {
         .zone-card-field .zone-mode-seg button:focus-visible { outline: 2px solid var(--hw-accent); outline-offset: -2px; }
         .zone-card-field--toggle .toggle-switch { align-self: flex-start; }
         .zone-card-note { font-size: 12px; color: var(--hw-warning, #ffb74d); line-height: 1.45; margin: 0; }
-        .zone-card.is-disabled { opacity: 0.6; }
 
         /* Appearance tab */
         .theme-mode-block { display: flex; flex-direction: column; gap: 10px; }
@@ -4237,7 +4402,7 @@ class HomeWeatherPanel extends HTMLElement {
           overflow: hidden;
         }
       </style>
-      ${this._currentView === "forecast" || this._currentView === "alerts" || this._currentView === "hurricanes" || this._currentView === "zones"
+      ${this._currentView === "forecast" || this._currentView === "alerts" || this._currentView === "hurricanes" || this._currentView === "space" || this._currentView === "zones"
         ? this._currentView === "alerts"
           ? `<div class="settings-view ${this._isNarrow ? "narrow" : ""}">
             ${this._renderAlertsMenubar()}
@@ -4248,6 +4413,13 @@ class HomeWeatherPanel extends HTMLElement {
           : this._currentView === "hurricanes"
             ? `<div class="settings-view maps-view ${this._isNarrow ? "narrow" : ""}">
             ${this._renderMapsMenubar()}
+            <div class="settings-body">
+            ${this._renderContent()}
+            </div>
+          </div>`
+          : this._currentView === "space"
+            ? `<div class="settings-view maps-view space-view ${this._isNarrow ? "narrow" : ""}">
+            ${this._renderSpaceMenubar()}
             <div class="settings-body">
             ${this._renderContent()}
             </div>
@@ -4276,6 +4448,9 @@ class HomeWeatherPanel extends HTMLElement {
                 <button class="icon-btn" id="hurricanes-btn" aria-label="Hazard Map" title="Hazard Map">
                   <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M20.5 3l-.16.03L15 5.1 9 3 3.36 4.9c-.21.07-.36.25-.36.48V20.5c0 .28.22.5.5.5l.16-.03L9 18.9l6 2.1 5.64-1.9c.21-.07.36-.25.36-.48V3.5c0-.28-.22-.5-.5-.5zM15 19l-6-2.11V5l6 2.11V19z"/></svg>
                 </button>
+                <button class="icon-btn" id="space-map-btn" aria-label="Space Map" title="Space Map">
+                  <img src="/local/home_weather/icons/space-map.svg" width="20" height="20" alt="" draggable="false"/>
+                </button>
                 <button class="icon-btn" id="gear-btn" aria-label="Settings">
                   <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.488.488 0 00-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 00-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94 0 .31.02.64.07.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
                 </button>
@@ -4290,6 +4465,7 @@ class HomeWeatherPanel extends HTMLElement {
             <div class="settings-body">
             ${this._renderContent()}
             </div>
+            ${this._renderSettingsNotice()}
           </div>`
       }
     `;
@@ -4307,12 +4483,14 @@ class HomeWeatherPanel extends HTMLElement {
     const gearBtn = s.getElementById("gear-btn");
     const alertsBtn = s.getElementById("alerts-btn");
     const hurricanesBtn = s.getElementById("hurricanes-btn");
+    const spaceMapBtn = s.getElementById("space-map-btn");
     const backBtn = s.getElementById("back-btn");
     if (alertsBtn) alertsBtn.addEventListener("click", () => this._navigateTo("alerts"));
     if (hurricanesBtn) hurricanesBtn.addEventListener("click", () => this._navigateTo("hurricanes"));
+    if (spaceMapBtn) spaceMapBtn.addEventListener("click", () => this._navigateTo("space"));
     if (gearBtn) gearBtn.addEventListener("click", () => this._navigateTo("settings"));
     if (backBtn) backBtn.addEventListener("click", () => this._navigateTo("forecast"));
-    if (this._currentView === "hurricanes" || this._currentView === "settings" || this._currentView === "zones" || this._currentView === "alerts") {
+    if (this._currentView === "hurricanes" || this._currentView === "space" || this._currentView === "settings" || this._currentView === "zones" || this._currentView === "alerts") {
       this._attachMenubarHandlers();
     }
     if (this._currentView === "settings") {
@@ -4355,6 +4533,8 @@ class HomeWeatherPanel extends HTMLElement {
     } else if (this._currentView === "hurricanes") {
       if (this._mapsMode === "storms") this._initHurricaneTracker();
       if (this._mapsMode === "trends") this._initApexChart();
+    } else if (this._currentView === "space") {
+      this._initSpaceMap();
     }
   }
 
@@ -4367,8 +4547,12 @@ class HomeWeatherPanel extends HTMLElement {
       this._closeMenusheet();
       return;
     }
-    if (this._currentView === "settings") this._syncSettingsFromForm();
+    if (this._currentView === "settings") {
+      this._syncSettingsFromForm();
+      if (view !== "settings") this._clearSettingsNotice();
+    }
     this._destroyHurricaneTracker();
+    this._destroySpaceMap();
     this._destroyZoneEditor();
     this._destroyAtmosphereParticles();
     this._currentView = view;
@@ -4391,6 +4575,7 @@ class HomeWeatherPanel extends HTMLElement {
     if (this._currentView === "settings") this._syncSettingsFromForm();
     this._zoneEditorReturnView = returnView || this._currentView || "settings";
     this._destroyHurricaneTracker();
+    this._destroySpaceMap();
     this._destroyAtmosphereParticles();
     this._currentView = "zones";
     this._render();
@@ -4416,17 +4601,23 @@ class HomeWeatherPanel extends HTMLElement {
   }
 
   _getAccordionGroup(sectionId) {
+    const generalNested = ["general-weather-source", "general-about"];
+    if (generalNested.includes(sectionId)) return { type: "list", ids: generalNested };
+    const zonesNested = [
+      "zone-hurricane", "zone-tornado", "zone-earthquake", "zone-lightning", "zone-volcano",
+      "zone-wildfire", "zone-air_quality",
+    ];
+    if (zonesNested.includes(sectionId)) return { type: "list", ids: zonesNested };
+    const safetyNested = ["travel-monitoring"];
+    if (safetyNested.includes(sectionId)) return { type: "list", ids: safetyNested };
+    const appearanceNested = ["appearance-overview", "appearance-theme", "appearance-colors"];
+    if (appearanceNested.includes(sectionId)) return { type: "list", ids: appearanceNested };
     const alertsNested = [
       "general", "media-players", "time-based", "current-change", "upcoming-change",
       "sun-alerts", "nws-alerts", "tropical-alerts", "tornado-alerts", "earthquake-alerts",
-      "volcano-alerts", "sensor-triggered", "webhook", "voice-satellite",
+      "volcano-alerts", "wildfire-alerts", "air-quality-alerts", "sensor-triggered", "webhook", "voice-satellite",
     ];
     if (alertsNested.includes(sectionId)) return { type: "list", ids: alertsNested };
-    const monitoringNested = [
-      "hurricane-monitoring", "tornado-monitoring", "earthquake-monitoring", "lightning-monitoring",
-      "volcano-monitoring",
-    ];
-    if (monitoringNested.includes(sectionId)) return { type: "list", ids: monitoringNested };
     const advancedNested = ["forecast-settings", "ai-rewrite"];
     if (advancedNested.includes(sectionId)) return { type: "list", ids: advancedNested };
     if (/^media-player-\d+$/.test(sectionId)) return { type: "mediaPlayer", sectionId };
@@ -4574,11 +4765,12 @@ class HomeWeatherPanel extends HTMLElement {
       });
     });
 
-    // Alert Zones: dim card when hazard disabled
+    // Alert Zones: dim section when hazard disabled
     s.querySelectorAll("[data-zone-card-enabled]").forEach((input) => {
       input.addEventListener("change", () => {
-        const card = s.querySelector(`.zone-card[data-zone-card="${input.dataset.zoneCardEnabled}"]`);
-        card?.classList.toggle("is-disabled", !input.checked);
+        const key = input.dataset.zoneCardEnabled;
+        const section = s.querySelector(`.collapsible-section[data-section-id="zone-${key}"]`);
+        section?.classList.toggle("is-disabled", !input.checked);
       });
     });
 
@@ -4900,8 +5092,18 @@ class HomeWeatherPanel extends HTMLElement {
     wireTestButton("test-earthquake-siren-btn", "home_weather/test_earthquake_siren", "Playing\u2026");
     wireTestButton("test-volcano-alert-btn", "home_weather/test_volcano_alert");
     wireTestButton("test-volcano-siren-btn", "home_weather/test_volcano_siren", "Playing\u2026");
+    wireTestButton("test-wildfire-alert-btn", "home_weather/test_wildfire_alert");
+    wireTestButton("test-wildfire-siren-btn", "home_weather/test_wildfire_siren", "Playing\u2026");
+    wireTestButton("test-air-quality-alert-btn", "home_weather/test_air_quality_alert");
+    wireTestButton("test-air-quality-siren-btn", "home_weather/test_air_quality_siren", "Playing\u2026");
     wireTestButton("test-travel-btn", "home_weather/test_travel_alert");
     wireTestButton("test-travel-siren-btn", "home_weather/test_travel_siren", "Playing\u2026");
+    wireTestButton("test-spacecraft-alert-btn", "home_weather/test_spacecraft_alert");
+    wireTestButton("test-spacecraft-siren-btn", "home_weather/test_spacecraft_siren", "Playing\u2026");
+    wireTestButton("test-solar-weather-alert-btn", "home_weather/test_solar_weather_alert");
+    wireTestButton("test-solar-weather-siren-btn", "home_weather/test_solar_weather_siren", "Playing\u2026");
+    wireTestButton("test-neo-alert-btn", "home_weather/test_neo_alert");
+    wireTestButton("test-neo-siren-btn", "home_weather/test_neo_siren", "Playing\u2026");
     
     // Add media player
     const addMediaBtn = s.getElementById("add-media-btn");
@@ -4923,8 +5125,15 @@ class HomeWeatherPanel extends HTMLElement {
     if (saveBtn) saveBtn.addEventListener("click", () => this._saveSettings());
     if (cancelBtn) cancelBtn.addEventListener("click", () => {
       this._settings = JSON.parse(JSON.stringify(this._config || {}));
+      this._clearSettingsNotice();
       this._render();
     });
+  }
+
+  _renderSettingsNotice() {
+    if (!this._settingsNotice) return "";
+    const isError = this._settingsNotice.toLowerCase().includes("failed");
+    return `<div class="settings-toast${isError ? " settings-toast--error" : ""}" role="status" aria-live="polite">${this._escapeHtml(this._settingsNotice)}</div>`;
   }
 
   _renderContent() {
@@ -4949,6 +5158,7 @@ class HomeWeatherPanel extends HTMLElement {
     }
     if (this._currentView === "alerts") return this._renderAlerts();
     if (this._currentView === "hurricanes") return this._renderHurricanes();
+    if (this._currentView === "space") return this._renderSpaceMap();
     if (this._currentView === "zones") return this._renderZones();
     return this._renderSettings();
   }
@@ -5047,25 +5257,6 @@ class HomeWeatherPanel extends HTMLElement {
         { type: "radio", action: "maps-mode", value: "trends", label: "Hourly trends", checked: this._mapsMode === "trends" },
       ],
     };
-    const layersMenu = {
-      id: "maps-layers",
-      label: "Layers",
-      items: [
-        { type: "label", label: "Hazards" },
-        { type: "check", action: "maps-layer", value: "hurricane", label: "Hurricanes", icon: "hurricane", checked: !!this._mapsLayers.hurricane },
-        { type: "check", action: "maps-layer", value: "tornado", label: "Tornado warnings", icon: "tornado", checked: !!this._mapsLayers.tornado },
-        { type: "check", action: "maps-layer", value: "earthquakes", label: "Earthquakes", icon: "earthquake", checked: !!this._mapsLayers.earthquakes },
-        { type: "check", action: "maps-layer", value: "volcanoes", label: "Volcanoes", icon: "volcano", checked: !!this._mapsLayers.volcanoes },
-        { type: "check", action: "maps-layer", value: "lightning", label: "Live lightning", icon: "lightning-bolt", checked: !!this._mapsLayers.lightning },
-        { type: "check", action: "maps-layer", value: "travel", label: "Travel advisories", icon: "globe", checked: !!this._mapsLayers.travel },
-        { type: "check", action: "maps-layer", value: "wildfire", label: "Wildfires", icon: "fire", checked: !!this._mapsLayers.wildfire },
-        { type: "check", action: "maps-layer", value: "air_quality", label: "Air quality", icon: "air-quality", checked: !!this._mapsLayers.air_quality },
-        { type: "divider" },
-        { type: "label", label: "Overlays" },
-        { type: "check", action: "wind-radii", value: "", label: "Hurricane wind radii", checked: !!this._mapsWindRadii },
-        { type: "check", action: "zones-overlay", value: "", label: "My alert zones", checked: !!this._mapsShowZones },
-      ],
-    };
     const toolsMenu = {
       id: "maps-tools",
       label: "Tools",
@@ -5091,7 +5282,7 @@ class HomeWeatherPanel extends HTMLElement {
     };
     const menus = [viewMenu];
     if (this._mapsMode === "storms") {
-      menus.push(layersMenu, toolsMenu);
+      menus.push(toolsMenu);
     } else if (this._mapsMode === "trends") {
       menus.push(trendsMenu);
     } else {
@@ -5327,6 +5518,50 @@ class HomeWeatherPanel extends HTMLElement {
         this._closeMenusheet();
         this._initApexChart();
         break;
+      case "space-mode": {
+        this._closeMenusheet();
+        const mode = value || "solar_system";
+        if (mode === "settings") {
+          this._settingsPane = "space";
+          this._navigateTo("settings");
+          return;
+        }
+        if (mode === this._spaceMode) {
+          this._closeAllMenus();
+          return;
+        }
+        this._spaceMode = mode;
+        this._spaceMap?.setMode(mode);
+        this._render();
+        break;
+      }
+      case "space-layer": {
+        if (!value) return;
+        this._spaceLayers = { ...this._spaceLayers, [value]: !this._spaceLayers[value] };
+        this._syncMenubarChecks("space-layer", (v) => !!this._spaceLayers[v]);
+        this._spaceMap?.setLayers(this._spaceLayers);
+        break;
+      }
+      case "space-log-scale": {
+        const current = (this._settings.space_monitoring || {}).log_scale_orbits !== false;
+        const enabled = !current;
+        if (!this._settings.space_monitoring) this._settings.space_monitoring = {};
+        this._settings.space_monitoring.log_scale_orbits = enabled;
+        this._syncMenubarChecks("space-log-scale", () => enabled);
+        this._spaceMap?.setLogScale(enabled);
+        break;
+      }
+      case "space-refresh": {
+        this._closeAllMenus();
+        this._closeMenusheet();
+        if (el) el.disabled = true;
+        try {
+          await this._spaceMap?.loadData();
+        } finally {
+          if (el) el.disabled = false;
+        }
+        break;
+      }
       default:
         break;
     }
@@ -5341,6 +5576,8 @@ class HomeWeatherPanel extends HTMLElement {
       { key: "earthquake", configKey: "earthquake_monitoring", radiusKey: "radius_miles", color: "#ffa726", label: "Earthquake zone", hasAlerts: true },
       { key: "lightning", configKey: "lightning_monitoring", radiusKey: "geofield_radius_miles", color: "#ffee58", label: "Lightning zone", hasAlerts: false },
       { key: "volcano", configKey: "volcano_monitoring", radiusKey: "radius_miles", color: "#ff7043", label: "Volcano zone", hasAlerts: true },
+      { key: "wildfire", configKey: "wildfire_monitoring", radiusKey: "radius_miles", color: "#ff5722", label: "Wildfire zone", hasAlerts: true },
+      { key: "air_quality", configKey: "air_quality_monitoring", radiusKey: "radius_miles", color: "#42a5f5", label: "Air quality zone", hasAlerts: true },
     ];
     return hazards.map((h) => {
       const block = settings[h.configKey] || {};
@@ -5532,6 +5769,149 @@ class HomeWeatherPanel extends HTMLElement {
     }
   }
 
+  _renderSpaceMap() {
+    return `
+      <section class="maps-page">
+        <div class="maps-stage">
+          <div id="space-map-root"></div>
+        </div>
+      </section>`;
+  }
+
+  _renderSpaceMenubar() {
+    const spaceMonitoring = this._settings.space_monitoring || {};
+    const layerItems = [
+      { key: "planets", label: "Planets" },
+      { key: "dwarf_planets", label: "Dwarf planets" },
+      { key: "moons", label: "Moons" },
+      { key: "spacecraft", label: "Spacecraft" },
+      { key: "asteroids", label: "Asteroids" },
+      { key: "comets", label: "Comets" },
+    ].map(({ key, label }) => ({
+      type: "check",
+      action: "space-layer",
+      value: key,
+      label,
+      checked: this._spaceLayers[key] !== false,
+      disabled: this._spaceMode !== "solar_system",
+    }));
+    return this._renderMenubar({
+      backAction: "nav",
+      backLabel: "Back",
+      menus: [
+        {
+          id: "space-view",
+          label: "View",
+          items: [
+            { type: "radio", action: "space-mode", value: "solar_system", label: "Solar System", checked: this._spaceMode === "solar_system" },
+            { type: "radio", action: "space-mode", value: "sun_weather", label: "Sun Weather", checked: this._spaceMode === "sun_weather" },
+            { type: "divider" },
+            { type: "radio", action: "nav", value: "settings", label: "Space settings…" },
+          ],
+        },
+        {
+          id: "space-layers",
+          label: "Layers",
+          items: layerItems,
+        },
+        {
+          id: "space-actions",
+          label: "Actions",
+          items: [
+            { type: "radio", action: "space-log-scale", value: "1", label: "Log-scale orbits", checked: spaceMonitoring.log_scale_orbits !== false },
+            { type: "divider" },
+            { type: "radio", action: "space-refresh", value: "1", label: "Refresh now" },
+          ],
+        },
+      ],
+    });
+  }
+
+  _updateSpaceMeta() {
+    const s = this.shadowRoot;
+    if (!s) return;
+    const el = s.getElementById("space-updated-meta");
+    if (!el) return;
+    const updated = this._spaceMap?.getLastUpdated?.();
+    el.textContent = updated ? `Updated ${updated}` : "Updated —";
+  }
+
+  _loadSpaceMapScript() {
+    if (window.SpaceMap && window.THREE) return Promise.resolve();
+    if (this._spaceMapPromise) return this._spaceMapPromise;
+    const version = this._version || Date.now();
+    const loadScript = (src, globalName) => new Promise((resolve, reject) => {
+      if (globalName && window[globalName]) {
+        resolve();
+        return;
+      }
+      const existing = document.querySelector(`script[src="${src}"]`);
+      if (existing) {
+        existing.addEventListener("load", () => resolve(), { once: true });
+        existing.addEventListener("error", () => reject(new Error(`Failed to load ${src}`)), { once: true });
+        if (!globalName || window[globalName]) resolve();
+        return;
+      }
+      const script = document.createElement("script");
+      script.src = src;
+      script.onload = () => resolve();
+      script.onerror = () => reject(new Error(`Failed to load ${src}`));
+      document.head.appendChild(script);
+    });
+    this._spaceMapPromise = loadScript(`/local/home_weather/three.min.js?v=${version}`, "THREE")
+      .then(() => loadScript(`/local/home_weather/space-map.js?v=${version}`, "SpaceMap"));
+    return this._spaceMapPromise;
+  }
+
+  _destroySpaceMap() {
+    if (this._spaceRefreshTimer) {
+      clearInterval(this._spaceRefreshTimer);
+      this._spaceRefreshTimer = null;
+    }
+    if (this._spaceMap) {
+      this._spaceMap.destroy();
+      this._spaceMap = null;
+    }
+  }
+
+  async _initSpaceMap() {
+    const s = this.shadowRoot;
+    if (!s || this._currentView !== "space") return;
+    const root = s.getElementById("space-map-root");
+    if (!root) return;
+    try {
+      await this._loadSpaceMapScript();
+      if (this._currentView !== "space") return;
+      this._destroySpaceMap();
+      const spaceMonitoring = this._settings.space_monitoring || {};
+      this._spaceLayers = {
+        planets: spaceMonitoring.show_planets !== false,
+        dwarf_planets: spaceMonitoring.show_dwarf_planets !== false,
+        moons: spaceMonitoring.show_moons !== false,
+        spacecraft: spaceMonitoring.show_spacecraft !== false,
+        asteroids: spaceMonitoring.show_asteroids !== false,
+        comets: spaceMonitoring.show_comets !== false,
+      };
+      this._spaceMap = new window.SpaceMap({
+        hass: this._hass,
+        shadowRoot: s,
+        root,
+        mode: this._spaceMode,
+        layers: this._spaceLayers,
+        logScale: spaceMonitoring.log_scale_orbits !== false,
+      });
+      this._spaceMap.mount();
+      if (!this._spaceRefreshTimer) {
+        this._spaceRefreshTimer = setInterval(() => {
+          if (this._currentView === "space") this._spaceMap?.loadData();
+        }, 60000);
+      }
+    } catch (err) {
+      console.error("Failed to init space map:", err);
+      root.innerHTML = `<div class="space-error">Failed to load space map.</div>`;
+    }
+  }
+
   async _initHurricaneTracker() {
     const s = this.shadowRoot;
     if (!s || this._currentView !== "hurricanes") return;
@@ -5555,7 +5935,14 @@ class HomeWeatherPanel extends HTMLElement {
       this._hurricaneTracker.setShowZones?.(this._mapsShowZones, this._getZoneOverlayConfig());
       this._hurricaneTracker.setOnLayerToggle?.((key, active) => {
         this._mapsLayers = this._normalizeMapLayers({ ...this._mapsLayers, [key]: active });
-        this._syncMenubarChecks("maps-layer", (v) => !!this._mapsLayers[v]);
+      });
+      this._hurricaneTracker.setOnOverlayToggle?.((key, active) => {
+        if (key === "wind_radii") {
+          this._mapsWindRadii = active;
+        } else if (key === "alert_zones") {
+          this._mapsShowZones = active;
+          this._hurricaneTracker?.setShowZones?.(active, this._getZoneOverlayConfig());
+        }
       });
       this._updateMapsHazardsMeta();
       requestAnimationFrame(() => {
@@ -5887,7 +6274,7 @@ class HomeWeatherPanel extends HTMLElement {
     const style = getComputedStyle(this);
     return {
       muted: style.getPropertyValue("--hw-muted").trim() || "#9b9b9b",
-      border: style.getPropertyValue("--hw-border").trim() || "rgba(255,255,255,0.08)",
+      border: style.getPropertyValue("--hw-border").trim() || "#252525",
       text: style.getPropertyValue("--hw-text").trim() || "#e1e1e1",
     };
   }
@@ -6361,6 +6748,14 @@ class HomeWeatherPanel extends HTMLElement {
       min_alert_level: "watch", announce_cleared: false,
     };
     const volcanoAlerts = { ...defaultVolcanoAlerts, ...(this._settings.volcano_alerts || {}) };
+    const defaultWildfireAlerts = {
+      enabled: false, sound_file: "", sound_volume: 0.8, tts_volume: 0.9, announce_cleared: false,
+    };
+    const wildfireAlerts = { ...defaultWildfireAlerts, ...(this._settings.wildfire_alerts || {}) };
+    const defaultAirQualityAlerts = {
+      enabled: false, sound_file: "", sound_volume: 0.8, tts_volume: 0.9, announce_cleared: false,
+    };
+    const airQualityAlerts = { ...defaultAirQualityAlerts, ...(this._settings.air_quality_alerts || {}) };
     const defaultEarthquakes = {
       enabled: true,
       min_magnitude: 2.5,
@@ -6396,10 +6791,34 @@ class HomeWeatherPanel extends HTMLElement {
       min_level: 3, announce_level_changes: true, announce_new_advisories: true, watched_countries: [],
     };
     const travelAlerts = { ...defaultTravelAlerts, ...(this._settings.travel_alerts || {}) };
-    const defaultWildfireMonitoring = { enabled: true, show_on_map: true, show_perimeters: true, min_acres: 100, exclude_prescribed: true };
+    const defaultWildfireMonitoring = { enabled: true, zone_mode: "zone", alert_zone_mode: "zone", radius_miles: 100, show_on_map: true, show_perimeters: true, min_acres: 100, exclude_prescribed: true };
     const wildfireMonitoring = { ...defaultWildfireMonitoring, ...(this._settings.wildfire_monitoring || {}) };
-    const defaultAirQualityMonitoring = { enabled: true, show_on_map: true, min_category_level: 1 };
+    const defaultAirQualityMonitoring = { enabled: true, zone_mode: "zone", alert_zone_mode: "zone", radius_miles: 50, show_on_map: true, min_category_level: 1 };
     const airQualityMonitoring = { ...defaultAirQualityMonitoring, ...(this._settings.air_quality_monitoring || {}) };
+    const defaultSpaceMonitoring = {
+      enabled: true, show_planets: true, show_dwarf_planets: true, show_moons: true,
+      show_spacecraft: true, show_asteroids: true, show_comets: true,
+      max_small_bodies: 50, small_body_min_diameter_km: 0, log_scale_orbits: true,
+    };
+    const spaceMonitoring = { ...defaultSpaceMonitoring, ...(this._settings.space_monitoring || {}) };
+    const defaultSolarWeatherMonitoring = { enabled: true, show_sunspot_regions: true, show_flare_events: true };
+    const solarWeatherMonitoring = { ...defaultSolarWeatherMonitoring, ...(this._settings.solar_weather_monitoring || {}) };
+    const defaultSpacecraftAlerts = {
+      enabled: false, sound_file: "", sound_volume: 0.8, tts_volume: 0.9,
+      min_elevation_deg: 10, craft_ids: ["-255544"], announce_pass_start: true, announce_pass_peak: false,
+    };
+    const spacecraftAlerts = { ...defaultSpacecraftAlerts, ...(this._settings.spacecraft_alerts || {}) };
+    const defaultSolarWeatherAlerts = {
+      enabled: false, sound_file: "", sound_volume: 0.8, tts_volume: 0.9,
+      min_k_index: 5, min_g_scale: 1, min_xray_class: "M",
+      announce_flare_events: true, announce_geomagnetic_storm: true,
+    };
+    const solarWeatherAlerts = { ...defaultSolarWeatherAlerts, ...(this._settings.solar_weather_alerts || {}) };
+    const defaultNeoAlerts = {
+      enabled: false, sound_file: "", sound_volume: 0.8, tts_volume: 0.9,
+      max_lunar_distances: 5, min_diameter_m: 100,
+    };
+    const neoAlerts = { ...defaultNeoAlerts, ...(this._settings.neo_alerts || {}) };
     const aqiLevelOptions = (selected) => [
       { value: 1, label: "Good and above (show all)" },
       { value: 2, label: "Moderate and above" },
@@ -6479,13 +6898,13 @@ class HomeWeatherPanel extends HTMLElement {
       </div>
     `;
     
-    const renderCollapsible = (id, title, subtitle, content, hasToggle = false, toggleId = "", toggleChecked = false) => `
-      <div class="collapsible-section ${this._expandedSections.has(id) ? "open" : ""}" data-section-id="${id}">
+    const renderCollapsible = (id, title, subtitle, content, hasToggle = false, toggleId = "", toggleChecked = false, toggleAttrs = "", sectionClass = "", sectionStyle = "") => `
+      <div class="collapsible-section ${this._expandedSections.has(id) ? "open" : ""} ${sectionClass}" data-section-id="${id}"${sectionStyle ? ` style="${sectionStyle}"` : ""}>
         <div class="collapsible-header">
           <div class="collapsible-header-left">
             ${hasToggle ? `
               <label class="toggle-switch" style="margin-right: 8px;">
-                <input type="checkbox" id="${toggleId}" ${toggleChecked ? "checked" : ""}/>
+                <input type="checkbox" id="${toggleId}" ${toggleChecked ? "checked" : ""} ${toggleAttrs}/>
                 <span class="toggle-slider"></span>
               </label>
             ` : ""}
@@ -6502,9 +6921,9 @@ class HomeWeatherPanel extends HTMLElement {
       </div>
     `;
 
-    const renderNestedSection = (id, title, subtitle, content, hasToggle = false, toggleId = "", toggleChecked = false) => `
+    const renderNestedSection = (id, title, subtitle, content, hasToggle = false, toggleId = "", toggleChecked = false, toggleAttrs = "", sectionClass = "", sectionStyle = "") => `
       <div class="settings-panel">
-        ${renderCollapsible(id, title, subtitle, content, hasToggle, toggleId, toggleChecked)}
+        ${renderCollapsible(id, title, subtitle, content, hasToggle, toggleId, toggleChecked, toggleAttrs, sectionClass, sectionStyle)}
       </div>
     `;
 
@@ -6632,6 +7051,7 @@ class HomeWeatherPanel extends HTMLElement {
       { id: "general", label: "General", icon: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3l9 7h-3v9h-4v-6H10v6H6v-9H3l9-7z"/></svg>` },
       { id: "zones", label: "Alert Zones", icon: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 100 20 10 10 0 000-20zm0 2a8 8 0 110 16 8 8 0 010-16zm0 3a5 5 0 100 10 5 5 0 000-10zm0 2a3 3 0 110 6 3 3 0 010-6z"/></svg>` },
       { id: "monitoring", label: "Hazard Monitoring", icon: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>` },
+      { id: "space", label: "Space", icon: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a2 2 0 012 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 017 7 7 7 0 01-7 7h-4a7 7 0 01-7-7 7 7 0 017-7h1V5.73A2 2 0 0112 2zm-1 9a1 1 0 100 2 1 1 0 000-2zm2 0a1 1 0 100 2 1 1 0 000-2z"/></svg>` },
       { id: "safety", label: "Safety", icon: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/></svg>` },
       { id: "announcements", label: "Announcements", icon: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3a4.5 4.5 0 00-2.5-4.03v8.05A4.5 4.5 0 0016.5 12zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>` },
       { id: "appearance", label: "Appearance", icon: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3a9 9 0 000 18c.83 0 1.5-.67 1.5-1.5 0-.39-.15-.74-.39-1.01-.23-.26-.39-.61-.39-.99 0-.83.67-1.5 1.5-1.5H16a5 5 0 005-5c0-4.42-4.03-8-9-8zm-5.5 9a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm3-4a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm5 0a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm3.5 4a1.5 1.5 0 110-3 1.5 1.5 0 010 3z"/></svg>` },
@@ -6678,19 +7098,21 @@ class HomeWeatherPanel extends HTMLElement {
           <label for="volcano-min-alert-level">Min activity level</label>
           <select id="volcano-min-alert-level">${volcanoLevelOptions(volcanoMonitoring.min_alert_level)}</select>
         </div>` },
+      { key: "wildfire", label: "Wildfire", icon: "fire", color: "#ff5722", enabledId: "wildfire-monitoring-enabled", radiusId: "wildfire-radius-miles", radius: wildfireMonitoring.radius_miles ?? 100, min: 1, max: 500, enabled: wildfireMonitoring.enabled !== false, hasAlerts: true, sensorMode: resolveSensorMode(wildfireMonitoring), alertMode: resolveAlertMode(wildfireMonitoring), desc: "Wildfires inside this radius count as nearby for sensors and alerts.", thresholds: `
+        <div class="zone-card-field">
+          <label for="wildfire-min-acres">Min fire size (acres)</label>
+          <input type="number" id="wildfire-min-acres" min="0" max="1000000" step="1" value="${wildfireMonitoring.min_acres ?? 100}"/>
+        </div>` },
+      { key: "air_quality", label: "Air Quality", icon: "air-quality", color: "#42a5f5", enabledId: "air-quality-monitoring-enabled", radiusId: "air-quality-radius-miles", radius: airQualityMonitoring.radius_miles ?? 50, min: 1, max: 500, enabled: airQualityMonitoring.enabled !== false, hasAlerts: true, sensorMode: resolveSensorMode(airQualityMonitoring), alertMode: resolveAlertMode(airQualityMonitoring), desc: "Reporting areas inside this radius drive air quality sensors and alerts.", thresholds: `
+        <div class="zone-card-field">
+          <label for="air-quality-min-level">Min category level</label>
+          <select id="air-quality-min-level">${aqiLevelOptions(airQualityMonitoring.min_category_level ?? 1)}</select>
+        </div>` },
     ];
-    const renderZoneCard = (z) => `
-      <div class="zone-card ${z.enabled ? "" : "is-disabled"}" data-zone-card="${z.key}" style="--zone-color:${z.color}">
-        <div class="zone-card-head">
-          <img src="/local/home_weather/icons/${z.icon}.svg" alt="" draggable="false"/>
-          <span class="zone-card-title">${z.label}</span>
-          <label class="toggle-switch" title="Enable ${z.label} monitoring">
-            <input type="checkbox" id="${z.enabledId}" data-zone-card-enabled="${z.key}" ${z.enabled ? "checked" : ""}/>
-            <span class="toggle-slider"></span>
-          </label>
-        </div>
+    const renderZoneSection = (z) => {
+      const sectionId = `zone-${z.key}`;
+      const body = `
         <div class="zone-card-body">
-          <p class="form-hint zone-card-desc">${z.desc}</p>
           <div class="zone-card-field">
             <label for="${z.radiusId}">Zone radius (miles)</label>
             <input type="number" id="${z.radiusId}" min="${z.min}" max="${z.max}" step="1" value="${Math.round(z.radius)}"/>
@@ -6713,8 +7135,20 @@ class HomeWeatherPanel extends HTMLElement {
             </div>
             <p class="zone-card-note" data-scope-note-for="${z.key}-alert" style="${z.alertMode === "all" ? "" : "display:none"}">Bypass active — spoken alerts use all ${z.label.toLowerCase()} data regardless of distance and thresholds.</p>
           </div>` : ""}
-        </div>
-      </div>`;
+        </div>`;
+      return renderNestedSection(
+        sectionId,
+        z.label,
+        z.desc,
+        body,
+        true,
+        z.enabledId,
+        z.enabled,
+        `data-zone-card-enabled="${z.key}"`,
+        `collapsible-section--zone${z.enabled ? "" : " is-disabled"}`,
+        `--zone-color:${z.color}`,
+      );
+    };
 
     return `
       <div class="settings-form">
@@ -6729,21 +7163,19 @@ class HomeWeatherPanel extends HTMLElement {
                 <div class="settings-pane-title">General</div>
                 <div class="settings-pane-sub">Data source for the whole integration.</div>
               </div>
-              <div class="settings-card">
-                <div class="settings-card-title">Weather Source</div>
+              ${renderNestedSection("general-weather-source", "Weather Source", "Required weather entity", `
                 <div class="form-group">
                   <label id="weather-entity-label">Weather Entity</label>
                   ${this._renderWeatherEntitySelect(this._settings.weather_entity || "")}
                   <p class="form-hint">Required. Must support hourly and daily forecasts.</p>
                 </div>
-              </div>
-              <div class="settings-card">
-                <div class="settings-card-title">About</div>
+              `)}
+              ${renderNestedSection("general-about", "About", "Version and integration info", `
                 <p class="form-hint" style="margin:0 0 16px 0;">Home Weather integration. Configure alert zones, hazard monitoring, and announcements from the sidebar.</p>
                 <div class="version-section">
                   <div class="version-section-content">${this._buildVersionSectionContent()}</div>
                 </div>
-              </div>
+              `)}
             </section>
 
             <section class="settings-pane ${activePane === "zones" ? "active" : ""}" data-settings-pane="zones">
@@ -6758,9 +7190,7 @@ class HomeWeatherPanel extends HTMLElement {
                 </div>
                 <button type="button" class="btn btn-primary" id="open-zone-editor-btn">Open map editor</button>
               </div>
-              <div class="zone-cards">
-                ${zoneHazards.map(renderZoneCard).join("")}
-              </div>
+              ${zoneHazards.map(renderZoneSection).join("")}
             </section>
 
             <section class="settings-pane ${activePane === "monitoring" ? "active" : ""}" data-settings-pane="monitoring">
@@ -6812,25 +7242,15 @@ class HomeWeatherPanel extends HTMLElement {
               `)}
               ${renderMonitoringCard("Wildfires", "NIFC WFIGS active/ongoing incidents", `
                 <p class="form-hint">Live U.S. wildfire data from the National Interagency Fire Center <a href="https://data-nifc.opendata.arcgis.com/" target="_blank" rel="noopener noreferrer">WFIGS</a> program (no API key). Only currently active and ongoing fires are tracked. Incident points and fire perimeters appear on the hazard map; click for size, containment, and location details.</p>
-                ${renderToggle("wildfire-monitoring-enabled", wildfireMonitoring.enabled !== false, "Enable wildfire data")}
+                <p class="form-hint">Zone radius, minimum fire size, and alert scope are set on the Wildfire card in <strong>Alert Zones</strong>.</p>
                 ${renderToggle("wildfire-show-on-map", wildfireMonitoring.show_on_map !== false, "Show wildfires on hazard map")}
                 ${renderToggle("wildfire-show-perimeters", wildfireMonitoring.show_perimeters !== false, "Show fire perimeters on map")}
                 ${renderToggle("wildfire-exclude-prescribed", wildfireMonitoring.exclude_prescribed !== false, "Exclude prescribed burns (RX)")}
-                <div class="form-group">
-                  <label>Minimum fire size (acres)</label>
-                  <input type="number" id="wildfire-min-acres" min="0" max="1000000" step="1" value="${wildfireMonitoring.min_acres ?? 100}"/>
-                  <p class="form-hint">Smaller incidents are hidden from the map and status panel.</p>
-                </div>
               `)}
               ${renderMonitoringCard("Air Quality", "EPA AirNow reporting-area observations", `
                 <p class="form-hint">Real-time air quality from the EPA <a href="https://www.airnow.gov/" target="_blank" rel="noopener noreferrer">AirNow</a> reporting-area file (no API key). Colors follow the standard EPA AQI scale.</p>
-                ${renderToggle("air-quality-monitoring-enabled", airQualityMonitoring.enabled !== false, "Enable air quality data")}
+                <p class="form-hint">Zone radius, minimum category level, and alert scope are set on the Air Quality card in <strong>Alert Zones</strong>.</p>
                 ${renderToggle("air-quality-show-on-map", airQualityMonitoring.show_on_map !== false, "Show air quality on hazard map")}
-                <div class="form-group">
-                  <label>Minimum map category</label>
-                  <select id="air-quality-min-level">${aqiLevelOptions(airQualityMonitoring.min_category_level ?? 1)}</select>
-                  <p class="form-hint">Only show reporting areas at or above this EPA category level.</p>
-                </div>
               `)}
             </section>
 
@@ -6839,9 +7259,8 @@ class HomeWeatherPanel extends HTMLElement {
                 <div class="settings-pane-title">Safety</div>
                 <div class="settings-pane-sub">Travel advisory data sources. Spoken travel alerts are configured in <strong>Announcements</strong>.</div>
               </div>
-              ${renderMonitoringCard("U.S. Travel Advisories", "State Department worldwide threat levels", `
+              ${renderNestedSection("travel-monitoring", "U.S. Travel Advisories", "State Department worldwide threat levels", `
                 <p class="form-hint">Live data from the U.S. Department of State <a href="https://travel.state.gov/content/travel/en/rss.html" target="_blank" rel="noopener noreferrer">Travel Advisories</a> program. Countries are color-coded on the hazard map by threat level (1–4). Click a country for details.</p>
-                ${renderToggle("travel-monitoring-enabled", travelMonitoring.enabled !== false, "Enable travel advisory data")}
                 ${renderToggle("travel-show-on-map", travelMonitoring.show_on_map !== false, "Show travel advisories on hazard map")}
                 <div class="form-group">
                   <label>Minimum map level</label>
@@ -6854,7 +7273,101 @@ class HomeWeatherPanel extends HTMLElement {
                   <strong>Level 3</strong> Reconsider travel ·
                   <strong>Level 4</strong> Do not travel
                 </div>
+              `, true, "travel-monitoring-enabled", travelMonitoring.enabled !== false)}
+            </section>
+
+            <section class="settings-pane ${activePane === "space" ? "active" : ""}" data-settings-pane="space">
+              <div class="settings-pane-head">
+                <div class="settings-pane-title">Space Map</div>
+                <div class="settings-pane-sub">Solar system visualization and NOAA sun weather. Data from NASA JPL Horizons and NOAA SWPC (no API keys).</div>
+              </div>
+              ${renderMonitoringCard("Space Map", "Layers and display", `
+                <p class="form-hint">Open the Space Map from the top bar to view live positions. Layer toggles also appear in the Space Map menubar.</p>
+                ${renderToggle("space-monitoring-enabled", spaceMonitoring.enabled !== false, "Enable Space Map data")}
+                ${renderToggle("space-show-planets", spaceMonitoring.show_planets !== false, "Show planets")}
+                ${renderToggle("space-show-dwarf-planets", spaceMonitoring.show_dwarf_planets !== false, "Show dwarf planets")}
+                ${renderToggle("space-show-moons", spaceMonitoring.show_moons !== false, "Show natural moons")}
+                ${renderToggle("space-show-spacecraft", spaceMonitoring.show_spacecraft !== false, "Show spacecraft")}
+                ${renderToggle("space-show-asteroids", spaceMonitoring.show_asteroids !== false, "Show asteroids / NEOs")}
+                ${renderToggle("space-show-comets", spaceMonitoring.show_comets !== false, "Show comets")}
+                ${renderToggle("space-log-scale", spaceMonitoring.log_scale_orbits !== false, "Log-scale orbits (easier to see inner planets)")}
+                <div class="form-group">
+                  <label for="space-max-small-bodies">Max small bodies</label>
+                  <input type="number" id="space-max-small-bodies" min="1" max="200" step="1" value="${spaceMonitoring.max_small_bodies ?? 50}"/>
+                </div>
+                <div class="form-group">
+                  <label for="space-min-diameter-km">Min small-body diameter (km, 0 = all)</label>
+                  <input type="number" id="space-min-diameter-km" min="0" max="1000" step="0.1" value="${spaceMonitoring.small_body_min_diameter_km ?? 0}"/>
+                </div>
               `)}
+              ${renderMonitoringCard("Solar Weather", "Sun view data", `
+                <p class="form-hint">Sunspot regions, K-index, flux, and imagery from <a href="https://www.swpc.noaa.gov/" target="_blank" rel="noopener noreferrer">NOAA SWPC</a>.</p>
+                ${renderToggle("solar-weather-monitoring-enabled", solarWeatherMonitoring.enabled !== false, "Enable solar weather data")}
+                ${renderToggle("solar-show-regions", solarWeatherMonitoring.show_sunspot_regions !== false, "Show active sunspot regions")}
+                ${renderToggle("solar-show-flares", solarWeatherMonitoring.show_flare_events !== false, "Show flare events")}
+              `)}
+              ${renderNestedSection("spacecraft-alerts", "Spacecraft Overhead Alerts", "Announce when selected craft pass overhead", `
+                ${renderAlertAudioSection("spacecraft-alerts", spacecraftAlerts, {
+                  sirenBtnId: "test-spacecraft-siren-btn",
+                  alertBtnId: "test-spacecraft-alert-btn",
+                  behaviorTitle: "Behavior",
+                  behaviorContent: `
+                    <div class="form-group">
+                      <label for="spacecraft-min-elevation">Minimum elevation (°)</label>
+                      <input type="number" id="spacecraft-min-elevation" min="0" max="90" step="1" value="${spacecraftAlerts.min_elevation_deg ?? 10}"/>
+                    </div>
+                    <div class="form-group">
+                      <label for="spacecraft-craft-ids">Horizons craft IDs (comma-separated)</label>
+                      <input type="text" id="spacecraft-craft-ids" placeholder="-255544" value="${(spacecraftAlerts.craft_ids || ["-255544"]).join(", ")}"/>
+                      <p class="form-hint">Default <code>-255544</code> is the International Space Station.</p>
+                    </div>
+                    ${renderToggle("spacecraft-announce-pass-start", spacecraftAlerts.announce_pass_start !== false, "Announce pass start")}
+                    ${renderToggle("spacecraft-announce-pass-peak", spacecraftAlerts.announce_pass_peak === true, "Announce pass peak")}
+                  `,
+                })}
+              `, true, "spacecraft-alerts-enabled", spacecraftAlerts.enabled)}
+              ${renderNestedSection("solar-weather-alerts", "Solar Weather Alerts", "Geomagnetic storms and solar flares", `
+                ${renderAlertAudioSection("solar-weather-alerts", solarWeatherAlerts, {
+                  sirenBtnId: "test-solar-weather-siren-btn",
+                  alertBtnId: "test-solar-weather-alert-btn",
+                  behaviorTitle: "Thresholds",
+                  behaviorContent: `
+                    <div class="form-group">
+                      <label for="solar-min-k-index">Minimum K-index</label>
+                      <input type="number" id="solar-min-k-index" min="0" max="9" step="1" value="${solarWeatherAlerts.min_k_index ?? 5}"/>
+                    </div>
+                    <div class="form-group">
+                      <label for="solar-min-g-scale">Minimum G-scale</label>
+                      <input type="number" id="solar-min-g-scale" min="0" max="5" step="1" value="${solarWeatherAlerts.min_g_scale ?? 1}"/>
+                    </div>
+                    <div class="form-group">
+                      <label for="solar-min-xray-class">Minimum X-ray class</label>
+                      <select id="solar-min-xray-class">
+                        ${["C", "M", "X"].map((c) => `<option value="${c}" ${String(solarWeatherAlerts.min_xray_class || "M").toUpperCase() === c ? "selected" : ""}>Class ${c}</option>`).join("")}
+                      </select>
+                    </div>
+                    ${renderToggle("solar-announce-flares", solarWeatherAlerts.announce_flare_events !== false, "Announce solar flares")}
+                    ${renderToggle("solar-announce-storms", solarWeatherAlerts.announce_geomagnetic_storm !== false, "Announce geomagnetic storms")}
+                  `,
+                })}
+              `, true, "solar-weather-alerts-enabled", solarWeatherAlerts.enabled)}
+              ${renderNestedSection("neo-alerts", "NEO Close Approach Alerts", "Near-Earth object flybys", `
+                ${renderAlertAudioSection("neo-alerts", neoAlerts, {
+                  sirenBtnId: "test-neo-siren-btn",
+                  alertBtnId: "test-neo-alert-btn",
+                  behaviorTitle: "Thresholds",
+                  behaviorContent: `
+                    <div class="form-group">
+                      <label for="neo-max-lunar-distances">Maximum lunar distances (LD)</label>
+                      <input type="number" id="neo-max-lunar-distances" min="0.1" max="100" step="0.1" value="${neoAlerts.max_lunar_distances ?? 5}"/>
+                    </div>
+                    <div class="form-group">
+                      <label for="neo-min-diameter-m">Minimum diameter (m)</label>
+                      <input type="number" id="neo-min-diameter-m" min="0" max="100000" step="1" value="${neoAlerts.min_diameter_m ?? 100}"/>
+                    </div>
+                  `,
+                })}
+              `, true, "neo-alerts-enabled", neoAlerts.enabled)}
             </section>
 
             <section class="settings-pane ${activePane === "announcements" ? "active" : ""}" data-settings-pane="announcements">
@@ -7055,6 +7568,26 @@ class HomeWeatherPanel extends HTMLElement {
             })}
           `, true, "volcano-alerts-enabled", volcanoAlerts.enabled)}
 
+          ${renderNestedSection("wildfire-alerts", "Wildfire Alerts", "Nearby active wildfire incidents", `
+            ${renderAlertAudioSection("wildfire-alerts", wildfireAlerts, {
+              sirenBtnId: "test-wildfire-siren-btn",
+              alertBtnId: "test-wildfire-alert-btn",
+              hintHtml: `<p class="form-hint">Minimum fire size, distance, and alert scope are set on the Wildfire card in <strong>Alert Zones</strong>.</p>`,
+              behaviorTitle: "Behavior",
+              behaviorContent: renderToggle("wildfire-alerts-announce-cleared", wildfireAlerts.announce_cleared === true, "Announce when incident clears"),
+            })}
+          `, true, "wildfire-alerts-enabled", wildfireAlerts.enabled)}
+
+          ${renderNestedSection("air-quality-alerts", "Air Quality Alerts", "Unhealthy air quality announcements", `
+            ${renderAlertAudioSection("air-quality-alerts", airQualityAlerts, {
+              sirenBtnId: "test-air-quality-siren-btn",
+              alertBtnId: "test-air-quality-alert-btn",
+              hintHtml: `<p class="form-hint">Minimum category level, distance, and alert scope are set on the Air Quality card in <strong>Alert Zones</strong>.</p>`,
+              behaviorTitle: "Behavior",
+              behaviorContent: renderToggle("air-quality-alerts-announce-cleared", airQualityAlerts.announce_cleared === true, "Announce when conditions clear"),
+            })}
+          `, true, "air-quality-alerts-enabled", airQualityAlerts.enabled)}
+
           ${renderNestedSection("travel-alerts", "Travel Advisory Alerts", "U.S. State Department travel warnings", `
             ${renderAlertAudioSection("travel-alerts", travelAlerts, {
               sirenBtnId: "test-travel-siren-btn",
@@ -7204,7 +7737,7 @@ class HomeWeatherPanel extends HTMLElement {
           `, true, "enable-voice-satellite", tts.enable_voice_satellite)}
             </section>
 
-            ${this._renderAppearanceTab(activePane)}
+            ${this._renderAppearanceTab(activePane, renderNestedSection)}
 
             <section class="settings-pane ${activePane === "advanced" ? "active" : ""}" data-settings-pane="advanced">
               <div class="settings-pane-head">
@@ -7260,18 +7793,18 @@ class HomeWeatherPanel extends HTMLElement {
       return {
         bg: "#dde4ed", surface: "#ffffff", surface2: "#edf1f6", elevated: "#ffffff",
         inputBg: "#ffffff", text: "#152030", muted: "#546274", disabled: "#8a95a3",
-        accent: "#0277bd", accentHover: "#0288d1", accentDim: "rgba(2, 119, 189, 0.12)",
+        accent: "#0277bd", accentHover: "#0288d1", accentDim: "#e3f2fd",
         danger: "#c62828", warning: "#e65100", success: "#2e7d32",
-        border: "rgba(21, 32, 48, 0.10)", borderStrong: "rgba(21, 32, 48, 0.16)", hover: "rgba(21, 32, 48, 0.05)",
+        border: "#d0d7e0", borderStrong: "#bcc5d1", hover: "#e8ecf2",
         swatchBorder: "#b8c4d4",
       };
     }
     return {
       bg: "#111111", surface: "#1c1c1c", surface2: "#161616", elevated: "#282828",
       inputBg: "#282828", text: "#e1e1e1", muted: "#9b9b9b", disabled: "#6f6f6f",
-      accent: "#03a9f4", accentHover: "#29b6f6", accentDim: "rgba(3, 169, 244, 0.15)",
+      accent: "#03a9f4", accentHover: "#29b6f6", accentDim: "#0d2536",
       danger: "#f44336", warning: "#ff9800", success: "#4caf50",
-      border: "rgba(255, 255, 255, 0.08)", borderStrong: "rgba(255, 255, 255, 0.12)", hover: "rgba(255, 255, 255, 0.04)",
+      border: "#252525", borderStrong: "#333333", hover: "#222222",
       swatchBorder: "#333333",
     };
   }
@@ -7388,30 +7921,35 @@ class HomeWeatherPanel extends HTMLElement {
     return { mode: "dark", overrides: {} };
   }
 
-  _renderAppearanceTab(activePane) {
+  _renderAppearanceTab(activePane, renderNestedSection) {
+    const section = typeof renderNestedSection === "function"
+      ? renderNestedSection("appearance-overview", "Theme", "Dark mode and customization", `
+          <div style="text-align:center;padding:24px 12px;">
+            <div style="margin-bottom:16px;">
+              <svg viewBox="0 0 24 24" fill="currentColor" width="48" height="48" style="opacity:0.4;"><path d="M12 3a9 9 0 109 9c0-.46-.04-.92-.1-1.36a5.39 5.39 0 01-4.4 2.26 5.4 5.4 0 01-5.4-5.4c0-1.81.9-3.42 2.26-4.4A9.1 9.1 0 0012 3z"/></svg>
+            </div>
+            <div class="settings-card-title" style="font-size:18px;margin-bottom:8px;">Dark Mode Active</div>
+            <p style="color:var(--hw-muted,#9e9e9e);margin:0 0 20px;font-size:14px;line-height:1.5;">
+              Home Weather is optimized for dark environments and hazard monitoring.<br/>
+              Theme customization options are coming in a future update.
+            </p>
+            <span style="display:inline-block;padding:6px 14px;background:rgba(255,255,255,0.08);border-radius:999px;font-size:12px;font-weight:600;color:#90caf9;letter-spacing:0.5px;">
+              COMING SOON
+            </span>
+          </div>
+        `)
+      : "";
     return `
       <section class="settings-pane ${activePane === "appearance" ? "active" : ""}" data-settings-pane="appearance">
         <div class="settings-pane-head">
           <div class="settings-pane-title">Appearance</div>
           <div class="settings-pane-sub">Customize the look and feel of Home Weather.</div>
         </div>
-        <div class="settings-card" style="text-align:center;padding:48px 24px;">
-          <div style="margin-bottom:16px;">
-            <svg viewBox="0 0 24 24" fill="currentColor" width="48" height="48" style="opacity:0.4;"><path d="M12 3a9 9 0 109 9c0-.46-.04-.92-.1-1.36a5.39 5.39 0 01-4.4 2.26 5.4 5.4 0 01-5.4-5.4c0-1.81.9-3.42 2.26-4.4A9.1 9.1 0 0012 3z"/></svg>
-          </div>
-          <div class="settings-card-title" style="font-size:18px;margin-bottom:8px;">Dark Mode Active</div>
-          <p style="color:var(--hw-muted,#9e9e9e);margin:0 0 20px;font-size:14px;line-height:1.5;">
-            Home Weather is optimized for dark environments and hazard monitoring.<br/>
-            Theme customization options are coming in a future update.
-          </p>
-          <span style="display:inline-block;padding:6px 14px;background:rgba(255,255,255,0.08);border-radius:999px;font-size:12px;font-weight:600;color:#90caf9;letter-spacing:0.5px;">
-            COMING SOON
-          </span>
-        </div>
+        ${section}
       </section>`;
   }
 
-  _renderAppearanceTabFull(activePane) {
+  _renderAppearanceTabFull(activePane, renderNestedSection) {
     const { mode, overrides } = this._getAppearance();
     const base = this._themeBase(mode);
     const swatches = [
@@ -7440,27 +7978,39 @@ class HomeWeatherPanel extends HTMLElement {
           </label>
         </div>`;
     };
-    return `
-      <section class="settings-pane ${activePane === "appearance" ? "active" : ""}" data-settings-pane="appearance">
-        <div class="settings-pane-head">
-          <div class="settings-pane-title">Appearance</div>
-          <div class="settings-pane-sub">Choose a base theme and fine-tune individual colors. Changes preview instantly; Save to keep them.</div>
+    const themeBlock = `
+      <div class="theme-mode-block">
+        <div class="theme-mode-seg" role="group" aria-label="Theme mode">
+          <button type="button" data-theme-mode="dark" class="${mode === "dark" ? "active" : ""}">
+            <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M12 3a9 9 0 109 9c0-.46-.04-.92-.1-1.36a5.39 5.39 0 01-4.4 2.26 5.4 5.4 0 01-5.4-5.4c0-1.81.9-3.42 2.26-4.4A9.1 9.1 0 0012 3z"/></svg>
+            <span>Dark</span>
+          </button>
+          <button type="button" data-theme-mode="light" class="${mode === "light" ? "active" : ""}">
+            <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M12 7a5 5 0 100 10 5 5 0 000-10zm0-5v3m0 14v3M4.2 4.2l2.1 2.1m11.4 11.4l2.1 2.1M2 12h3m14 0h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg>
+            <span>Light</span>
+          </button>
         </div>
+        <p class="form-hint" style="margin:0;">Panel-wide base palette. The default is Dark.</p>
+      </div>`;
+    const colorsBlock = `
+      <div class="settings-card-header">
+        <div>
+          <div class="settings-card-sub">Override any element. Untouched colors follow the base theme.</div>
+        </div>
+        <button type="button" class="btn btn-secondary btn-sm" id="theme-reset-btn">Reset to defaults</button>
+      </div>
+      <div class="theme-swatch-grid">
+        ${swatches.map(swatchRow).join("")}
+      </div>`;
+    const sections = typeof renderNestedSection === "function"
+      ? `
+        ${renderNestedSection("appearance-theme", "Theme", "Base light or dark palette", themeBlock)}
+        ${renderNestedSection("appearance-colors", "Colors", "Per-element color overrides", colorsBlock)}
+      `
+      : `
         <div class="settings-card">
           <div class="settings-card-title">Theme</div>
-          <div class="theme-mode-block">
-            <div class="theme-mode-seg" role="group" aria-label="Theme mode">
-              <button type="button" data-theme-mode="dark" class="${mode === "dark" ? "active" : ""}">
-                <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M12 3a9 9 0 109 9c0-.46-.04-.92-.1-1.36a5.39 5.39 0 01-4.4 2.26 5.4 5.4 0 01-5.4-5.4c0-1.81.9-3.42 2.26-4.4A9.1 9.1 0 0012 3z"/></svg>
-                <span>Dark</span>
-              </button>
-              <button type="button" data-theme-mode="light" class="${mode === "light" ? "active" : ""}">
-                <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M12 7a5 5 0 100 10 5 5 0 000-10zm0-5v3m0 14v3M4.2 4.2l2.1 2.1m11.4 11.4l2.1 2.1M2 12h3m14 0h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg>
-                <span>Light</span>
-              </button>
-            </div>
-            <p class="form-hint" style="margin:0;">Panel-wide base palette. The default is Dark.</p>
-          </div>
+          ${themeBlock}
         </div>
         <div class="settings-card">
           <div class="settings-card-header">
@@ -7474,6 +8024,14 @@ class HomeWeatherPanel extends HTMLElement {
             ${swatches.map(swatchRow).join("")}
           </div>
         </div>
+      `;
+    return `
+      <section class="settings-pane ${activePane === "appearance" ? "active" : ""}" data-settings-pane="appearance">
+        <div class="settings-pane-head">
+          <div class="settings-pane-title">Appearance</div>
+          <div class="settings-pane-sub">Choose a base theme and fine-tune individual colors. Changes preview instantly; Save to keep them.</div>
+        </div>
+        ${sections}
       </section>`;
   }
 
@@ -7492,7 +8050,14 @@ class HomeWeatherPanel extends HTMLElement {
     this._settings.tornado_alerts = this._collectTornadoAlertsSettings();
     this._settings.earthquake_alerts = this._collectEarthquakeAlertsSettings();
     this._settings.volcano_alerts = this._collectVolcanoAlertsSettings();
+    this._settings.wildfire_alerts = this._collectWildfireAlertsSettings();
+    this._settings.air_quality_alerts = this._collectAirQualityAlertsSettings();
     this._settings.travel_alerts = this._collectTravelAlertsSettings();
+    this._settings.space_monitoring = this._collectSpaceMonitoringSettings();
+    this._settings.solar_weather_monitoring = this._collectSolarWeatherMonitoringSettings();
+    this._settings.spacecraft_alerts = this._collectSpacecraftAlertsSettings();
+    this._settings.solar_weather_alerts = this._collectSolarWeatherAlertsSettings();
+    this._settings.neo_alerts = this._collectNeoAlertsSettings();
     this._settings.hurricane_monitoring = this._collectHurricaneMonitoringSettings();
     this._settings.tornado_monitoring = this._collectTornadoMonitoringSettings();
     this._settings.earthquake_monitoring = this._collectEarthquakeMonitoringSettings();
@@ -7808,6 +8373,42 @@ class HomeWeatherPanel extends HTMLElement {
     };
   }
 
+  _collectWildfireAlertsSettings() {
+    const s = this.shadowRoot;
+    const defaults = {
+      enabled: false, sound_file: "", sound_volume: 0.8, tts_volume: 0.9, announce_cleared: false,
+    };
+    if (!s) return { ...(this._settings.wildfire_alerts || {}), ...defaults };
+    const getVal = (id, def) => (s.getElementById(id)?.value ?? def);
+    const getChecked = (id) => !!s.getElementById(id)?.checked;
+    return {
+      ...(this._settings.wildfire_alerts || {}),
+      enabled: getChecked("wildfire-alerts-enabled"),
+      sound_file: (getVal("wildfire-alerts-sound-file", "") || "").trim(),
+      sound_volume: Math.min(1, Math.max(0, parseFloat(getVal("wildfire-alerts-sound-volume", "0.8")))),
+      tts_volume: Math.min(1, Math.max(0, parseFloat(getVal("wildfire-alerts-tts-volume", "0.9")))),
+      announce_cleared: getChecked("wildfire-alerts-announce-cleared"),
+    };
+  }
+
+  _collectAirQualityAlertsSettings() {
+    const s = this.shadowRoot;
+    const defaults = {
+      enabled: false, sound_file: "", sound_volume: 0.8, tts_volume: 0.9, announce_cleared: false,
+    };
+    if (!s) return { ...(this._settings.air_quality_alerts || {}), ...defaults };
+    const getVal = (id, def) => (s.getElementById(id)?.value ?? def);
+    const getChecked = (id) => !!s.getElementById(id)?.checked;
+    return {
+      ...(this._settings.air_quality_alerts || {}),
+      enabled: getChecked("air-quality-alerts-enabled"),
+      sound_file: (getVal("air-quality-alerts-sound-file", "") || "").trim(),
+      sound_volume: Math.min(1, Math.max(0, parseFloat(getVal("air-quality-alerts-sound-volume", "0.8")))),
+      tts_volume: Math.min(1, Math.max(0, parseFloat(getVal("air-quality-alerts-tts-volume", "0.9")))),
+      announce_cleared: getChecked("air-quality-alerts-announce-cleared"),
+    };
+  }
+
   _collectVolcanoMonitoringSettings() {
     const s = this.shadowRoot;
     const existing = this._settings.volcano_monitoring || {};
@@ -7884,13 +8485,16 @@ class HomeWeatherPanel extends HTMLElement {
   _collectWildfireMonitoringSettings() {
     const s = this.shadowRoot;
     const existing = this._settings.wildfire_monitoring || {};
-    const defaults = { enabled: true, show_on_map: true, show_perimeters: true, min_acres: 100, exclude_prescribed: true };
+    const defaults = { enabled: true, zone_mode: "zone", alert_zone_mode: "zone", radius_miles: 100, show_on_map: true, show_perimeters: true, min_acres: 100, exclude_prescribed: true };
     if (!s) return { ...defaults, ...existing };
     const getVal = (id, def) => (s.getElementById(id)?.value ?? def);
     const getChecked = (id) => !!s.getElementById(id)?.checked;
     return {
       ...existing,
       enabled: getChecked("wildfire-monitoring-enabled"),
+      zone_mode: this._getScopeModeFromForm("wildfire-sensor", existing.zone_mode || "zone"),
+      alert_zone_mode: this._getScopeModeFromForm("wildfire-alert", existing.alert_zone_mode || existing.zone_mode || "zone"),
+      radius_miles: Math.min(500, Math.max(1, parseInt(getVal("wildfire-radius-miles", String(existing.radius_miles ?? defaults.radius_miles)), 10) || defaults.radius_miles)),
       show_on_map: getChecked("wildfire-show-on-map"),
       show_perimeters: getChecked("wildfire-show-perimeters"),
       exclude_prescribed: getChecked("wildfire-exclude-prescribed"),
@@ -7901,7 +8505,7 @@ class HomeWeatherPanel extends HTMLElement {
   _collectAirQualityMonitoringSettings() {
     const s = this.shadowRoot;
     const existing = this._settings.air_quality_monitoring || {};
-    const defaults = { enabled: true, show_on_map: true, min_category_level: 1 };
+    const defaults = { enabled: true, zone_mode: "zone", alert_zone_mode: "zone", radius_miles: 50, show_on_map: true, min_category_level: 1 };
     if (!s) return { ...defaults, ...existing };
     const getVal = (id, def) => (s.getElementById(id)?.value ?? def);
     const getChecked = (id) => !!s.getElementById(id)?.checked;
@@ -7909,8 +8513,118 @@ class HomeWeatherPanel extends HTMLElement {
     return {
       ...existing,
       enabled: getChecked("air-quality-monitoring-enabled"),
+      zone_mode: this._getScopeModeFromForm("air_quality-sensor", existing.zone_mode || "zone"),
+      alert_zone_mode: this._getScopeModeFromForm("air_quality-alert", existing.alert_zone_mode || existing.zone_mode || "zone"),
+      radius_miles: Math.min(500, Math.max(1, parseInt(getVal("air-quality-radius-miles", String(existing.radius_miles ?? defaults.radius_miles)), 10) || defaults.radius_miles)),
       show_on_map: getChecked("air-quality-show-on-map"),
       min_category_level: minLevel,
+    };
+  }
+
+  _collectSpaceMonitoringSettings() {
+    const s = this.shadowRoot;
+    const existing = this._settings.space_monitoring || {};
+    const defaults = {
+      enabled: true, show_planets: true, show_dwarf_planets: true, show_moons: true,
+      show_spacecraft: true, show_asteroids: true, show_comets: true,
+      max_small_bodies: 50, small_body_min_diameter_km: 0, log_scale_orbits: true,
+    };
+    if (!s) return { ...defaults, ...existing };
+    const getVal = (id, def) => (s.getElementById(id)?.value ?? def);
+    const getChecked = (id) => !!s.getElementById(id)?.checked;
+    return {
+      ...existing,
+      enabled: getChecked("space-monitoring-enabled"),
+      show_planets: getChecked("space-show-planets"),
+      show_dwarf_planets: getChecked("space-show-dwarf-planets"),
+      show_moons: getChecked("space-show-moons"),
+      show_spacecraft: getChecked("space-show-spacecraft"),
+      show_asteroids: getChecked("space-show-asteroids"),
+      show_comets: getChecked("space-show-comets"),
+      log_scale_orbits: getChecked("space-log-scale"),
+      max_small_bodies: Math.min(200, Math.max(1, parseInt(getVal("space-max-small-bodies", String(existing.max_small_bodies ?? defaults.max_small_bodies)), 10) || defaults.max_small_bodies)),
+      small_body_min_diameter_km: Math.max(0, parseFloat(getVal("space-min-diameter-km", String(existing.small_body_min_diameter_km ?? 0))) || 0),
+    };
+  }
+
+  _collectSolarWeatherMonitoringSettings() {
+    const s = this.shadowRoot;
+    const existing = this._settings.solar_weather_monitoring || {};
+    const defaults = { enabled: true, show_sunspot_regions: true, show_flare_events: true };
+    if (!s) return { ...defaults, ...existing };
+    return {
+      ...existing,
+      enabled: !!s.getElementById("solar-weather-monitoring-enabled")?.checked,
+      show_sunspot_regions: !!s.getElementById("solar-show-regions")?.checked,
+      show_flare_events: !!s.getElementById("solar-show-flares")?.checked,
+    };
+  }
+
+  _collectSpacecraftAlertsSettings() {
+    const s = this.shadowRoot;
+    const defaults = {
+      enabled: false, sound_file: "", sound_volume: 0.8, tts_volume: 0.9,
+      min_elevation_deg: 10, craft_ids: ["-255544"], announce_pass_start: true, announce_pass_peak: false,
+    };
+    if (!s) return { ...(this._settings.spacecraft_alerts || {}), ...defaults };
+    const getVal = (id, def) => (s.getElementById(id)?.value ?? def);
+    const getChecked = (id) => !!s.getElementById(id)?.checked;
+    const craftRaw = (getVal("spacecraft-craft-ids", "-255544") || "").trim();
+    const craft_ids = craftRaw.split(",").map((v) => v.trim()).filter(Boolean);
+    return {
+      ...(this._settings.spacecraft_alerts || {}),
+      enabled: getChecked("spacecraft-alerts-enabled"),
+      sound_file: (getVal("spacecraft-alerts-sound-file", "") || "").trim(),
+      sound_volume: Math.min(1, Math.max(0, parseFloat(getVal("spacecraft-alerts-sound-volume", "0.8")))),
+      tts_volume: Math.min(1, Math.max(0, parseFloat(getVal("spacecraft-alerts-tts-volume", "0.9")))),
+      min_elevation_deg: Math.min(90, Math.max(0, parseFloat(getVal("spacecraft-min-elevation", "10")) || 10)),
+      craft_ids: craft_ids.length ? craft_ids : ["-255544"],
+      announce_pass_start: getChecked("spacecraft-announce-pass-start"),
+      announce_pass_peak: getChecked("spacecraft-announce-pass-peak"),
+    };
+  }
+
+  _collectSolarWeatherAlertsSettings() {
+    const s = this.shadowRoot;
+    const defaults = {
+      enabled: false, sound_file: "", sound_volume: 0.8, tts_volume: 0.9,
+      min_k_index: 5, min_g_scale: 1, min_xray_class: "M",
+      announce_flare_events: true, announce_geomagnetic_storm: true,
+    };
+    if (!s) return { ...(this._settings.solar_weather_alerts || {}), ...defaults };
+    const getVal = (id, def) => (s.getElementById(id)?.value ?? def);
+    const getChecked = (id) => !!s.getElementById(id)?.checked;
+    return {
+      ...(this._settings.solar_weather_alerts || {}),
+      enabled: getChecked("solar-weather-alerts-enabled"),
+      sound_file: (getVal("solar-weather-alerts-sound-file", "") || "").trim(),
+      sound_volume: Math.min(1, Math.max(0, parseFloat(getVal("solar-weather-alerts-sound-volume", "0.8")))),
+      tts_volume: Math.min(1, Math.max(0, parseFloat(getVal("solar-weather-alerts-tts-volume", "0.9")))),
+      min_k_index: Math.min(9, Math.max(0, parseInt(getVal("solar-min-k-index", "5"), 10) || 5)),
+      min_g_scale: Math.min(5, Math.max(0, parseInt(getVal("solar-min-g-scale", "1"), 10) || 1)),
+      min_xray_class: (getVal("solar-min-xray-class", "M") || "M").toUpperCase().slice(0, 1),
+      announce_flare_events: getChecked("solar-announce-flares"),
+      announce_geomagnetic_storm: getChecked("solar-announce-storms"),
+    };
+  }
+
+  _collectNeoAlertsSettings() {
+    const s = this.shadowRoot;
+    const defaults = {
+      enabled: false, sound_file: "", sound_volume: 0.8, tts_volume: 0.9,
+      max_lunar_distances: 5, min_diameter_m: 100,
+    };
+    if (!s) return { ...(this._settings.neo_alerts || {}), ...defaults };
+    const getVal = (id, def) => (s.getElementById(id)?.value ?? def);
+    const getChecked = (id) => !!s.getElementById(id)?.checked;
+    return {
+      ...(this._settings.neo_alerts || {}),
+      enabled: getChecked("neo-alerts-enabled"),
+      sound_file: (getVal("neo-alerts-sound-file", "") || "").trim(),
+      sound_volume: Math.min(1, Math.max(0, parseFloat(getVal("neo-alerts-sound-volume", "0.8")))),
+      tts_volume: Math.min(1, Math.max(0, parseFloat(getVal("neo-alerts-tts-volume", "0.9")))),
+      max_lunar_distances: Math.max(0.1, parseFloat(getVal("neo-max-lunar-distances", "5")) || 5),
+      min_diameter_m: Math.max(0, parseFloat(getVal("neo-min-diameter-m", "100")) || 100),
     };
   }
 }

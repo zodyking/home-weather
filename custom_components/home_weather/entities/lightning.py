@@ -11,7 +11,7 @@ from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from ..lightning_coordinator import LightningCoordinator
-from .base import hazard_device_info, primary_geofield
+from .base import hazard_device_info, has_sensor_data, primary_geofield
 
 
 def create_lightning_entities(
@@ -107,7 +107,7 @@ class LightningDistanceSensor(_LightningEntity):
     @property
     def native_value(self) -> float | None:
         data = self.coordinator.data or {}
-        if not data.get("in_geofield"):
+        if not has_sensor_data(data):
             return None
         return data.get("nearest_distance_miles")
 
@@ -124,7 +124,7 @@ class LightningLatitudeSensor(_LightningEntity):
     @property
     def native_value(self) -> float | None:
         data = self.coordinator.data or {}
-        if not data.get("in_geofield"):
+        if not has_sensor_data(data):
             return None
         return data.get("nearest_latitude")
 
@@ -141,7 +141,7 @@ class LightningLongitudeSensor(_LightningEntity):
     @property
     def native_value(self) -> float | None:
         data = self.coordinator.data or {}
-        if not data.get("in_geofield"):
+        if not has_sensor_data(data):
             return None
         return data.get("nearest_longitude")
 
@@ -158,7 +158,7 @@ class LightningLastStrikeTimeSensor(_LightningEntity):
     @property
     def native_value(self) -> datetime | None:
         data = self.coordinator.data or {}
-        if not data.get("in_geofield"):
+        if not has_sensor_data(data):
             return None
         value = data.get("last_strike_time")
         return value if isinstance(value, datetime) else None

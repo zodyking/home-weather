@@ -6,6 +6,9 @@ STORAGE_KEY: Final = "home_weather_config"
 WEBHOOK_LAST_TRIGGERED_KEY: Final = "home_weather_webhook_last_triggered"
 STORAGE_VERSION: Final = 3
 
+# External integration domain for seamless siren + TTS audio combining
+CHIME_TTS_DOMAIN: Final = "chime_tts"
+
 DEFAULT_CONFIG: Final = {
     "weather_entity": None,
     "tts": {
@@ -101,6 +104,20 @@ DEFAULT_CONFIG: Final = {
         "min_alert_level": "watch",
         "announce_cleared": False,
     },
+    "wildfire_alerts": {
+        "enabled": False,
+        "sound_file": "",
+        "sound_volume": 0.8,
+        "tts_volume": 0.9,
+        "announce_cleared": False,
+    },
+    "air_quality_alerts": {
+        "enabled": False,
+        "sound_file": "",
+        "sound_volume": 0.8,
+        "tts_volume": 0.9,
+        "announce_cleared": False,
+    },
     # Optional NWS forecast zone (e.g. NYZ072) for tornado alert filtering
     "nws_zone": "",
     "hurricane_monitoring": {
@@ -154,6 +171,9 @@ DEFAULT_CONFIG: Final = {
     },
     "wildfire_monitoring": {
         "enabled": True,
+        "zone_mode": "zone",
+        "alert_zone_mode": "zone",
+        "radius_miles": 100,
         "show_on_map": True,
         "show_perimeters": True,
         "min_acres": 100,
@@ -161,6 +181,9 @@ DEFAULT_CONFIG: Final = {
     },
     "air_quality_monitoring": {
         "enabled": True,
+        "zone_mode": "zone",
+        "alert_zone_mode": "zone",
+        "radius_miles": 50,
         "show_on_map": True,
         # Minimum EPA AQI category level (1=Good … 6=Hazardous) shown on map
         "min_category_level": 1,
@@ -182,6 +205,52 @@ DEFAULT_CONFIG: Final = {
         "announce_new_advisories": True,
         # Empty list = all countries; otherwise State Dept category codes or country names
         "watched_countries": [],
+    },
+    "space_monitoring": {
+        "enabled": True,
+        "show_planets": True,
+        "show_dwarf_planets": True,
+        "show_moons": True,
+        "show_spacecraft": True,
+        "show_asteroids": True,
+        "show_comets": True,
+        "max_small_bodies": 50,
+        "small_body_min_diameter_km": 0,
+        "log_scale_orbits": True,
+    },
+    "solar_weather_monitoring": {
+        "enabled": True,
+        "show_sunspot_regions": True,
+        "show_flare_events": True,
+    },
+    "spacecraft_alerts": {
+        "enabled": False,
+        "sound_file": "",
+        "sound_volume": 0.8,
+        "tts_volume": 0.9,
+        "min_elevation_deg": 10,
+        "craft_ids": ["-255544"],
+        "announce_pass_start": True,
+        "announce_pass_peak": False,
+    },
+    "solar_weather_alerts": {
+        "enabled": False,
+        "sound_file": "",
+        "sound_volume": 0.8,
+        "tts_volume": 0.9,
+        "min_k_index": 5,
+        "min_g_scale": 1,
+        "min_xray_class": "M",
+        "announce_flare_events": True,
+        "announce_geomagnetic_storm": True,
+    },
+    "neo_alerts": {
+        "enabled": False,
+        "sound_file": "",
+        "sound_volume": 0.8,
+        "tts_volume": 0.9,
+        "max_lunar_distances": 5,
+        "min_diameter_m": 100,
     },
     # Legacy keys kept for backward compatibility during transition
     "earthquakes": {

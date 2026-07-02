@@ -125,12 +125,29 @@
       this._onLayerToggle = callback;
     }
 
+    setOnOverlayToggle(callback) {
+      this._onOverlayToggle = callback;
+    }
+
     _syncBottomBarButtons() {
       const btns = this._root?.querySelectorAll(".hw-bottom-layer-btn");
       if (!btns) return;
       btns.forEach((btn) => {
         const key = btn.dataset.layer;
+        const type = btn.dataset.type;
         if (!key) return;
+        
+        if (type === "overlay") {
+          let active = false;
+          if (key === "wind_radii") {
+            active = this._showWindRadii;
+          } else if (key === "alert_zones") {
+            active = this._showZones;
+          }
+          btn.classList.toggle("is-active", active);
+          btn.setAttribute("aria-pressed", active ? "true" : "false");
+          return;
+        }
         const active = !!this._mapLayers[key];
         btn.classList.toggle("is-active", active);
         btn.setAttribute("aria-pressed", active ? "true" : "false");
@@ -647,7 +664,7 @@
             border-top: none;
             border-right: none;
             border-bottom: none;
-            border-left: 1px solid var(--hw-border-strong, rgba(255,255,255,0.12));
+            border-left: 1px solid var(--hw-border-strong, #333);
             box-shadow: none;
             z-index: 20;
           }
@@ -665,10 +682,10 @@
           }
         }
         .hurricane-status-details {
-          border: 1px solid var(--hw-border, rgba(255,255,255,0.08));
+          border: 1px solid var(--hw-border-strong, #333);
           border-radius: 10px;
           overflow: hidden;
-          background: var(--hw-hover, rgba(255,255,255,0.04));
+          background: var(--hw-elevated, #282828);
         }
         .hurricane-status-details + .hurricane-status-details {
           margin-top: 0;
@@ -682,7 +699,7 @@
           letter-spacing: 0.1em;
           text-transform: uppercase;
           color: var(--hw-muted, #b0bec5) !important;
-          background: var(--hw-hover, rgba(255,255,255,0.04));
+          background: var(--hw-elevated, #282828);
           display: flex;
           align-items: center;
           justify-content: space-between;
@@ -698,7 +715,7 @@
           letter-spacing: 0;
           text-transform: none;
           color: var(--hw-text, #eceff1);
-          background: var(--hw-border-strong, rgba(255,255,255,0.1));
+          background: var(--hw-border-strong, #333);
         }
         .hurricane-status-details summary .h-chevron {
           font-size: 12px;
@@ -711,7 +728,7 @@
           transform: rotate(90deg);
         }
         .hurricane-status-details[open] summary {
-          border-bottom: 1px solid rgba(255,255,255,0.06);
+          border-bottom: 1px solid var(--hw-border-strong, #333);
         }
         .hurricane-status-details-body {
           padding: 8px 12px 10px;
@@ -752,7 +769,7 @@
           flex-direction: column;
           gap: 8px;
           padding-top: 4px;
-          border-top: 1px solid rgba(255,255,255,0.08);
+          border-top: 1px solid var(--hw-border-strong, #333);
         }
         .hurricane-status-section:first-of-type {
           border-top: none;
@@ -805,17 +822,17 @@
           pointer-events: auto;
           --primary-text-color: var(--hw-text, #e1e1e1);
           --secondary-text-color: var(--hw-muted, #9b9b9b);
-          --card-background-color: #141820;
+          --card-background-color: var(--hw-surface, #1c1c1c);
           color: var(--hw-text, #e1e1e1);
-          background: #141820;
+          background: var(--hw-surface, #1c1c1c);
           border: none;
-          border-left: 1px solid rgba(255,255,255,0.12);
+          border-left: 1px solid var(--hw-border-strong, #333);
           border-radius: 0;
           padding: 16px;
           display: flex;
           flex-direction: column;
           gap: 0;
-          box-shadow: -8px 0 28px rgba(0, 0, 0, 0.4);
+          box-shadow: none;
         }
         .hurricane-status,
         .hurricane-status * {
@@ -840,7 +857,7 @@
           gap: 10px;
           padding-bottom: 12px;
           margin-bottom: 12px;
-          border-bottom: 1px solid var(--hw-border, rgba(255,255,255,0.08));
+          border-bottom: 1px solid var(--hw-border-strong, #333);
         }
         .hurricane-status-scroll {
           flex: 1;
@@ -861,11 +878,11 @@
           display: none;
         }
         .hurricane-status.is-threat-high {
-          border-color: rgba(244,67,54,0.55);
-          box-shadow: 0 0 0 1px rgba(244,67,54,0.25), 0 12px 40px rgba(0, 0, 0, 0.45);
+          border-color: #f44336;
+          box-shadow: none;
         }
         .hurricane-status.is-threat-watch {
-          border-color: rgba(255,152,0,0.45);
+          border-color: #ff9800;
         }
         .hurricane-status h3 {
           margin: 0;
@@ -936,12 +953,12 @@
           background: #111111;
         }
         .leaflet-control-zoom a {
-          background: var(--hw-surface, rgba(28, 28, 28, 0.92));
+          background: var(--hw-surface, #1c1c1c);
           color: var(--hw-text, #e1e1e1);
-          border-color: var(--hw-border-strong, rgba(255,255,255,0.12));
+          border-color: var(--hw-border-strong, #333);
         }
         .leaflet-control-zoom a:hover {
-          background: var(--hw-elevated, rgba(40, 40, 40, 0.96));
+          background: var(--hw-elevated, #282828);
           color: var(--hw-text, #fff);
         }
         /* Unified top-left map controls stack: toolbar row + legend */
@@ -960,8 +977,8 @@
           display: grid;
           grid-template-columns: repeat(4, 1fr);
           width: 100%;
-          background: var(--hw-surface, rgba(28, 28, 28, 0.92));
-          border: 1px solid var(--hw-border-strong, rgba(255,255,255,0.12));
+          background: var(--hw-surface, #1c1c1c);
+          border: 1px solid var(--hw-border-strong, #333);
           border-radius: 8px;
           overflow: visible;
           box-shadow: 0 4px 16px rgba(0,0,0,0.35);
@@ -974,7 +991,7 @@
           min-height: var(--hw-map-btn);
         }
         .hw-map-tool-cell + .hw-map-tool-cell {
-          border-left: 1px solid var(--hw-border-strong, rgba(255,255,255,0.12));
+          border-left: 1px solid var(--hw-border-strong, #333);
         }
         .hw-map-tool-btn {
           display: flex;
@@ -987,7 +1004,7 @@
           margin: 0;
           border: none;
           border-radius: 0;
-          background: var(--hw-surface, rgba(28, 28, 28, 0.92));
+          background: var(--hw-surface, #1c1c1c);
           color: var(--hw-text, #e1e1e1);
           font-size: 18px;
           font-weight: 600;
@@ -997,7 +1014,7 @@
           font-family: inherit;
         }
         .hw-map-tool-btn:hover {
-          background: var(--hw-elevated, rgba(40, 40, 40, 0.96));
+          background: var(--hw-elevated, #282828);
           color: var(--hw-text, #fff);
         }
         .hw-map-tool-btn:focus-visible {
@@ -1040,7 +1057,7 @@
           cursor: pointer;
         }
         .hw-basemap-option:hover {
-          background: var(--hw-hover, rgba(255,255,255,0.08));
+          background: var(--hw-hover, #222);
           color: var(--hw-text, #fff);
         }
         .hw-basemap-check {
@@ -1058,8 +1075,8 @@
           font-size: 10px;
           font-weight: 600;
           color: var(--hw-text, #cfd8dc);
-          background: var(--hw-surface, rgba(17, 20, 28, 0.92));
-          border: 1px solid var(--hw-border-strong, rgba(255,255,255,0.12));
+          background: var(--hw-surface, #1c1c1c);
+          border: 1px solid var(--hw-border-strong, #333);
           border-radius: 8px;
           white-space: nowrap;
           overflow: hidden;
@@ -1070,7 +1087,7 @@
           display: block;
         }
         .leaflet-bar {
-          border: 1px solid var(--hw-border-strong, rgba(255,255,255,0.12));
+          border: 1px solid var(--hw-border-strong, #333);
           box-shadow: 0 4px 16px rgba(0,0,0,0.35);
         }
         .leaflet-control-attribution {
@@ -1091,20 +1108,19 @@
           color: #90caf9 !important;
         }
         .hw-forecast-label {
-          background: rgba(17, 20, 28, 0.88);
+          background: #141820;
           color: #fff;
-          border: 1px solid rgba(255,255,255,0.12);
+          border: 1px solid #333;
           border-radius: 6px;
           padding: 3px 8px;
           font-size: 11px;
           font-weight: 600;
           box-shadow: 0 4px 12px rgba(0,0,0,0.35);
-          backdrop-filter: blur(8px);
         }
         .leaflet-tooltip.hw-name-label {
-          background: var(--hw-surface, rgba(17, 20, 28, 0.92));
+          background: var(--hw-surface, #1c1c1c);
           color: var(--hw-text, #ffffff);
-          border: 1px solid var(--hw-border-strong, rgba(255,255,255,0.16));
+          border: 1px solid var(--hw-border-strong, #333);
           border-radius: 7px;
           padding: 2px 9px;
           font-size: 11px;
@@ -1112,7 +1128,6 @@
           letter-spacing: 0.2px;
           white-space: nowrap;
           box-shadow: 0 4px 14px rgba(0,0,0,0.4);
-          backdrop-filter: blur(8px);
         }
         .leaflet-tooltip.hw-name-label::before { display: none; }
         .hw-storm-label { border-left: 3px solid var(--hw-accent, #03a9f4); }
@@ -1377,16 +1392,16 @@
           width: 32px;
           height: 32px;
           padding: 0;
-          border: 1px solid rgba(255,255,255,0.14);
+          border: 1px solid var(--hw-border-strong, #333);
           border-radius: 8px;
-          background: rgba(255,255,255,0.06);
+          background: var(--hw-elevated, #282828);
           color: #b0bec5;
           cursor: pointer;
           flex-shrink: 0;
           line-height: 1;
           font-size: 14px;
         }
-        .hurricane-status-toggle:hover { background: rgba(255,255,255,0.12); color: #eceff1; }
+        .hurricane-status-toggle:hover { background: var(--hw-hover, #222); color: #eceff1; }
         .hurricane-status h3.hurricane-status-head {
           display: flex;
           align-items: center;
@@ -1399,8 +1414,8 @@
           left: 0;
           right: min(320px, 100%);
           height: 48px;
-          background: #141820;
-          border-top: 1px solid rgba(255,255,255,0.1);
+          background: var(--hw-surface, #1c1c1c);
+          border-top: 1px solid var(--hw-border-strong, #333);
           display: flex;
           align-items: center;
           justify-content: space-between;
@@ -1433,11 +1448,11 @@
           padding: 0;
         }
         .hw-bottom-layer-btn:hover {
-          background: rgba(255,255,255,0.08);
+          background: var(--hw-hover, #222);
           opacity: 0.75;
         }
         .hw-bottom-layer-btn.is-active {
-          background: rgba(255,255,255,0.1);
+          background: var(--hw-elevated, #282828);
           opacity: 1;
         }
         .hw-bottom-layer-btn img,
@@ -1508,7 +1523,7 @@
             max-height: 100%;
             padding: 14px;
             border-radius: 0;
-            border-left: 1px solid var(--hw-border-strong, rgba(255,255,255,0.12));
+            border-left: 1px solid var(--hw-border-strong, #333);
             transition: width 0.2s ease, padding 0.2s ease;
           }
           .hurricane-status.is-collapsed {
@@ -1518,7 +1533,7 @@
             width: min(300px, 88%);
             overflow: hidden;
             padding-bottom: 14px;
-            border-bottom: 1px solid var(--hw-border-strong, rgba(255,255,255,0.12));
+            border-bottom: 1px solid var(--hw-border-strong, #333);
           }
           .hurricane-status.is-collapsed .hurricane-status-header {
             padding-bottom: 0;
@@ -2133,19 +2148,29 @@
 
     _buildBottomBarHtml() {
       const layers = [
-        { key: "hurricane", label: "Hurricanes", icon: "/local/home_weather/icons/hurricane.svg" },
-        { key: "tornado", label: "Tornadoes", icon: "/local/home_weather/icons/tornado.svg" },
-        { key: "earthquakes", label: "Earthquakes", icon: "/local/home_weather/icons/earthquake.svg" },
-        { key: "volcanoes", label: "Volcanoes", icon: "/local/home_weather/icons/volcano.svg" },
-        { key: "lightning", label: "Lightning", svg: `<svg viewBox="0 0 24 24" fill="#ffeb3b"><path d="M7 2v11h3v9l7-12h-4l4-8z"/></svg>` },
-        { key: "travel", label: "Travel Advisories", icon: "/local/home_weather/icons/globe.svg" },
-        { key: "wildfire", label: "Wildfires", icon: "/local/home_weather/icons/fire.svg" },
-        { key: "air_quality", label: "Air Quality", icon: "/local/home_weather/icons/air-quality.svg" },
+        { key: "hurricane", label: "Hurricanes", icon: "/local/home_weather/icons/hurricane.svg", type: "layer" },
+        { key: "tornado", label: "Tornadoes", icon: "/local/home_weather/icons/tornado.svg", type: "layer" },
+        { key: "earthquakes", label: "Earthquakes", icon: "/local/home_weather/icons/earthquake.svg", type: "layer" },
+        { key: "volcanoes", label: "Volcanoes", icon: "/local/home_weather/icons/volcano.svg", type: "layer" },
+        { key: "lightning", label: "Lightning", icon: "/local/home_weather/icons/lightning-bolt.svg", type: "layer" },
+        { key: "travel", label: "Travel Advisories", icon: "/local/home_weather/icons/globe.svg", type: "layer" },
+        { key: "wildfire", label: "Wildfires", icon: "/local/home_weather/icons/fire.svg", type: "layer" },
+        { key: "air_quality", label: "Air Quality", icon: "/local/home_weather/icons/air-quality.svg", type: "layer" },
+        { key: "wind_radii", label: "Wind Radii", icon: "/local/home_weather/icons/wind-radii.svg", type: "overlay" },
+        { key: "alert_zones", label: "Alert Zones", icon: "/local/home_weather/icons/alert-zones.svg", type: "overlay" },
       ];
       const btns = layers.map((l) => {
-        const active = this._mapLayers[l.key] ? "is-active" : "";
-        const iconHtml = l.svg ? l.svg : `<img src="${l.icon}" alt="" draggable="false"/>`;
-        return `<button type="button" class="hw-bottom-layer-btn ${active}" data-layer="${l.key}" title="${l.label}" aria-label="${l.label}" aria-pressed="${this._mapLayers[l.key] ? "true" : "false"}">${iconHtml}</button>`;
+        let active = "";
+        if (l.type === "layer") {
+          active = this._mapLayers[l.key] ? "is-active" : "";
+        } else if (l.key === "wind_radii") {
+          active = this._showWindRadii ? "is-active" : "";
+        } else if (l.key === "alert_zones") {
+          active = this._showZones ? "is-active" : "";
+        }
+        const pressed = active ? "true" : "false";
+        const iconHtml = `<img src="${l.icon}" alt="" draggable="false"/>`;
+        return `<button type="button" class="hw-bottom-layer-btn ${active}" data-layer="${l.key}" data-type="${l.type}" title="${l.label}" aria-label="${l.label}" aria-pressed="${pressed}">${iconHtml}</button>`;
       }).join("");
       return `
         <div class="hw-bottom-bar">
@@ -2165,12 +2190,28 @@
         const btn = e.target.closest(".hw-bottom-layer-btn");
         if (!btn) return;
         const key = btn.dataset.layer;
+        const type = btn.dataset.type;
         if (!key) return;
-        this._mapLayers[key] = !this._mapLayers[key];
-        btn.classList.toggle("is-active", this._mapLayers[key]);
-        btn.setAttribute("aria-pressed", this._mapLayers[key] ? "true" : "false");
+        
+        if (type === "overlay") {
+          if (key === "wind_radii") {
+            this._showWindRadii = !this._showWindRadii;
+            btn.classList.toggle("is-active", this._showWindRadii);
+            btn.setAttribute("aria-pressed", this._showWindRadii ? "true" : "false");
+            if (this._onOverlayToggle) this._onOverlayToggle("wind_radii", this._showWindRadii);
+          } else if (key === "alert_zones") {
+            this._showZones = !this._showZones;
+            btn.classList.toggle("is-active", this._showZones);
+            btn.setAttribute("aria-pressed", this._showZones ? "true" : "false");
+            if (this._onOverlayToggle) this._onOverlayToggle("alert_zones", this._showZones);
+          }
+        } else {
+          this._mapLayers[key] = !this._mapLayers[key];
+          btn.classList.toggle("is-active", this._mapLayers[key]);
+          btn.setAttribute("aria-pressed", this._mapLayers[key] ? "true" : "false");
+          if (this._onLayerToggle) this._onLayerToggle(key, this._mapLayers[key]);
+        }
         this._renderMap();
-        if (this._onLayerToggle) this._onLayerToggle(key, this._mapLayers[key]);
       });
     }
 

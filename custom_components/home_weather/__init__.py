@@ -32,6 +32,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     from .travel_coordinator import TravelCoordinator
     from .wildfire_coordinator import WildfireCoordinator
     from .air_quality_coordinator import AirQualityCoordinator
+    from .space_coordinator import SpaceCoordinator
 
     storage = HomeWeatherStorage(hass)
     await storage.async_load()
@@ -63,6 +64,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     air_quality_coordinator = AirQualityCoordinator(hass, storage)
     await air_quality_coordinator.async_config_entry_first_refresh()
 
+    space_coordinator = SpaceCoordinator(hass, storage)
+    await space_coordinator.async_config_entry_first_refresh()
+
     # Set up TTS trigger manager
     def get_config():
         return storage._data or {}
@@ -92,6 +96,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "travel_coordinator": travel_coordinator,
         "wildfire_coordinator": wildfire_coordinator,
         "air_quality_coordinator": air_quality_coordinator,
+        "space_coordinator": space_coordinator,
         "trigger_manager": trigger_manager,
     }
 

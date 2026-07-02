@@ -10,6 +10,7 @@ from custom_components.home_weather.lightning_data import (
     build_lightning_payload,
     decode_blitzortung_message,
     parse_strike,
+    strike_in_geofield,
     strike_in_monitoring_zone,
 )
 
@@ -69,6 +70,15 @@ def test_build_lightning_payload_filters_by_geofield(monkeypatch):
 def test_build_lightning_payload_accepts_hourly_override():
     payload = build_lightning_payload([], HOME, strikes_last_hour=842)
     assert payload["strikes_last_hour"] == 842
+
+
+def test_strike_in_geofield_respects_radius():
+    near = {"lat": 35.15, "lon": -96.05}
+    far = {"lat": 40.0, "lon": -100.0}
+    config = {"lightning": {"geofield_radius_miles": 50, "zone_mode": "all"}}
+    assert strike_in_geofield(near, HOME, config) is True
+    assert strike_in_geofield(far, HOME, config) is False
+    assert strike_in_monitoring_zone(far, HOME, config) is True
 
 
 def test_strike_in_monitoring_zone_respects_radius():

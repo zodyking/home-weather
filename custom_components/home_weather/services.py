@@ -108,6 +108,7 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
                     "travel_coordinator",
                     "wildfire_coordinator",
                     "air_quality_coordinator",
+                    "space_coordinator",
                 ):
                     hazard = entry_data.get(key)
                     if hazard:
@@ -497,6 +498,22 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
         {"type": "home_weather/test_volcano_alert"}
     )(_make_alert_test_handler("fire_test_volcano_alert", "volcano_test_failed", require_weather=False))
 
+    handle_test_wildfire_siren = websocket_api.websocket_command(
+        {"type": "home_weather/test_wildfire_siren"}
+    )(_make_alert_test_handler("fire_test_wildfire_siren", "wildfire_siren_test_failed", require_weather=False))
+
+    handle_test_air_quality_siren = websocket_api.websocket_command(
+        {"type": "home_weather/test_air_quality_siren"}
+    )(_make_alert_test_handler("fire_test_air_quality_siren", "air_quality_siren_test_failed", require_weather=False))
+
+    handle_test_wildfire_alert = websocket_api.websocket_command(
+        {"type": "home_weather/test_wildfire_alert"}
+    )(_make_alert_test_handler("fire_test_wildfire_alert", "wildfire_test_failed", require_weather=False))
+
+    handle_test_air_quality_alert = websocket_api.websocket_command(
+        {"type": "home_weather/test_air_quality_alert"}
+    )(_make_alert_test_handler("fire_test_air_quality_alert", "air_quality_test_failed", require_weather=False))
+
     handle_test_travel_alert = websocket_api.websocket_command(
         {"type": "home_weather/test_travel_alert"}
     )(_make_alert_test_handler("fire_test_travel_alert", "travel_test_failed", require_weather=False))
@@ -504,6 +521,30 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
     handle_test_travel_siren = websocket_api.websocket_command(
         {"type": "home_weather/test_travel_siren"}
     )(_make_alert_test_handler("fire_test_travel_siren", "travel_siren_test_failed", require_weather=False))
+
+    handle_test_spacecraft_alert = websocket_api.websocket_command(
+        {"type": "home_weather/test_spacecraft_alert"}
+    )(_make_alert_test_handler("fire_test_spacecraft_alert", "spacecraft_test_failed", require_weather=False))
+
+    handle_test_spacecraft_siren = websocket_api.websocket_command(
+        {"type": "home_weather/test_spacecraft_siren"}
+    )(_make_alert_test_handler("fire_test_spacecraft_siren", "spacecraft_siren_test_failed", require_weather=False))
+
+    handle_test_solar_weather_alert = websocket_api.websocket_command(
+        {"type": "home_weather/test_solar_weather_alert"}
+    )(_make_alert_test_handler("fire_test_solar_weather_alert", "solar_weather_test_failed", require_weather=False))
+
+    handle_test_solar_weather_siren = websocket_api.websocket_command(
+        {"type": "home_weather/test_solar_weather_siren"}
+    )(_make_alert_test_handler("fire_test_solar_weather_siren", "solar_weather_siren_test_failed", require_weather=False))
+
+    handle_test_neo_alert = websocket_api.websocket_command(
+        {"type": "home_weather/test_neo_alert"}
+    )(_make_alert_test_handler("fire_test_neo_alert", "neo_test_failed", require_weather=False))
+
+    handle_test_neo_siren = websocket_api.websocket_command(
+        {"type": "home_weather/test_neo_siren"}
+    )(_make_alert_test_handler("fire_test_neo_siren", "neo_siren_test_failed", require_weather=False))
 
     @websocket_api.websocket_command(
         {
@@ -844,6 +885,98 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
         payload = coordinator.data or {}
         connection.send_result(msg["id"], payload)
 
+    @websocket_api.websocket_command(
+        {
+            vol.Required("type"): "home_weather/get_space_map",
+        }
+    )
+    @websocket_api.async_response
+    async def handle_get_space_map(
+        hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+    ) -> None:
+        """Return solar system map data from the space coordinator."""
+        entry_data = _get_entry_data(hass)
+        if not entry_data or not entry_data.get("space_coordinator"):
+            connection.send_result(
+                msg["id"],
+                {
+                    "bodies": [],
+                    "small_bodies": [],
+                    "catalog_counts": {
+                        "total": 0,
+                        "planets": 0,
+                        "moons": 0,
+                        "spacecraft": 0,
+                        "asteroids": 0,
+                        "comets": 0,
+                    },
+                    "updated": None,
+                },
+            )
+            return
+
+        coordinator = entry_data["space_coordinator"]
+        data = coordinator.data or {}
+        connection.send_result(
+            msg["id"],
+            {
+                "bodies": data.get("bodies") or [],
+                "small_bodies": data.get("small_bodies") or [],
+                "catalog_counts": data.get("catalog_counts") or {},
+                "primary_close_approach": data.get("primary_close_approach"),
+                "overhead_passes": data.get("overhead_passes") or [],
+                "spacecraft_catalog": data.get("spacecraft_catalog") or [],
+                "updated": data.get("updated"),
+            },
+        )
+
+    @websocket_api.websocket_command(
+        {
+            vol.Required("type"): "home_weather/get_solar_weather",
+        }
+    )
+    @websocket_api.async_response
+    async def handle_get_solar_weather(
+        hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+    ) -> None:
+        """Return NOAA SWPC solar weather data from the space coordinator."""
+        entry_data = _get_entry_data(hass)
+        if not entry_data or not entry_data.get("space_coordinator"):
+            connection.send_result(msg["id"], {"solar_weather": {}})
+            return
+
+        coordinator = entry_data["space_coordinator"]
+        data = coordinator.data or {}
+        connection.send_result(
+            msg["id"],
+            {
+                "solar_weather": data.get("solar_weather") or {},
+                "updated": data.get("updated"),
+            },
+        )
+
+    @websocket_api.websocket_command(
+        {
+            vol.Required("type"): "home_weather/get_spacecraft_catalog",
+        }
+    )
+    @websocket_api.async_response
+    async def handle_get_spacecraft_catalog(
+        hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+    ) -> None:
+        """Return Horizons spacecraft catalog for settings UI."""
+        entry_data = _get_entry_data(hass)
+        if not entry_data or not entry_data.get("space_coordinator"):
+            connection.send_result(msg["id"], {"catalog": []})
+            return
+
+        coordinator = entry_data["space_coordinator"]
+        data = coordinator.data or {}
+        connection.send_result(
+            msg["id"],
+            {"catalog": data.get("spacecraft_catalog") or []},
+        )
+
     websocket_api.async_register_command(hass, handle_get_config)
     websocket_api.async_register_command(hass, handle_set_config)
     websocket_api.async_register_command(hass, handle_get_weather)
@@ -866,6 +999,10 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, handle_test_tornado_alert)
     websocket_api.async_register_command(hass, handle_test_earthquake_alert)
     websocket_api.async_register_command(hass, handle_test_volcano_alert)
+    websocket_api.async_register_command(hass, handle_test_wildfire_siren)
+    websocket_api.async_register_command(hass, handle_test_air_quality_siren)
+    websocket_api.async_register_command(hass, handle_test_wildfire_alert)
+    websocket_api.async_register_command(hass, handle_test_air_quality_alert)
     websocket_api.async_register_command(hass, handle_get_automations)
     websocket_api.async_register_command(hass, handle_get_webhook_info)
     websocket_api.async_register_command(hass, handle_get_version)
@@ -880,4 +1017,13 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, handle_get_air_quality)
     websocket_api.async_register_command(hass, handle_test_travel_alert)
     websocket_api.async_register_command(hass, handle_test_travel_siren)
+    websocket_api.async_register_command(hass, handle_test_spacecraft_alert)
+    websocket_api.async_register_command(hass, handle_test_spacecraft_siren)
+    websocket_api.async_register_command(hass, handle_test_solar_weather_alert)
+    websocket_api.async_register_command(hass, handle_test_solar_weather_siren)
+    websocket_api.async_register_command(hass, handle_test_neo_alert)
+    websocket_api.async_register_command(hass, handle_test_neo_siren)
+    websocket_api.async_register_command(hass, handle_get_space_map)
+    websocket_api.async_register_command(hass, handle_get_solar_weather)
+    websocket_api.async_register_command(hass, handle_get_spacecraft_catalog)
 

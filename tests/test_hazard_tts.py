@@ -10,9 +10,13 @@ from custom_components.home_weather.tts_notifications import (
     format_tornado_warning_for_tts,
     format_tropical_alert_for_tts,
     format_volcano_alert_for_tts,
+    format_wildfire_alert_for_tts,
+    format_air_quality_alert_for_tts,
     passes_earthquake_tts_filter,
     passes_tornado_tts_filter,
     passes_volcano_tts_filter,
+    passes_wildfire_tts_filter,
+    passes_air_quality_tts_filter,
 )
 
 
@@ -223,3 +227,52 @@ def test_format_volcano_cleared_message():
     msg = format_volcano_alert_for_tts({"name": "Mount Test"}, cleared=True)
     assert "Mount Test" in msg
     assert "cleared" in msg.lower()
+
+
+def test_wildfire_tts_filter_respects_zone_and_acres():
+    cfg = {"announce_cleared": False}
+    mon = {"radius_miles": 100, "min_acres": 500, "alert_zone_mode": "zone"}
+    assert passes_wildfire_tts_filter(
+        {"distance_miles": 50, "acres": 1500}, cfg, "home_weather_wildfire_detected", mon
+    )
+    assert not passes_wildfire_tts_filter(
+        {"distance_miles": 150, "acres": 1500}, cfg, "home_weather_wildfire_detected", mon
+    )
+
+
+def test_format_wildfire_alert_message():
+    msg = format_wildfire_alert_for_tts({
+        "name": "Ridge Fire",
+        "location": "Placer County, CA",
+        "distance_miles": 42,
+        "acres": 2500,
+        "percent_contained": 15,
+    })
+    assert "Ridge Fire" in msg
+    assert "2500" in msg
+
+
+def test_air_quality_tts_filter_respects_zone_and_category():
+    cfg = {"announce_cleared": False}
+    mon = {"radius_miles": 50, "min_category_level": 3, "alert_zone_mode": "zone"}
+    assert passes_air_quality_tts_filter(
+        {"distance_miles": 10, "category_level": 4}, cfg,
+        "home_weather_air_quality_unhealthy", mon,
+    )
+    assert not passes_air_quality_tts_filter(
+        {"distance_miles": 10, "category_level": 2}, cfg,
+        "home_weather_air_quality_unhealthy", mon,
+    )
+
+
+def test_format_air_quality_alert_message():
+    msg = format_air_quality_alert_for_tts({
+        "name": "Sample City",
+        "state": "NY",
+        "aqi": 156,
+        "category": "Unhealthy",
+        "distance_miles": 8,
+    })
+    assert "Sample City" in msg
+    assert "Unhealthy" in msg
+    assert "156" in msg
