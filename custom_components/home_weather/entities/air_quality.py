@@ -10,7 +10,7 @@ from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from ..air_quality_coordinator import AirQualityCoordinator
-from .base import hazard_device_info, primary_geofield
+from .base import detail_sensor_record, hazard_device_info, primary_geofield
 
 
 def create_air_quality_entities(
@@ -37,7 +37,10 @@ class _AirQualityEntity(CoordinatorEntity, SensorEntity):
         self._attr_device_info = hazard_device_info(entry, "air_quality")
 
     def _primary(self) -> dict[str, Any] | None:
-        return primary_geofield(self.coordinator.data)
+        return detail_sensor_record(
+            self.coordinator.data,
+            fallback_keys=("nearest_unhealthy", "worst_area"),
+        )
 
 
 class _AirQualityBinaryEntity(CoordinatorEntity, BinarySensorEntity):

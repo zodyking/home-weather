@@ -10,6 +10,7 @@ from custom_components.home_weather.hurricane_data import (
     build_hurricane_sensor_payload,
     pick_nearest_storm,
 )
+from custom_components.home_weather.entities.base import detail_sensor_record
 from custom_components.home_weather.sensor_scope import pick_nearest_by_distance
 from custom_components.home_weather.tornado_data import build_coordinator_payload as build_tornado_payload
 
@@ -116,3 +117,22 @@ def test_hurricane_bypass_picks_nearest_track_when_center_missing():
     assert payload["primary_geofield"]["id"] == "near"
     assert payload["sensor_summary"]["closest_storm_name"] == "Near Storm"
     assert payload["sensor_summary"]["distance_miles"] == 120.0
+
+
+def test_detail_sensor_record_falls_back_outside_geofield():
+    data = {
+        "primary_geofield": None,
+        "nearest_unhealthy": {"name": "Distant City", "aqi": 160},
+        "worst_area": {"name": "Worst City", "aqi": 200},
+    }
+    record = detail_sensor_record(
+        data,
+        fallback_keys=("nearest_unhealthy", "worst_area"),
+    )
+    assert record["name"] == "Distant City"
+
+    wildfire = detail_sensor_record(
+        {"primary_geofield": None, "nearest_incident": {"name": "Far Fire"}},
+        fallback_keys=("nearest_incident",),
+    )
+    assert wildfire["name"] == "Far Fire"

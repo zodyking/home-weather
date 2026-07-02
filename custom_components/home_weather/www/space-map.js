@@ -13,14 +13,16 @@
   };
 
   const BODY_SIZES = {
-    sun: 1.2,
-    planet: 0.35,
-    dwarf_planet: 0.28,
-    moon: 0.12,
-    spacecraft: 0.1,
-    asteroid: 0.08,
-    comet: 0.1,
+    sun: 1.6,
+    planet: 0.42,
+    dwarf_planet: 0.32,
+    moon: 0.1,
+    spacecraft: 0.12,
+    asteroid: 0.07,
+    comet: 0.09,
   };
+
+  const LABEL_TYPES = new Set(["sun", "planet", "dwarf_planet", "spacecraft"]);
 
   class SpaceMap {
     constructor(options = {}) {
@@ -92,6 +94,7 @@
         this._lastUpdated = mapPayload?.updated || solarPayload?.updated || null;
         if (this._mode === "solar_system") {
           this._rebuildBodies();
+          this._updateEmptyState();
         } else {
           this._renderSunWeather();
         }
@@ -170,10 +173,10 @@
 
       try {
       this._scene = new THREE.Scene();
-      this._scene.background = new THREE.Color(0x020617);
+      this._scene.background = new THREE.Color(0x000000);
 
       this._camera = new THREE.PerspectiveCamera(55, width / height, 0.01, 500);
-      this._camera.position.set(0, 8, 14);
+      this._camera.position.set(0, 10, 18);
       this._camera.lookAt(0, 0, 0);
       this._raycaster = new THREE.Raycaster();
       this._pointer = new THREE.Vector2();
@@ -183,20 +186,17 @@
       this._renderer.setSize(width, height);
       wrap.appendChild(this._renderer.domElement);
 
-      const ambient = new THREE.AmbientLight(0x334155, 0.8);
+      const ambient = new THREE.AmbientLight(0x445566, 0.55);
       this._scene.add(ambient);
-      const sunLight = new THREE.PointLight(0xffdd88, 2.5, 200);
+      const sunLight = new THREE.PointLight(0xffdd88, 3.2, 200);
       sunLight.position.set(0, 0, 0);
       this._scene.add(sunLight);
-
-      const grid = new THREE.GridHelper(30, 30, 0x1e293b, 0x0f172a);
-      grid.position.y = -0.01;
-      this._scene.add(grid);
 
       this._renderer.domElement.addEventListener("pointermove", this._onPointerMove);
       this._renderer.domElement.addEventListener("click", this._onClick);
 
       this._rebuildBodies();
+      this._updateEmptyState();
       this._animate();
       } catch (err) {
         console.warn("[space-map] WebGL init failed", err);
@@ -236,9 +236,62 @@
       return true;
     }
 
+    _createLabel(text) {
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+      canvas.width = 256;
+      canvas.height = 64;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.font = "600 22px system-ui, sans-serif";
+      ctx.fillStyle = "#e2e8f0";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(String(text).slice(0, 18), 128, 32);
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.needsUpdate = true;
+      const material = new THREE.SpriteMaterial({
+        map: texture,
+        transparent: true,
+        depthTest: false,
+      });
+      const sprite = new THREE.Sprite(material);
+      sprite.scale.set(2.6, 0.65, 1);
+      return sprite;
+    }
+
+    _updateEmptyState() {
+      const wrap = this._root?.querySelector("#space-canvas-wrap");
+      if (!wrap) return;
+      let banner = wrap.querySelector(".space-empty-banner");
+      const bodies = (this._mapData && this._mapData.bodies) || [];
+      const small = (this._mapData && this._mapData.small_bodies) || [];
+      const visibleCount = bodies.length + small.filter(
+        (b) => b.position_available !== false && b.x_au != null,
+      ).length;
+      if (visibleCount > 0) {
+        banner?.remove();
+        return;
+      }
+      if (!banner) {
+        banner = document.createElement("div");
+        banner.className = "space-empty-banner";
+        wrap.appendChild(banner);
+      }
+      banner.textContent = this._mapData?.updated
+        ? "No space objects loaded yet. Try Refresh from the Actions menu."
+        : "Loading solar system data…";
+    }
+
     _rebuildBodies() {
       if (!this._scene) return;
-      this._bodyMeshes.forEach((mesh) => this._scene.remove(mesh));
+      this._bodyMeshes.forEach((mesh) => {
+        if (mesh.material) {
+          if (mesh.material.map) mesh.material.map.dispose();
+          mesh.material.dispose();
+        }
+        if (mesh.geometry) mesh.geometry.dispose();
+        this._scene.remove(mesh);
+      });
       this._bodyMeshes = [];
       const bodies = (this._mapData && this._mapData.bodies) || [];
       const small = (this._mapData && this._mapData.small_bodies) || [];
@@ -249,18 +302,18 @@
       all.forEach((body) => {
         const type = body.type || "planet";
         if (!this._layerVisible(type)) return;
-        const x = this._scaleDistance(body.x_au);
-        const y = (Number(body.z_au) || 0) * (this._logScale ? 0.4 : 2);
-        const z = this._scaleDistance(body.y_au);
+        const x = type === "sun" ? 0 : this._scaleDistance(body.x_au);
+        const y = type === "sun" ? 0 : (Number(body.z_au) || 0) * (this._logScale ? 0.4 : 2);
+        const z = type === "sun" ? 0 : this._scaleDistance(body.y_au);
         const size = BODY_SIZES[type] || 0.15;
         const color = BODY_COLORS[type] || 0xffffff;
-        const geo = new THREE.SphereGeometry(size, 16, 16);
+        const geo = new THREE.SphereGeometry(size, 20, 20);
         const mat = new THREE.MeshStandardMaterial({
           color,
-          emissive: type === "sun" ? 0xffaa00 : 0x000000,
-          emissiveIntensity: type === "sun" ? 1.2 : 0,
-          metalness: 0.1,
-          roughness: 0.65,
+          emissive: type === "sun" ? 0xffaa00 : 0x111111,
+          emissiveIntensity: type === "sun" ? 1.4 : 0.08,
+          metalness: type === "sun" ? 0 : 0.15,
+          roughness: type === "sun" ? 0.35 : 0.7,
         });
         const mesh = new THREE.Mesh(geo, mat);
         mesh.position.set(x, y, z);
@@ -268,13 +321,33 @@
         this._scene.add(mesh);
         this._bodyMeshes.push(mesh);
 
-        if (type === "planet" || type === "dwarf_planet") {
-          const orbit = new THREE.RingGeometry(x * 0.98, x * 1.02, 64);
+        if (type === "sun") {
+          const glowGeo = new THREE.SphereGeometry(size * 1.45, 20, 20);
+          const glowMat = new THREE.MeshBasicMaterial({
+            color: 0xffcc66,
+            transparent: true,
+            opacity: 0.14,
+          });
+          const glow = new THREE.Mesh(glowGeo, glowMat);
+          glow.position.set(0, 0, 0);
+          this._scene.add(glow);
+          this._bodyMeshes.push(glow);
+        }
+
+        if (body.name && LABEL_TYPES.has(type)) {
+          const label = this._createLabel(body.name);
+          label.position.set(x, y + size + 0.28, z);
+          this._scene.add(label);
+          this._bodyMeshes.push(label);
+        }
+
+        if ((type === "planet" || type === "dwarf_planet") && x > 0.05) {
+          const orbit = new THREE.RingGeometry(x * 0.985, x * 1.015, 96);
           const orbitMat = new THREE.MeshBasicMaterial({
             color: 0x334155,
             side: THREE.DoubleSide,
             transparent: true,
-            opacity: 0.25,
+            opacity: 0.14,
           });
           const orbitMesh = new THREE.Mesh(orbit, orbitMat);
           orbitMesh.rotation.x = Math.PI / 2;
@@ -282,6 +355,7 @@
           this._bodyMeshes.push(orbitMesh);
         }
       });
+      this._updateEmptyState();
     }
 
     _animate() {
@@ -306,7 +380,7 @@
 
     _resetCamera() {
       if (!this._camera) return;
-      this._camera.position.set(0, 8, 14);
+      this._camera.position.set(0, 10, 18);
       this._camera.lookAt(0, 0, 0);
     }
 

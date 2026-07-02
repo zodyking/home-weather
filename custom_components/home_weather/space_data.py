@@ -62,6 +62,25 @@ _VECTOR_RE = re.compile(
     re.MULTILINE,
 )
 
+_LABELED_VECTOR_RE = re.compile(
+    r"X\s*=\s*([+-]?\d+(?:\.\d+)?E[+-]?\d+)\s+"
+    r"Y\s*=\s*([+-]?\d+(?:\.\d+)?E[+-]?\d+)\s+"
+    r"Z\s*=\s*([+-]?\d+(?:\.\d+)?E[+-]?\d+)",
+    re.IGNORECASE,
+)
+
+_LABELED_VELOCITY_RE = re.compile(
+    r"VX\s*=\s*([+-]?\d+(?:\.\d+)?E[+-]?\d+)\s+"
+    r"VY\s*=\s*([+-]?\d+(?:\.\d+)?E[+-]?\d+)\s+"
+    r"VZ\s*=\s*([+-]?\d+(?:\.\d+)?E[+-]?\d+)",
+    re.IGNORECASE,
+)
+
+_HORIZONS_MONTHS = (
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+)
+
 _OBS_ALT_RE = re.compile(
     r"^\s*(\d{4}-[A-Za-z]{3}-\d{2}\s+\d{2}:\d{2})\s+.*?(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s*$",
     re.MULTILINE,
@@ -188,20 +207,40 @@ def _to_float(value: Any) -> float | None:
         return None
 
 
+def _horizons_time(value: datetime) -> str:
+    """Format UTC datetime for Horizons API (English month abbreviations)."""
+    return (
+        f"{value.year}-{_HORIZONS_MONTHS[value.month - 1]}-"
+        f"{value.day:02d} {value.hour:02d}:{value.minute:02d}"
+    )
+
+
 def _parse_horizons_vectors(text: str) -> dict[str, float] | None:
     """Parse heliocentric vector line from Horizons text output."""
     if "$$SOE" not in text or "$$EOE" not in text:
         return None
     block = text.split("$$SOE", 1)[1].split("$$EOE", 1)[0]
     match = _VECTOR_RE.search(block)
-    if not match:
-        return None
-    x = _to_float(match.group(2))
-    y = _to_float(match.group(3))
-    z = _to_float(match.group(4))
-    vx = _to_float(match.group(5))
-    vy = _to_float(match.group(6))
-    vz = _to_float(match.group(7))
+    if match:
+        x = _to_float(match.group(2))
+        y = _to_float(match.group(3))
+        z = _to_float(match.group(4))
+        vx = _to_float(match.group(5))
+        vy = _to_float(match.group(6))
+        vz = _to_float(match.group(7))
+    else:
+        xyz = _LABELED_VECTOR_RE.search(block)
+        if not xyz:
+            return None
+        x = _to_float(xyz.group(1))
+        y = _to_float(xyz.group(2))
+        z = _to_float(xyz.group(3))
+        vx = vy = vz = None
+        velocity = _LABELED_VELOCITY_RE.search(block)
+        if velocity:
+            vx = _to_float(velocity.group(1))
+            vy = _to_float(velocity.group(2))
+            vz = _to_float(velocity.group(3))
     if x is None or y is None or z is None:
         return None
     dist = math.sqrt(x * x + y * y + z * z)
@@ -247,6 +286,28 @@ def _xray_class_rank(class_char: str) -> int:
     return order.get((class_char or "A").upper()[:1], 0)
 
 
+def _first_float(record: dict[str, Any], *keys: str) -> float | None:
+    """Return the first parseable float for any key (0 is a valid value)."""
+    for key in keys:
+        val = _to_float(record.get(key))
+        if val is not None:
+            return val
+    return None
+
+
+def _parse_xray_class(value: Any) -> str | None:
+    """Extract GOES X-ray class letter from values like M2.8 or C4.3."""
+    if value is None:
+        return None
+    text = str(value).strip().upper()
+    if not text:
+        return None
+    letter = text[0]
+    if letter in "AXBMC":
+        return letter
+    return None
+
+
 def _k_index_to_g_scale(k: float) -> int:
     if k >= 9:
         return 5
@@ -279,6 +340,8 @@ async def _fetch_horizons_vector(
     semaphore: asyncio.Semaphore,
 ) -> dict[str, float] | None:
     async with semaphore:
+        start = dt_util.utcnow()
+        stop = start + timedelta(minutes=1)
         params = {
             "format": "text",
             "COMMAND": f"'{body_id}'",
@@ -286,8 +349,8 @@ async def _fetch_horizons_vector(
             "MAKE_EPHEM": "YES",
             "EPHEM_TYPE": "VECTORS",
             "CENTER": "'@sun'",
-            "START_TIME": "'now'",
-            "STOP_TIME": "'now'",
+            "START_TIME": f"'{_horizons_time(start)}'",
+            "STOP_TIME": f"'{_horizons_time(stop)}'",
             "STEP_SIZE": "'1 m'",
             "REF_PLANE": "ECLIPTIC",
             "REF_SYSTEM": "J2000",
@@ -446,11 +509,12 @@ async def _fetch_small_body_candidates(session: Any, max_count: int) -> list[dic
 async def _fetch_swpc_solar_weather(session: Any) -> dict[str, Any]:
     """Fetch NOAA SWPC JSON bundle for solar weather view and sensors."""
     endpoints = {
-        "sunspot_report": f"{SWPC_JSON_BASE}/sunspot_report.json",
+        "observed_indices": f"{SWPC_JSON_BASE}/solar-cycle/observed-solar-cycle-indices.json",
         "solar_regions": f"{SWPC_JSON_BASE}/solar_regions.json",
         "planetary_k_index": f"{SWPC_JSON_BASE}/planetary_k_index_1m.json",
         "solar_probabilities": f"{SWPC_JSON_BASE}/solar_probabilities.json",
         "f107_cm_flux": f"{SWPC_JSON_BASE}/f107_cm_flux.json",
+        "xray_latest": f"{SWPC_JSON_BASE}/goes/primary/xray-flares-latest.json",
         "edited_events": f"{SWPC_JSON_BASE}/edited_events.json",
     }
     result: dict[str, Any] = {
@@ -465,8 +529,8 @@ async def _fetch_swpc_solar_weather(session: Any) -> dict[str, Any]:
         "events": [],
         "probabilities": {},
         "images": {
-            "goes_xray": "https://services.swpc.noaa.gov/images/goes-xray-flux-primary.png",
-            "sdo_hmi": "https://services.swpc.noaa.gov/images/sdo-hmii512.jpg",
+            "goes_xray": "https://services.swpc.noaa.gov/images/geospace/geospace_3_day.png",
+            "sdo_hmi": "https://services.swpc.noaa.gov/images/animations/sdo-hmii/latest.jpg",
         },
         "attribution": "NOAA Space Weather Prediction Center",
     }
@@ -480,19 +544,24 @@ async def _fetch_swpc_solar_weather(session: Any) -> dict[str, Any]:
 
     loaded = dict(await asyncio.gather(*[_load(n, u) for n, u in endpoints.items()]))
 
-    sunspots = loaded.get("sunspot_report")
-    if isinstance(sunspots, list) and sunspots:
-        latest = sunspots[-1]
+    observed = loaded.get("observed_indices")
+    if isinstance(observed, list) and observed:
+        latest = observed[-1]
         if isinstance(latest, dict):
-            result["sunspot_number"] = _to_float(
-                latest.get("ssn") or latest.get("sunspot_number") or latest.get("SmoothedSSN")
+            result["sunspot_number"] = _first_float(
+                latest,
+                "ssn",
+                "observed_swpc_ssn",
+                "smoothed_ssn",
+                "sunspot_number",
+                "SmoothedSSN",
             )
 
     k_data = loaded.get("planetary_k_index")
     if isinstance(k_data, list) and k_data:
         latest = k_data[-1]
         if isinstance(latest, dict):
-            k_val = _to_float(latest.get("kp_index") or latest.get("k_index"))
+            k_val = _first_float(latest, "kp_index", "k_index", "estimated_kp")
             result["k_index"] = k_val
             if k_val is not None:
                 result["g_scale"] = _k_index_to_g_scale(k_val)
@@ -509,21 +578,32 @@ async def _fetch_swpc_solar_weather(session: Any) -> dict[str, Any]:
     if isinstance(regions, list):
         result["regions"] = regions[-20:]
 
+    xray_latest = loaded.get("xray_latest")
+    if isinstance(xray_latest, list) and xray_latest:
+        latest = xray_latest[-1]
+        if isinstance(latest, dict):
+            current_class = _parse_xray_class(latest.get("current_class"))
+            max_class = _parse_xray_class(latest.get("max_class"))
+            result["xray_class"] = max_class or current_class
+            if max_class and _xray_class_rank(max_class) >= _xray_class_rank("C"):
+                result["flare_active"] = True
+            elif current_class and _xray_class_rank(current_class) >= _xray_class_rank("C"):
+                result["flare_active"] = True
+
     events = loaded.get("edited_events")
     if isinstance(events, list):
         result["events"] = events[-10:]
-        for ev in reversed(events):
-            if not isinstance(ev, dict):
-                continue
-            cls = str(ev.get("type") or ev.get("event_type") or "")
-            if "FLA" in cls.upper() or "flare" in cls.lower():
-                result["flare_active"] = True
-                part = cls.split()
-                for token in part:
-                    if token and token[0].upper() in "CBMXA":
-                        result["xray_class"] = token[0].upper()
-                        break
-                break
+        if not result["flare_active"]:
+            for ev in reversed(events):
+                if not isinstance(ev, dict):
+                    continue
+                cls = str(ev.get("type") or ev.get("event_type") or "")
+                if "FLA" in cls.upper() or "flare" in cls.lower():
+                    result["flare_active"] = True
+                    parsed = _parse_xray_class(cls.split()[-1] if cls.split() else cls)
+                    if parsed:
+                        result["xray_class"] = parsed
+                    break
 
     probs = loaded.get("solar_probabilities")
     if isinstance(probs, list) and probs:

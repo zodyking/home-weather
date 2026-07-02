@@ -3,8 +3,10 @@ from __future__ import annotations
 
 from custom_components.home_weather.space_data import (
     _detect_overhead_passes,
+    _first_float,
     _k_index_to_g_scale,
     _parse_horizons_vectors,
+    _parse_xray_class,
     build_coordinator_payload,
     detect_space_events,
     empty_payload,
@@ -24,6 +26,14 @@ $$SOE
 $$EOE
 """
 
+SAMPLE_HORIZONS_TEXT_LABELED = """
+$$SOE
+2461224.407638889 = A.D. 2026-Jul-02 21:47:00.0000 TDB
+ X = 1.879416337620361E-01 Y =-9.990904625815881E-01 Z = 5.970525522922741E-05
+ VX= 1.662388502748638E-02 VY= 3.111644942666292E-03 VZ=-8.795146916431986E-07
+$$EOE
+"""
+
 
 def test_parse_horizons_vectors():
     parsed = _parse_horizons_vectors(SAMPLE_HORIZONS_TEXT)
@@ -33,10 +43,30 @@ def test_parse_horizons_vectors():
     assert parsed["velocity_kms"] is not None
 
 
+def test_parse_horizons_vectors_labeled_format():
+    parsed = _parse_horizons_vectors(SAMPLE_HORIZONS_TEXT_LABELED)
+    assert parsed is not None
+    assert abs(parsed["x_au"] - 0.1879416337620361) < 1e-6
+    assert abs(parsed["y_au"] - (-0.9990904625815881)) < 1e-6
+    assert parsed["velocity_kms"] is not None
+
+
 def test_k_index_to_g_scale():
     assert _k_index_to_g_scale(4) == 0
     assert _k_index_to_g_scale(5) == 1
     assert _k_index_to_g_scale(7) == 3
+
+
+def test_first_float_treats_zero_as_valid():
+    assert _first_float({"kp_index": 0, "estimated_kp": 3.0}, "kp_index", "estimated_kp") == 0.0
+    assert _first_float({"ssn": 94.4}, "ssn", "observed_swpc_ssn") == 94.4
+
+
+def test_parse_xray_class():
+    assert _parse_xray_class("M2.8") == "M"
+    assert _parse_xray_class("C4.3") == "C"
+    assert _parse_xray_class("X1.0") == "X"
+    assert _parse_xray_class("") is None
 
 
 def test_detect_overhead_passes():

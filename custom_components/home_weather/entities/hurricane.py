@@ -118,15 +118,17 @@ class HurricaneClosestStormNameSensor(_HurricaneEntity):
         return f"{self._entry.entry_id}_hurricane_closest_storm_name"
 
     @property
-    def native_value(self) -> str | None:
+    def native_value(self) -> str:
         data = self.coordinator.data or {}
         if not has_sensor_data(data):
-            return None
+            return "none"
         name = self._summary().get("closest_storm_name")
         if name:
-            return name
+            return str(name)
         storm = self._closest_storm()
-        return storm.get("name") if storm else None
+        if storm and storm.get("name"):
+            return str(storm["name"])
+        return "none"
 
 
 class HurricaneDistanceSensor(_HurricaneEntity):
@@ -181,7 +183,9 @@ class HurricaneFormationProbabilitySensor(_HurricaneEntity):
     @property
     def native_value(self) -> int | None:
         prob = self._summary().get("formation_probability")
-        return int(prob) if prob is not None else None
+        if prob is None:
+            return None
+        return int(prob)
 
 
 class HurricaneActiveStormCountSensor(_HurricaneEntity):

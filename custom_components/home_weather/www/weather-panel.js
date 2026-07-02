@@ -2236,7 +2236,7 @@ class HomeWeatherPanel extends HTMLElement {
         }
         /* Force every surface element to dark defaults so no HA theme or UA
            stylesheet can ever produce white cards/buttons. */
-        :host button, :host article, :host section, :host aside {
+        :host button, :host article, :host section, :host aside:not(.hurricane-status) {
           background: transparent;
           color: inherit;
         }
@@ -2951,14 +2951,14 @@ class HomeWeatherPanel extends HTMLElement {
           min-height: 0;
           width: 100%;
           position: relative;
-          background: #020617;
+          background: #000000;
         }
         .space-canvas-wrap canvas {
           display: block;
           width: 100% !important;
           height: 100% !important;
         }
-        .space-loading, .space-error, .space-sun-loading {
+        .space-loading, .space-error, .space-sun-loading, .space-empty-banner {
           position: absolute;
           inset: 0;
           display: flex;
@@ -2970,6 +2970,8 @@ class HomeWeatherPanel extends HTMLElement {
           text-align: center;
           color: var(--hw-muted);
           font-size: var(--fs-body);
+          pointer-events: none;
+          z-index: 1;
         }
         .space-error-detail {
           font-size: var(--fs-xs);
@@ -3011,18 +3013,18 @@ class HomeWeatherPanel extends HTMLElement {
         .space-info-type { font-size: var(--fs-xs); color: var(--hw-muted); margin-bottom: var(--space-2); text-transform: capitalize; }
         .space-info-row { display: flex; justify-content: space-between; gap: var(--space-2); font-size: var(--fs-xs); padding: 2px 0; }
         .space-sun-layout {
-          display: grid;
-          grid-template-columns: 1.2fr 0.8fr;
+          display: flex;
+          flex-direction: row;
+          align-items: stretch;
           gap: var(--space-3);
           flex: 1;
           min-height: 0;
           padding: var(--space-3);
           box-sizing: border-box;
         }
-        @media (max-width: 768px) {
-          .space-sun-layout { grid-template-columns: 1fr; }
-        }
         .space-sun-visual {
+          flex: 1.2;
+          min-width: 0;
           display: flex;
           flex-direction: column;
           gap: var(--space-2);
@@ -3041,11 +3043,17 @@ class HomeWeatherPanel extends HTMLElement {
           display: block;
         }
         .space-sun-sidebar {
+          flex: 0.8;
+          min-width: 240px;
           display: flex;
           flex-direction: column;
           gap: var(--space-2);
           min-height: 0;
           overflow: auto;
+        }
+        @media (max-width: 768px) {
+          .space-sun-layout { flex-direction: column; }
+          .space-sun-sidebar { min-width: 0; }
         }
         .space-sun-title { font-size: var(--fs-h2); font-weight: 700; }
         .space-sun-stat {

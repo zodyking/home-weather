@@ -122,11 +122,11 @@ class SpaceOverheadCraftSensor(_SpaceEntity):
         return f"{self._entry.entry_id}_space_overhead_craft"
 
     @property
-    def native_value(self) -> str | None:
+    def native_value(self) -> str:
         active = self._active_pass()
         if not active:
-            return None
-        return active.get("craft_name") or active.get("craft_id")
+            return "none"
+        return str(active.get("craft_name") or active.get("craft_id") or "none")
 
 
 class SpaceCraftElevationSensor(_SpaceEntity):
@@ -139,14 +139,14 @@ class SpaceCraftElevationSensor(_SpaceEntity):
         return f"{self._entry.entry_id}_space_craft_elevation"
 
     @property
-    def native_value(self) -> float | None:
+    def native_value(self) -> float:
         active = self._active_pass()
         if not active:
-            return None
+            return 0.0
         alt = active.get("altitude_deg")
         if alt is None:
-            return active.get("max_elevation_deg")
-        return float(alt)
+            alt = active.get("max_elevation_deg")
+        return float(alt or 0.0)
 
 
 class SpaceCraftAzimuthSensor(_SpaceEntity):
@@ -159,12 +159,12 @@ class SpaceCraftAzimuthSensor(_SpaceEntity):
         return f"{self._entry.entry_id}_space_craft_azimuth"
 
     @property
-    def native_value(self) -> float | None:
+    def native_value(self) -> float:
         active = self._active_pass()
         if not active:
-            return None
+            return 0.0
         az = active.get("azimuth_deg")
-        return float(az) if az is not None else None
+        return float(az or 0.0)
 
 
 class SpaceCraftMaxElevationSensor(_SpaceEntity):
@@ -177,12 +177,12 @@ class SpaceCraftMaxElevationSensor(_SpaceEntity):
         return f"{self._entry.entry_id}_space_craft_max_elevation"
 
     @property
-    def native_value(self) -> float | None:
+    def native_value(self) -> float:
         active = self._active_pass()
         if not active:
-            return None
+            return 0.0
         peak = active.get("max_elevation_deg")
-        return float(peak) if peak is not None else None
+        return float(peak or 0.0)
 
 
 class SpaceClosestNeoDistanceSensor(_SpaceEntity):

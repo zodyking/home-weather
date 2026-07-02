@@ -669,6 +669,7 @@
             box-shadow: none;
             z-index: 20;
             background: #282828;
+            background-color: #282828;
           }
           .hurricane-map-empty-banner {
             top: 12px;
@@ -810,6 +811,11 @@
           }
         }
         .hurricane-map-empty-banner { display: none; }
+        :host aside.hurricane-status,
+        aside.hurricane-status {
+          background: #282828;
+          background-color: #282828;
+        }
         .hurricane-status {
           position: absolute;
           top: 0;
@@ -829,10 +835,11 @@
           --card-background-color: #282828;
           color: var(--hw-text, #e1e1e1);
           background: #282828;
+          background-color: #282828;
           border: none;
           border-left: 1px solid var(--hw-border-strong, #333);
           border-radius: 0;
-          padding: 12px;
+          padding: 0;
           display: flex;
           flex-direction: column;
           gap: 0;
@@ -860,10 +867,11 @@
           display: flex;
           flex-direction: column;
           gap: 10px;
-          padding-bottom: 12px;
-          margin-bottom: 12px;
+          padding: 12px 12px 12px;
+          margin-bottom: 0;
           border-bottom: 1px solid var(--hw-border-strong, #333);
           background: #282828;
+          background-color: #282828;
         }
         .hurricane-status-scroll {
           flex: 1 1 auto;
@@ -872,9 +880,10 @@
           overflow-x: hidden;
           -webkit-overflow-scrolling: touch;
           display: block;
-          padding-right: 4px;
+          padding: 12px 8px 12px 12px;
           padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
           background: #282828;
+          background-color: #282828;
           scrollbar-width: thin;
           scrollbar-color: #444 #282828;
           -ms-overflow-style: auto;
@@ -1542,10 +1551,10 @@
             width: min(300px, 88%);
             height: 100%;
             max-height: 100%;
-            padding: 14px;
+            padding: 0;
             border-radius: 0;
             border-left: 1px solid var(--hw-border-strong, #333);
-            transition: width 0.2s ease, padding 0.2s ease;
+            transition: width 0.2s ease;
           }
           .hurricane-status.is-collapsed {
             height: auto;
@@ -1553,7 +1562,6 @@
             max-height: none;
             width: min(300px, 88%);
             overflow: hidden;
-            padding-bottom: 14px;
             border-bottom: 1px solid var(--hw-border-strong, #333);
           }
           .hurricane-status.is-collapsed .hurricane-status-header {

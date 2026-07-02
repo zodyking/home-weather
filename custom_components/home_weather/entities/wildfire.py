@@ -10,7 +10,7 @@ from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from ..wildfire_coordinator import WildfireCoordinator
-from .base import hazard_device_info, primary_geofield
+from .base import detail_sensor_record, hazard_device_info, primary_geofield
 
 
 def create_wildfire_entities(
@@ -37,7 +37,10 @@ class _WildfireEntity(CoordinatorEntity, SensorEntity):
         self._attr_device_info = hazard_device_info(entry, "wildfire")
 
     def _primary(self) -> dict[str, Any] | None:
-        return primary_geofield(self.coordinator.data)
+        return detail_sensor_record(
+            self.coordinator.data,
+            fallback_keys=("nearest_incident",),
+        )
 
 
 class _WildfireBinaryEntity(CoordinatorEntity, BinarySensorEntity):

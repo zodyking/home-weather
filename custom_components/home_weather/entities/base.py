@@ -35,6 +35,28 @@ def primary_geofield(data: dict[str, Any] | None, key: str = "primary_geofield")
     return data.get(key) or data.get("primary_event") or data.get("primary_alert")
 
 
+def detail_sensor_record(
+    data: dict[str, Any] | None,
+    *,
+    fallback_keys: tuple[str, ...] = (),
+) -> dict[str, Any] | None:
+    """Return the best record for hazard detail sensors.
+
+    Uses the geofield primary when present, otherwise falls back to nearest
+    out-of-zone records so sensors still report useful values.
+    """
+    primary = primary_geofield(data)
+    if primary:
+        return primary
+    if not data:
+        return None
+    for key in fallback_keys:
+        record = data.get(key)
+        if record:
+            return record
+    return None
+
+
 def has_sensor_data(data: dict[str, Any] | None, key: str = "primary_geofield") -> bool:
     """Return True when coordinator payload has a primary record for detail sensors."""
     if primary_geofield(data, key):
