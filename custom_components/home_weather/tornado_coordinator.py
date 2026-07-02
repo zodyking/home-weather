@@ -39,7 +39,7 @@ class TornadoCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         try:
             config = await self.storage.async_get()
             payload = await async_fetch_tornado_alerts(self.hass, config)
-            await self._fire_change_events(payload.get("alerts") or [])
+            await self._fire_change_events(payload.get("alert_alerts") or [])
             return payload
         except Exception as err:
             _LOGGER.error("Error updating tornado data: %s", err)

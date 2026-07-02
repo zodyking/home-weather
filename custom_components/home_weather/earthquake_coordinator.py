@@ -36,7 +36,7 @@ class EarthquakeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         try:
             config = await self.storage.async_get()
             payload = await async_fetch_earthquakes(self.hass, config)
-            await self._fire_change_events(payload.get("events") or [])
+            await self._fire_change_events(payload.get("alert_events") or [])
             return payload
         except Exception as err:
             _LOGGER.error("Error updating earthquake data: %s", err)

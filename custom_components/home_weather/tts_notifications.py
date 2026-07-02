@@ -1406,19 +1406,40 @@ def format_earthquake_alert_for_tts(
     return " ".join(parts)
 
 
+def _alert_zone_mode(monitoring_config: dict[str, Any] | None) -> str:
+    """Resolve the alert scope for a hazard.
+
+    Falls back to the sensor ``zone_mode`` and finally ``zone`` when the
+    monitoring block predates the ``alert_zone_mode`` field.
+    """
+    monitoring = monitoring_config or {}
+    return str(
+        monitoring.get("alert_zone_mode", monitoring.get("zone_mode", "zone"))
+    ).lower()
+
+
 def passes_tornado_tts_filter(
     payload: dict[str, Any],
     tornado_config: dict[str, Any],
+    monitoring_config: dict[str, Any] | None = None,
     *,
     cleared: bool = False,
 ) -> bool:
-    """Return True when tornado payload meets TTS announce criteria."""
+    """Return True when tornado payload meets TTS announce criteria.
+
+    Distance / polygon thresholds come from ``tornado_monitoring`` (Alert
+    Zones); ``tornado_config`` (the TTS block) only supplies announce toggles.
+    When the alert scope is ``all`` the zone is bypassed entirely.
+    """
     if cleared:
         return bool(tornado_config.get("announce_cleared", False))
-    if tornado_config.get("only_affecting_home", True):
+    monitoring = monitoring_config or {}
+    if _alert_zone_mode(monitoring) == "all":
+        return True
+    if monitoring.get("only_affecting_home", True):
         return bool(payload.get("affecting_home"))
     dist = payload.get("distance_miles")
-    max_dist = float(tornado_config.get("max_distance_miles", 25))
+    max_dist = float(monitoring.get("max_distance_miles", 25))
     return dist is not None and dist <= max_dist
 
 
@@ -1426,20 +1447,30 @@ def passes_earthquake_tts_filter(
     payload: dict[str, Any],
     earthquake_config: dict[str, Any],
     event_type: str,
+    monitoring_config: dict[str, Any] | None = None,
 ) -> bool:
-    """Return True when earthquake payload meets TTS announce criteria."""
+    """Return True when earthquake payload meets TTS announce criteria.
+
+    Magnitude / distance thresholds come from ``earthquake_monitoring`` (Alert
+    Zones); ``earthquake_config`` (the TTS block) supplies announce toggles and
+    the tsunami-priority override. Alert scope ``all`` bypasses the zone and
+    magnitude thresholds entirely.
+    """
     if event_type == "home_weather_earthquake_cleared":
         return bool(earthquake_config.get("announce_cleared", False))
     if event_type == "home_weather_earthquake_updated":
         if not earthquake_config.get("announce_updated", False):
             return False
+    monitoring = monitoring_config or {}
+    if _alert_zone_mode(monitoring) == "all":
+        return True
     dist = payload.get("distance_miles")
-    max_dist = float(earthquake_config.get("max_distance_miles", 100))
+    max_dist = float(monitoring.get("radius_miles", 500))
     if dist is None or dist > max_dist:
         return False
     if payload.get("tsunami") == 1 and earthquake_config.get("tsunami_priority", True):
         return True
-    min_mag = float(earthquake_config.get("min_magnitude", 4.0))
+    min_mag = float(monitoring.get("min_magnitude", 2.5))
     mag = payload.get("magnitude")
     return mag is not None and mag >= min_mag
 
@@ -1477,19 +1508,28 @@ def passes_volcano_tts_filter(
     payload: dict[str, Any],
     volcano_config: dict[str, Any],
     event_type: str,
+    monitoring_config: dict[str, Any] | None = None,
 ) -> bool:
     """Return True when volcano payload meets TTS announce criteria.
 
-    Zone filtering already happened upstream (bus events fire only for
-    geofield events), so this checks the announce level and cleared toggle.
+    Minimum activity level and distance come from ``volcano_monitoring`` (Alert
+    Zones); ``volcano_config`` (the TTS block) supplies the cleared toggle.
+    Alert scope ``all`` bypasses the zone and level thresholds entirely.
     """
     if event_type == "home_weather_volcano_activity_cleared":
         return bool(volcano_config.get("announce_cleared", False))
+    monitoring = monitoring_config or {}
+    if _alert_zone_mode(monitoring) == "all":
+        return True
     level = str(payload.get("activity_level") or "").lower()
-    min_level = str(volcano_config.get("min_alert_level", "watch")).lower()
+    min_level = str(monitoring.get("min_alert_level", "advisory")).lower()
     rank = _VOLCANO_LEVEL_RANK.get(level)
-    min_rank = _VOLCANO_LEVEL_RANK.get(min_level, 2)
-    return rank is not None and rank >= min_rank
+    min_rank = _VOLCANO_LEVEL_RANK.get(min_level, 1)
+    if rank is None or rank < min_rank:
+        return False
+    dist = payload.get("distance_miles")
+    max_dist = float(monitoring.get("radius_miles", 500))
+    return dist is None or dist <= max_dist
 
 
 async def play_hazard_siren(

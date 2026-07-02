@@ -31,6 +31,7 @@ def get_earthquake_config(config: dict[str, Any] | None) -> dict[str, Any]:
     defaults = {
         "enabled": True,
         "zone_mode": "zone",
+        "alert_zone_mode": "zone",
         "min_magnitude": 2.5,
         "radius_miles": 500,
         "feed_type": "all_hour",
@@ -306,8 +307,14 @@ def merge_map_display_events(
 def build_coordinator_payload(
     events: list[dict[str, Any]],
     map_events: list[dict[str, Any]] | None = None,
+    alert_events: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Build coordinator payload from nearby and worldwide map earthquakes."""
+    """Build coordinator payload from nearby and worldwide map earthquakes.
+
+    ``alert_events`` is the list the TTS coordinator fires bus events from. It
+    equals ``events`` unless the alert scope bypasses the zone, in which case it
+    is the full parsed feed so spoken alerts can fire beyond the sensor zone.
+    """
     nearby_ids = {str(e["id"]) for e in events if e.get("id")}
     if map_events is None:
         display_events = events
@@ -318,6 +325,7 @@ def build_coordinator_payload(
     return {
         "events": events,
         "geofield_events": events,
+        "alert_events": alert_events if alert_events is not None else events,
         "map_events": display_events,
         "active_count": len(events),
         "geofield_count": len(events),
@@ -341,6 +349,7 @@ def empty_coordinator_payload() -> dict[str, Any]:
     return {
         "events": [],
         "geofield_events": [],
+        "alert_events": [],
         "map_events": [],
         "active_count": 0,
         "geofield_count": 0,
@@ -464,4 +473,19 @@ async def async_fetch_earthquakes(
         map_events = parse_earthquake_features_for_map(map_features, home, eq_config)
     else:
         map_events = events
-    return build_coordinator_payload(events, map_events)
+
+    # Alert scope: when bypassed, spoken alerts fire for the full parsed feed
+    # (no zone or magnitude filter) so distant/smaller quakes still announce.
+    alert_mode = str(
+        eq_config.get("alert_zone_mode", eq_config.get("zone_mode", "zone"))
+    ).lower()
+    if alert_mode == "all":
+        alert_events: list[dict[str, Any]] = []
+        for feature in alert_features:
+            parsed = parse_earthquake_feature(feature, home)
+            if parsed:
+                alert_events.append(parsed)
+        alert_events = sort_earthquakes_by_newest(alert_events)
+    else:
+        alert_events = events
+    return build_coordinator_payload(events, map_events, alert_events)

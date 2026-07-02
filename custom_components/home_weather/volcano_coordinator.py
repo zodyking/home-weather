@@ -43,7 +43,7 @@ class VolcanoCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             payload = await async_fetch_volcanoes(
                 self.hass, config, catalog_cache=self._catalog_cache
             )
-            await self._fire_change_events(payload.get("geofield_events") or [])
+            await self._fire_change_events(payload.get("alert_events") or [])
             return payload
         except Exception as err:
             _LOGGER.error("Error updating volcano data: %s", err)

@@ -83,15 +83,24 @@ def test_detect_tropical_bootstrap_skips():
 
 
 def test_tornado_filter_affecting_home():
-    cfg = {"only_affecting_home": True, "announce_cleared": False}
-    assert passes_tornado_tts_filter({"affecting_home": True}, cfg)
-    assert not passes_tornado_tts_filter({"affecting_home": False, "distance_miles": 5}, cfg)
+    cfg = {"announce_cleared": False}
+    mon = {"only_affecting_home": True}
+    assert passes_tornado_tts_filter({"affecting_home": True}, cfg, mon)
+    assert not passes_tornado_tts_filter({"affecting_home": False, "distance_miles": 5}, cfg, mon)
 
 
 def test_tornado_filter_distance():
-    cfg = {"only_affecting_home": False, "max_distance_miles": 25, "announce_cleared": False}
-    assert passes_tornado_tts_filter({"distance_miles": 10}, cfg)
-    assert not passes_tornado_tts_filter({"distance_miles": 50}, cfg)
+    cfg = {"announce_cleared": False}
+    mon = {"only_affecting_home": False, "max_distance_miles": 25}
+    assert passes_tornado_tts_filter({"distance_miles": 10}, cfg, mon)
+    assert not passes_tornado_tts_filter({"distance_miles": 50}, cfg, mon)
+
+
+def test_tornado_filter_alert_bypass():
+    """Alert scope 'all' announces regardless of distance / affecting-home."""
+    cfg = {"announce_cleared": False}
+    mon = {"only_affecting_home": True, "max_distance_miles": 25, "alert_zone_mode": "all"}
+    assert passes_tornado_tts_filter({"affecting_home": False, "distance_miles": 500}, cfg, mon)
 
 
 def test_tornado_cleared_message():
@@ -101,36 +110,49 @@ def test_tornado_cleared_message():
 
 def test_earthquake_filter_magnitude_and_distance():
     cfg = {
-        "min_magnitude": 4.0,
-        "max_distance_miles": 100,
         "tsunami_priority": True,
         "announce_updated": False,
         "announce_cleared": False,
     }
+    mon = {"min_magnitude": 4.0, "radius_miles": 100}
     assert passes_earthquake_tts_filter(
         {"magnitude": 4.5, "distance_miles": 50},
         cfg,
         "home_weather_earthquake_detected",
+        mon,
     )
     assert not passes_earthquake_tts_filter(
         {"magnitude": 3.0, "distance_miles": 50, "tsunami": 0},
         cfg,
         "home_weather_earthquake_detected",
+        mon,
     )
 
 
 def test_earthquake_tsunami_priority_bypasses_magnitude():
     cfg = {
-        "min_magnitude": 4.0,
-        "max_distance_miles": 100,
         "tsunami_priority": True,
         "announce_updated": False,
         "announce_cleared": False,
     }
+    mon = {"min_magnitude": 4.0, "radius_miles": 100}
     assert passes_earthquake_tts_filter(
         {"magnitude": 3.0, "distance_miles": 50, "tsunami": 1},
         cfg,
         "home_weather_earthquake_detected",
+        mon,
+    )
+
+
+def test_earthquake_filter_alert_bypass():
+    """Alert scope 'all' announces regardless of magnitude / distance."""
+    cfg = {"tsunami_priority": True, "announce_updated": False, "announce_cleared": False}
+    mon = {"min_magnitude": 4.0, "radius_miles": 100, "alert_zone_mode": "all"}
+    assert passes_earthquake_tts_filter(
+        {"magnitude": 1.2, "distance_miles": 4000, "tsunami": 0},
+        cfg,
+        "home_weather_earthquake_detected",
+        mon,
     )
 
 
@@ -148,27 +170,39 @@ def test_format_earthquake_alert_message():
 
 
 def test_volcano_filter_min_level():
-    cfg = {"min_alert_level": "watch", "announce_cleared": False}
+    cfg = {"announce_cleared": False}
+    mon = {"min_alert_level": "watch"}
     assert passes_volcano_tts_filter(
-        {"activity_level": "watch"}, cfg, "home_weather_volcano_activity_detected"
+        {"activity_level": "watch"}, cfg, "home_weather_volcano_activity_detected", mon
     )
     assert passes_volcano_tts_filter(
-        {"activity_level": "warning"}, cfg, "home_weather_volcano_activity_updated"
+        {"activity_level": "warning"}, cfg, "home_weather_volcano_activity_updated", mon
     )
     assert not passes_volcano_tts_filter(
-        {"activity_level": "advisory"}, cfg, "home_weather_volcano_activity_detected"
+        {"activity_level": "advisory"}, cfg, "home_weather_volcano_activity_detected", mon
+    )
+
+
+def test_volcano_filter_alert_bypass():
+    """Alert scope 'all' announces regardless of activity level / distance."""
+    cfg = {"announce_cleared": False}
+    mon = {"min_alert_level": "warning", "radius_miles": 100, "alert_zone_mode": "all"}
+    assert passes_volcano_tts_filter(
+        {"activity_level": "advisory", "distance_miles": 5000}, cfg,
+        "home_weather_volcano_activity_detected", mon,
     )
 
 
 def test_volcano_filter_cleared_toggle():
     payload = {"activity_level": "warning", "name": "Test"}
+    mon = {"min_alert_level": "watch"}
     assert not passes_volcano_tts_filter(
-        payload, {"min_alert_level": "watch", "announce_cleared": False},
-        "home_weather_volcano_activity_cleared",
+        payload, {"announce_cleared": False},
+        "home_weather_volcano_activity_cleared", mon,
     )
     assert passes_volcano_tts_filter(
-        payload, {"min_alert_level": "watch", "announce_cleared": True},
-        "home_weather_volcano_activity_cleared",
+        payload, {"announce_cleared": True},
+        "home_weather_volcano_activity_cleared", mon,
     )
 
 

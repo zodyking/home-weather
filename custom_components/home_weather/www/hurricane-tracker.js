@@ -636,10 +636,10 @@
           }
         }
         .hurricane-status-details {
-          border: 1px solid rgba(255,255,255,0.08);
+          border: 1px solid var(--hw-border, rgba(255,255,255,0.08));
           border-radius: 10px;
           overflow: hidden;
-          background: rgba(255,255,255,0.04);
+          background: var(--hw-hover, rgba(255,255,255,0.04));
         }
         .hurricane-status-details + .hurricane-status-details {
           margin-top: 4px;
@@ -652,8 +652,8 @@
           font-weight: 700;
           letter-spacing: 0.1em;
           text-transform: uppercase;
-          color: #b0bec5 !important;
-          background: rgba(255,255,255,0.04);
+          color: var(--hw-muted, #b0bec5) !important;
+          background: var(--hw-hover, rgba(255,255,255,0.04));
           display: flex;
           align-items: center;
           justify-content: space-between;
@@ -668,8 +668,8 @@
           font-weight: 700;
           letter-spacing: 0;
           text-transform: none;
-          color: #eceff1;
-          background: rgba(255,255,255,0.1);
+          color: var(--hw-text, #eceff1);
+          background: var(--hw-border-strong, rgba(255,255,255,0.1));
         }
         .hurricane-status-details summary .h-chevron {
           font-size: 12px;
@@ -689,7 +689,7 @@
           display: flex;
           flex-direction: column;
           gap: 6px;
-          background: #12161e;
+          background: var(--hw-surface-2, #12161e);
         }
         .marker-cluster-hw {
           background: rgba(255, 183, 77, 0.25);
@@ -714,7 +714,7 @@
           font-size: 14px;
           font-weight: 600;
           line-height: 1.45;
-          color: #e1e1e1 !important;
+          color: var(--hw-text, #e1e1e1) !important;
         }
         .hurricane-status-headline.is-watch { color: #ffb74d; }
         .hurricane-status-headline.is-danger { color: #ef5350; }
@@ -762,12 +762,12 @@
           overflow: hidden;
           overflow-x: hidden;
           z-index: 10;
-          color-scheme: dark;
-          --primary-text-color: #e1e1e1;
-          --secondary-text-color: #9b9b9b;
-          --card-background-color: #141820;
-          background: #141820;
-          border: 1px solid rgba(255,255,255,0.12);
+          --primary-text-color: var(--hw-text, #e1e1e1);
+          --secondary-text-color: var(--hw-muted, #9b9b9b);
+          --card-background-color: var(--hw-surface, #141820);
+          color: var(--hw-text, #e1e1e1);
+          background: var(--hw-surface, #141820);
+          border: 1px solid var(--hw-border-strong, rgba(255,255,255,0.12));
           border-radius: 14px;
           padding: 16px;
           display: flex;
@@ -819,17 +819,17 @@
           margin: 0;
           font-size: 16px;
           font-weight: 600;
-          color: #e1e1e1 !important;
+          color: var(--hw-text, #e1e1e1) !important;
         }
         .hurricane-stat {
           display: flex;
           justify-content: space-between;
           gap: 8px;
           font-size: 13px;
-          color: #9b9b9b !important;
+          color: var(--hw-muted, #9b9b9b) !important;
         }
         .hurricane-stat strong {
-          color: #e1e1e1 !important;
+          color: var(--hw-text, #e1e1e1) !important;
           font-weight: 600;
           text-align: right;
         }
@@ -875,13 +875,13 @@
           background: #111111;
         }
         .leaflet-control-zoom a {
-          background: rgba(28, 28, 28, 0.92);
-          color: #e1e1e1;
-          border-color: rgba(255,255,255,0.12);
+          background: var(--hw-surface, rgba(28, 28, 28, 0.92));
+          color: var(--hw-text, #e1e1e1);
+          border-color: var(--hw-border-strong, rgba(255,255,255,0.12));
         }
         .leaflet-control-zoom a:hover {
-          background: rgba(40, 40, 40, 0.96);
-          color: #fff;
+          background: var(--hw-elevated, rgba(40, 40, 40, 0.96));
+          color: var(--hw-text, #fff);
         }
         /* Unified top-left map controls stack: toolbar row + legend */
         .hw-map-controls-stack {
@@ -899,8 +899,8 @@
           display: grid;
           grid-template-columns: repeat(4, 1fr);
           width: 100%;
-          background: rgba(28, 28, 28, 0.92);
-          border: 1px solid rgba(255,255,255,0.12);
+          background: var(--hw-surface, rgba(28, 28, 28, 0.92));
+          border: 1px solid var(--hw-border-strong, rgba(255,255,255,0.12));
           border-radius: 8px;
           overflow: visible;
           box-shadow: 0 4px 16px rgba(0,0,0,0.35);
@@ -913,7 +913,7 @@
           min-height: var(--hw-map-btn);
         }
         .hw-map-tool-cell + .hw-map-tool-cell {
-          border-left: 1px solid rgba(255,255,255,0.12);
+          border-left: 1px solid var(--hw-border-strong, rgba(255,255,255,0.12));
         }
         .hw-map-tool-btn {
           display: flex;
@@ -926,8 +926,8 @@
           margin: 0;
           border: none;
           border-radius: 0;
-          background: rgba(28, 28, 28, 0.92);
-          color: #e1e1e1;
+          background: var(--hw-surface, rgba(28, 28, 28, 0.92));
+          color: var(--hw-text, #e1e1e1);
           font-size: 18px;
           font-weight: 600;
           line-height: 1;
@@ -936,16 +936,16 @@
           font-family: inherit;
         }
         .hw-map-tool-btn:hover {
-          background: rgba(40, 40, 40, 0.96);
-          color: #fff;
+          background: var(--hw-elevated, rgba(40, 40, 40, 0.96));
+          color: var(--hw-text, #fff);
         }
         .hw-map-tool-btn:focus-visible {
-          outline: 2px solid #29b6f6;
+          outline: 2px solid var(--hw-accent-hover, #29b6f6);
           outline-offset: -2px;
           z-index: 1;
         }
         .hw-map-tool-btn.active {
-          background: #0288d1;
+          background: var(--hw-accent, #0288d1);
           color: #fff;
         }
         .hw-basemap-cell { z-index: 2; }
@@ -956,8 +956,8 @@
           z-index: 30;
           min-width: 148px;
           padding: 4px;
-          background: rgba(17, 20, 28, 0.96);
-          border: 1px solid rgba(255,255,255,0.14);
+          background: var(--hw-surface, rgba(17, 20, 28, 0.96));
+          border: 1px solid var(--hw-border-strong, rgba(255,255,255,0.14));
           border-radius: 8px;
           box-shadow: 0 6px 22px rgba(0,0,0,0.45);
           backdrop-filter: blur(10px);
@@ -972,20 +972,20 @@
           border: none;
           border-radius: 6px;
           background: transparent;
-          color: #cfd8dc;
+          color: var(--hw-text, #cfd8dc);
           font-size: 12px;
           font-family: inherit;
           text-align: left;
           cursor: pointer;
         }
         .hw-basemap-option:hover {
-          background: rgba(255,255,255,0.08);
-          color: #fff;
+          background: var(--hw-hover, rgba(255,255,255,0.08));
+          color: var(--hw-text, #fff);
         }
         .hw-basemap-check {
           width: 14px;
           flex-shrink: 0;
-          color: #29b6f6;
+          color: var(--hw-accent-hover, #29b6f6);
           font-size: 11px;
           font-weight: 700;
         }
@@ -996,9 +996,9 @@
           padding: 4px 8px;
           font-size: 10px;
           font-weight: 600;
-          color: #cfd8dc;
-          background: rgba(17, 20, 28, 0.92);
-          border: 1px solid rgba(255,255,255,0.12);
+          color: var(--hw-text, #cfd8dc);
+          background: var(--hw-surface, rgba(17, 20, 28, 0.92));
+          border: 1px solid var(--hw-border-strong, rgba(255,255,255,0.12));
           border-radius: 8px;
           white-space: nowrap;
           overflow: hidden;
@@ -1012,15 +1012,15 @@
           margin-bottom: 0;
         }
         .leaflet-bar {
-          border: 1px solid rgba(255,255,255,0.12);
+          border: 1px solid var(--hw-border-strong, rgba(255,255,255,0.12));
           box-shadow: 0 4px 16px rgba(0,0,0,0.35);
         }
         .leaflet-control-attribution {
-          background: rgba(17, 17, 17, 0.72) !important;
-          color: #9b9b9b !important;
+          background: var(--hw-surface, rgba(17, 17, 17, 0.72)) !important;
+          color: var(--hw-muted, #9b9b9b) !important;
           backdrop-filter: blur(6px);
         }
-        .leaflet-control-attribution a { color: #90caf9 !important; }
+        .leaflet-control-attribution a { color: var(--hw-accent-hover, #90caf9) !important; }
         .hw-forecast-label {
           background: rgba(17, 20, 28, 0.88);
           color: #fff;
@@ -1032,6 +1032,22 @@
           box-shadow: 0 4px 12px rgba(0,0,0,0.35);
           backdrop-filter: blur(8px);
         }
+        .leaflet-tooltip.hw-name-label {
+          background: var(--hw-surface, rgba(17, 20, 28, 0.92));
+          color: var(--hw-text, #ffffff);
+          border: 1px solid var(--hw-border-strong, rgba(255,255,255,0.16));
+          border-radius: 7px;
+          padding: 2px 9px;
+          font-size: 11px;
+          font-weight: 700;
+          letter-spacing: 0.2px;
+          white-space: nowrap;
+          box-shadow: 0 4px 14px rgba(0,0,0,0.4);
+          backdrop-filter: blur(8px);
+        }
+        .leaflet-tooltip.hw-name-label::before { display: none; }
+        .hw-storm-label { border-left: 3px solid var(--hw-accent, #03a9f4); }
+        .hw-volcano-label { border-left: 3px solid #fb8c00; }
         .hw-tornado-polygon {
           stroke: #e040fb;
           fill: rgba(224, 64, 251, 0.18);
@@ -2592,19 +2608,29 @@
         bounds.push([pt.lat, pt.lon]);
       });
 
+      const stormLabel = this._formatStormLabel(storm);
+      const addStormMarker = (latlng) => {
+        const marker = L.marker(latlng, { icon: stormIcon, zIndexOffset: 500 })
+          .bindPopup(stormPopup);
+        if (stormLabel.name) {
+          marker.bindTooltip(this._esc(stormLabel.name), {
+            permanent: true,
+            direction: "top",
+            className: "hw-name-label hw-storm-label",
+            offset: [0, -(iconSize / 2) - 2],
+          });
+        }
+        marker.addTo(this._layerGroup);
+        bounds.push(latlng);
+      };
+
       const pos = storm.currentPosition;
       if (pos?.lat != null && pos?.lon != null) {
-        L.marker([pos.lat, pos.lon], { icon: stormIcon, zIndexOffset: 500 })
-          .bindPopup(stormPopup)
-          .addTo(this._layerGroup);
-        bounds.push([pos.lat, pos.lon]);
+        addStormMarker([pos.lat, pos.lon]);
       } else if (storm.cone) {
         const center = this._getFeatureCenterLatLng({ type: "Feature", geometry: storm.cone, properties: {} });
         if (center) {
-          L.marker(center, { icon: stormIcon, zIndexOffset: 500 })
-            .bindPopup(stormPopup)
-            .addTo(this._layerGroup);
-          bounds.push(center);
+          addStormMarker(center);
         }
       }
     }
@@ -2809,6 +2835,14 @@
             zIndexOffset: 470,
           });
           marker.bindPopup(popup);
+          if (props.name) {
+            marker.bindTooltip(this._esc(props.name), {
+              permanent: true,
+              direction: "top",
+              className: "hw-name-label hw-volcano-label",
+              offset: [0, -16],
+            });
+          }
           marker.addTo(this._layerGroup);
 
           const ringMiles = Number(props.ring_radius_miles);

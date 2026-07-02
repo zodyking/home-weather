@@ -167,6 +167,9 @@ def get_tornado_geofield_config(config: dict[str, Any] | None) -> dict[str, Any]
         return {
             "enabled": monitoring.get("enabled", True),
             "zone_mode": monitoring.get("zone_mode", "zone"),
+            "alert_zone_mode": monitoring.get(
+                "alert_zone_mode", monitoring.get("zone_mode", "zone")
+            ),
             "only_affecting_home": monitoring.get("only_affecting_home", True),
             "max_distance_miles": float(monitoring.get("max_distance_miles", 25)),
         }
@@ -174,6 +177,7 @@ def get_tornado_geofield_config(config: dict[str, Any] | None) -> dict[str, Any]
     return {
         "enabled": True,
         "zone_mode": "zone",
+        "alert_zone_mode": "zone",
         "only_affecting_home": tornado.get("only_affecting_home", True),
         "max_distance_miles": float(tornado.get("max_distance_miles", 25)),
     }
@@ -235,10 +239,20 @@ def build_coordinator_payload(
                 }
             )
 
+    # Alert scope: bypass fires spoken alerts for every fetched warning
+    # regardless of zone; otherwise it mirrors the sensor geofield.
+    alert_mode = str(geofield_config.get("alert_zone_mode", geofield_config.get("zone_mode", "zone"))).lower()
+    alert_alerts = (
+        sort_tornado_alerts_by_priority(list(alerts))
+        if alert_mode == "all"
+        else geofield_alerts
+    )
+
     return {
         "all_alerts": alerts,
         "geofield_alerts": geofield_alerts,
         "alerts": geofield_alerts,
+        "alert_alerts": alert_alerts,
         "active_count": len(geofield_alerts),
         "map_count": len(alerts),
         "affecting_home": affecting_home,

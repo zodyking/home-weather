@@ -35,6 +35,13 @@ DEFAULT_CONFIG: Final = {
         "ai_task_entity": "",
         "ai_rewrite_prompt": "You are a friendly meteorologist. Rewrite this weather forecast in a natural, conversational way. Keep it concise but informative. Maintain all factual information.",
     },
+    # Panel appearance / theme. "mode" selects the base palette (dark|light);
+    # "overrides" maps individual theme tokens (accent, bg, surface, text, muted,
+    # border, danger, warning, success) to user-chosen hex colors.
+    "appearance": {
+        "mode": "dark",
+        "overrides": {},
+    },
     # Each media player has its own complete TTS config
     "media_players": [],  # list of { entity_id, tts_entity_id, volume, preroll_ms, cache, language, options }
     "message_prefix": "Here's your weather forecast",
@@ -100,18 +107,25 @@ DEFAULT_CONFIG: Final = {
         "enabled": True,
         # "zone": filter by radius around home; "all": bypass zone, report all data
         "zone_mode": "zone",
+        # Alert scope: "zone" uses the same radius/thresholds as sensors;
+        # "all" bypasses the zone so TTS alerts fire for all data.
+        "alert_zone_mode": "zone",
         "max_distance_miles": 500,
         "min_threat_level": "monitor",
+        # Tropical outlook probability threshold (single source of truth for alerts).
+        "outlook_min_probability": 40,
     },
     "tornado_monitoring": {
         "enabled": True,
         "zone_mode": "zone",
+        "alert_zone_mode": "zone",
         "only_affecting_home": True,
         "max_distance_miles": 25,
     },
     "earthquake_monitoring": {
         "enabled": True,
         "zone_mode": "zone",
+        "alert_zone_mode": "zone",
         "min_magnitude": 2.5,
         "radius_miles": 500,
         "feed_type": "all_hour",
@@ -131,6 +145,7 @@ DEFAULT_CONFIG: Final = {
     "volcano_monitoring": {
         "enabled": True,
         "zone_mode": "zone",
+        "alert_zone_mode": "zone",
         "radius_miles": 500,
         # Minimum unified activity level tracked by sensors: advisory | watch | warning
         "min_alert_level": "advisory",

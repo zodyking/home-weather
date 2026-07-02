@@ -57,6 +57,7 @@ def get_volcano_config(config: dict[str, Any] | None) -> dict[str, Any]:
     defaults = {
         "enabled": True,
         "zone_mode": "zone",
+        "alert_zone_mode": "zone",
         "radius_miles": 500,
         "min_alert_level": "advisory",
         "map_show_all_volcanoes": True,
@@ -481,10 +482,17 @@ def build_coordinator_payload(
     geofield_ids = {str(e["id"]) for e in geofield_events if e.get("id")}
     nearest = pick_nearest_volcano(geofield_events)
     include_catalog = bool(volcano_config.get("map_show_all_volcanoes", True))
+    # Alert scope: bypass fires spoken alerts for all active volcanoes
+    # regardless of zone or level; otherwise it mirrors the sensor geofield.
+    alert_mode = str(
+        volcano_config.get("alert_zone_mode", volcano_config.get("zone_mode", "zone"))
+    ).lower()
+    alert_events = active_events if alert_mode == "all" else geofield_events
     return {
         "catalog_count": len(catalog),
         "active_events": active_events,
         "geofield_events": geofield_events,
+        "alert_events": alert_events,
         "active_count": len(active_events),
         "geofield_count": len(geofield_events),
         "in_geofield": len(geofield_events) > 0,
@@ -508,6 +516,7 @@ def empty_coordinator_payload() -> dict[str, Any]:
         "catalog_count": 0,
         "active_events": [],
         "geofield_events": [],
+        "alert_events": [],
         "active_count": 0,
         "geofield_count": 0,
         "in_geofield": False,

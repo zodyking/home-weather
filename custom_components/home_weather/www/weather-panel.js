@@ -252,6 +252,8 @@ class HomeWeatherPanel extends HTMLElement {
       const response = await this._hass.callWS({ type: "home_weather/get_config" });
       this._config = response.config || {};
       this._settings = JSON.parse(JSON.stringify(this._config || {}));
+      if (!this._settings.appearance) this._settings.appearance = { mode: "dark", overrides: {} };
+      this._applyTheme();
       if (!this._settings.tts) this._settings.tts = { enabled: false, language: "en", platform: null };
       if (!Array.isArray(this._settings.media_players)) this._settings.media_players = [];
       this._settings.media_players = this._normalizeMediaPlayers(this._settings.media_players);
@@ -2064,6 +2066,7 @@ class HomeWeatherPanel extends HTMLElement {
   _render() {
     const s = this.shadowRoot;
     if (!s) return;
+    this._applyTheme();
     this._apexCharts.forEach((ch) => { try { ch.destroy(); } catch (_) {} });
     this._apexCharts = [];
     // Preserve the Windy iframe across full re-renders when the target URL is unchanged.
@@ -4062,6 +4065,18 @@ class HomeWeatherPanel extends HTMLElement {
           box-sizing: border-box;
         }
         .zone-card-radius .unit { font-size: 12px; color: var(--hw-muted); }
+        .zone-threshold-input {
+          height: 36px;
+          min-width: 130px;
+          padding: 0 10px;
+          border: 1px solid var(--input-border);
+          border-radius: 8px;
+          background: var(--input-bg);
+          color: var(--primary-text-color);
+          font-size: 13px;
+          box-sizing: border-box;
+        }
+        .zone-card-row-toggle > label { flex: 1; }
         .zone-mode-seg {
           display: flex;
           border: 1px solid var(--input-border);
@@ -4087,6 +4102,75 @@ class HomeWeatherPanel extends HTMLElement {
         .zone-mode-seg button:focus-visible { outline: 2px solid var(--hw-accent); outline-offset: -2px; }
         .zone-card-note { font-size: 11px; color: var(--hw-warning, #ffb74d); line-height: 1.4; }
         .zone-card.is-disabled { opacity: 0.6; }
+
+        /* Appearance tab */
+        .theme-mode-block { display: flex; flex-direction: column; gap: 10px; }
+        .theme-mode-seg {
+          display: inline-flex;
+          border: 1px solid var(--input-border);
+          border-radius: 10px;
+          overflow: hidden;
+          width: fit-content;
+        }
+        .theme-mode-seg button {
+          display: inline-flex;
+          align-items: center;
+          gap: 7px;
+          min-height: 38px;
+          padding: 0 18px;
+          border: none;
+          background: transparent;
+          color: var(--hw-muted);
+          font-size: 13px;
+          font-weight: 600;
+          font-family: inherit;
+          cursor: pointer;
+          transition: background 0.14s ease, color 0.14s ease;
+        }
+        .theme-mode-seg button + button { border-left: 1px solid var(--input-border); }
+        .theme-mode-seg button.active { background: var(--panel-accent-dim); color: var(--panel-accent-hover); }
+        .theme-mode-seg button:focus-visible { outline: 2px solid var(--hw-accent); outline-offset: -2px; }
+        .theme-mode-seg svg { flex-shrink: 0; }
+        .theme-swatch-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
+          gap: 10px;
+        }
+        .theme-swatch-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          padding: 10px 12px;
+          border: 1px solid var(--hw-border);
+          border-radius: var(--radius-sm);
+          background: var(--hw-surface-2);
+        }
+        .theme-swatch-row.is-overridden { border-color: var(--hw-accent); }
+        .theme-swatch-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+        .theme-swatch-label { font-size: 13px; font-weight: 600; color: var(--hw-text); }
+        .theme-swatch-hint { font-size: 11px; color: var(--hw-muted); }
+        .theme-swatch { position: relative; flex-shrink: 0; width: 40px; height: 32px; cursor: pointer; }
+        .theme-swatch input[type="color"] {
+          position: absolute;
+          inset: 0;
+          width: 100%;
+          height: 100%;
+          opacity: 0;
+          cursor: pointer;
+          border: none;
+          padding: 0;
+        }
+        .theme-swatch-dot {
+          display: block;
+          width: 100%;
+          height: 100%;
+          border-radius: 8px;
+          border: 1px solid var(--hw-border-strong);
+          box-shadow: inset 0 0 0 2px var(--hw-surface);
+          pointer-events: none;
+        }
+        .btn-sm { min-height: 32px; padding: 0 12px; font-size: 12px; }
         .zone-editor-cta {
           display: flex;
           align-items: center;
@@ -4402,18 +4486,66 @@ class HomeWeatherPanel extends HTMLElement {
       });
     });
 
-    // Alert Zones: zone/bypass segmented switches
-    s.querySelectorAll(".zone-mode-seg[data-zone-mode-for]").forEach((seg) => {
-      const key = seg.dataset.zoneModeFor;
-      seg.querySelectorAll("button[data-mode]").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          seg.querySelectorAll("button[data-mode]").forEach((b) => b.classList.toggle("active", b === btn));
-          const card = s.querySelector(`.zone-card[data-zone-card="${key}"]`);
-          const note = card?.querySelector(".zone-card-note");
-          if (note) note.style.display = btn.dataset.mode === "all" ? "" : "none";
+    // Appearance: theme mode + per-element color overrides (live preview).
+    s.querySelectorAll(".theme-mode-seg button[data-theme-mode]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        s.querySelectorAll(".theme-mode-seg button[data-theme-mode]").forEach((b) => b.classList.toggle("active", b === btn));
+        if (!this._settings.appearance) this._settings.appearance = { mode: "dark", overrides: {} };
+        this._settings.appearance.mode = btn.dataset.themeMode === "light" ? "light" : "dark";
+        const base = this._themeBase(this._settings.appearance.mode);
+        const ov = this._settings.appearance.overrides || {};
+        s.querySelectorAll("input[data-theme-token]").forEach((inp) => {
+          const key = inp.dataset.themeToken;
+          if (!ov[key]) {
+            const hex = this._themeSwatchHex(base, key);
+            inp.value = hex;
+            const dot = inp.parentElement?.querySelector(".theme-swatch-dot");
+            if (dot) dot.style.background = hex;
+          }
         });
+        this._applyTheme();
       });
     });
+    s.querySelectorAll("input[data-theme-token]").forEach((inp) => {
+      inp.addEventListener("input", () => {
+        if (!this._settings.appearance) this._settings.appearance = { mode: "dark", overrides: {} };
+        if (!this._settings.appearance.overrides) this._settings.appearance.overrides = {};
+        this._settings.appearance.overrides[inp.dataset.themeToken] = inp.value;
+        const dot = inp.parentElement?.querySelector(".theme-swatch-dot");
+        if (dot) dot.style.background = inp.value;
+        inp.closest(".theme-swatch-row")?.classList.add("is-overridden");
+        this._applyTheme();
+      });
+    });
+    s.getElementById("theme-reset-btn")?.addEventListener("click", () => {
+      if (!this._settings.appearance) this._settings.appearance = { mode: "dark", overrides: {} };
+      this._settings.appearance.overrides = {};
+      const base = this._themeBase(this._getAppearance().mode);
+      s.querySelectorAll("input[data-theme-token]").forEach((inp) => {
+        const hex = this._themeSwatchHex(base, inp.dataset.themeToken);
+        inp.value = hex;
+        const dot = inp.parentElement?.querySelector(".theme-swatch-dot");
+        if (dot) dot.style.background = hex;
+        inp.closest(".theme-swatch-row")?.classList.remove("is-overridden");
+      });
+      this._applyTheme();
+    });
+
+    // Alert Zones: sensor + alert scope segmented switches (zone/bypass)
+    const wireZoneSeg = (attr, noteAttr) => {
+      s.querySelectorAll(`.zone-mode-seg[${attr}]`).forEach((seg) => {
+        const key = seg.getAttribute(attr);
+        seg.querySelectorAll("button[data-mode]").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            seg.querySelectorAll("button[data-mode]").forEach((b) => b.classList.toggle("active", b === btn));
+            const note = s.querySelector(`.zone-card-note[${noteAttr}="${key}"]`);
+            if (note) note.style.display = btn.dataset.mode === "all" ? "" : "none";
+          });
+        });
+      });
+    };
+    wireZoneSeg("data-zone-mode-for", "data-zone-note-for");
+    wireZoneSeg("data-alert-mode-for", "data-alert-note-for");
 
     // Alert Zones: dim card when hazard disabled
     s.querySelectorAll("[data-zone-card-enabled]").forEach((input) => {
@@ -6183,14 +6315,14 @@ class HomeWeatherPanel extends HTMLElement {
       map_min_magnitude: 4.5,
       map_feed_type: "all_day",
     };
-    const defaultHurricaneMonitoring = { enabled: true, max_distance_miles: 500, min_threat_level: "monitor" };
+    const defaultHurricaneMonitoring = { enabled: true, zone_mode: "zone", alert_zone_mode: "zone", max_distance_miles: 500, min_threat_level: "monitor", outlook_min_probability: 40 };
     const hurricaneMonitoring = { ...defaultHurricaneMonitoring, ...(this._settings.hurricane_monitoring || {}) };
-    const defaultTornadoMonitoring = { enabled: true, only_affecting_home: true, max_distance_miles: 25 };
+    const defaultTornadoMonitoring = { enabled: true, zone_mode: "zone", alert_zone_mode: "zone", only_affecting_home: true, max_distance_miles: 25 };
     const tornadoMonitoring = { ...defaultTornadoMonitoring, ...(this._settings.tornado_monitoring || {}) };
-    const earthquakeMonitoring = { ...defaultEarthquakes, ...(this._settings.earthquake_monitoring || this._settings.earthquakes || {}) };
+    const earthquakeMonitoring = { ...defaultEarthquakes, alert_zone_mode: "zone", ...(this._settings.earthquake_monitoring || this._settings.earthquakes || {}) };
     const defaultLightningMonitoring = { enabled: true, show_on_map: true, max_age_minutes: 60, max_strikes: 500, geofield_radius_miles: 100 };
     const lightningMonitoring = { ...defaultLightningMonitoring, ...(this._settings.lightning_monitoring || this._settings.lightning || {}) };
-    const defaultVolcanoMonitoring = { enabled: true, zone_mode: "zone", radius_miles: 500, min_alert_level: "advisory", map_show_all_volcanoes: true };
+    const defaultVolcanoMonitoring = { enabled: true, zone_mode: "zone", alert_zone_mode: "zone", radius_miles: 500, min_alert_level: "advisory", map_show_all_volcanoes: true };
     const volcanoMonitoring = { ...defaultVolcanoMonitoring, ...(this._settings.volcano_monitoring || {}) };
     if (!sunAlerts.sunrise_tts) sunAlerts.sunrise_tts = defaultSunAlerts.sunrise_tts;
     if (!sunAlerts.sunset_tts) sunAlerts.sunset_tts = defaultSunAlerts.sunset_tts;
@@ -6382,14 +6514,47 @@ class HomeWeatherPanel extends HTMLElement {
       { id: "zones", label: "Alert Zones", icon: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 100 20 10 10 0 000-20zm0 2a8 8 0 110 16 8 8 0 010-16zm0 3a5 5 0 100 10 5 5 0 000-10zm0 2a3 3 0 110 6 3 3 0 010-6z"/></svg>` },
       { id: "monitoring", label: "Hazard Monitoring", icon: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>` },
       { id: "announcements", label: "Announcements", icon: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3a4.5 4.5 0 00-2.5-4.03v8.05A4.5 4.5 0 0016.5 12zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>` },
+      { id: "appearance", label: "Appearance", icon: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3a9 9 0 000 18c.83 0 1.5-.67 1.5-1.5 0-.39-.15-.74-.39-1.01-.23-.26-.39-.61-.39-.99 0-.83.67-1.5 1.5-1.5H16a5 5 0 005-5c0-4.42-4.03-8-9-8zm-5.5 9a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm3-4a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm5 0a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm3.5 4a1.5 1.5 0 110-3 1.5 1.5 0 010 3z"/></svg>` },
       { id: "advanced", label: "Advanced", icon: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.488.488 0 00-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 00-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94 0 .31.02.64.07.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>` },
     ];
+    const threatOptions = (selected) => ["none", "monitor", "watch", "high"]
+      .map((v) => `<option value="${v}" ${selected === v ? "selected" : ""}>${v.charAt(0).toUpperCase() + v.slice(1)}</option>`).join("");
+    const volcanoLevelOptions = (selected) => ["advisory", "watch", "warning"]
+      .map((v) => `<option value="${v}" ${selected === v ? "selected" : ""}>${v.charAt(0).toUpperCase() + v.slice(1)}</option>`).join("");
     const zoneHazards = [
-      { key: "hurricane", label: "Hurricane", icon: "hurricane", color: "#29b6f6", enabledId: "hurricane-monitoring-enabled", radiusId: "hurricane-monitoring-max-distance", radius: hurricaneMonitoring.max_distance_miles, min: 1, max: 5000, enabled: hurricaneMonitoring.enabled !== false, mode: hurricaneMonitoring.zone_mode === "all" ? "all" : "zone", desc: "Storms within this radius drive hurricane sensors and alerts." },
-      { key: "tornado", label: "Tornado", icon: "tornado", color: "#e040fb", enabledId: "tornado-monitoring-enabled", radiusId: "tornado-monitoring-max-distance", radius: tornadoMonitoring.max_distance_miles, min: 1, max: 500, enabled: tornadoMonitoring.enabled !== false, mode: tornadoMonitoring.zone_mode === "all" ? "all" : "zone", desc: "Warning polygons within this radius trigger tornado sensors." },
-      { key: "earthquake", label: "Earthquake", icon: "earthquake", color: "#ffa726", enabledId: "earthquake-monitoring-enabled", radiusId: "earthquake-radius-miles", radius: earthquakeMonitoring.radius_miles, min: 1, max: 5000, enabled: earthquakeMonitoring.enabled !== false, mode: earthquakeMonitoring.zone_mode === "all" ? "all" : "zone", desc: "Quakes inside this radius count as nearby for sensors." },
-      { key: "lightning", label: "Lightning", icon: "lightning-bolt", color: "#ffee58", enabledId: "lightning-monitoring-enabled", radiusId: "lightning-geofield-radius-miles", radius: lightningMonitoring.geofield_radius_miles ?? 100, min: 1, max: 500, enabled: lightningMonitoring.enabled !== false, mode: lightningMonitoring.zone_mode === "all" ? "all" : "zone", desc: "Live strikes inside this radius feed lightning sensors." },
-      { key: "volcano", label: "Volcano", icon: "volcano", color: "#ff7043", enabledId: "volcano-monitoring-enabled", radiusId: "volcano-radius-miles", radius: volcanoMonitoring.radius_miles ?? 500, min: 1, max: 5000, enabled: volcanoMonitoring.enabled !== false, mode: volcanoMonitoring.zone_mode === "all" ? "all" : "zone", desc: "Active volcanoes inside this radius count as nearby for sensors." },
+      { key: "hurricane", label: "Hurricane", icon: "hurricane", color: "#29b6f6", enabledId: "hurricane-monitoring-enabled", radiusId: "hurricane-monitoring-max-distance", radius: hurricaneMonitoring.max_distance_miles, min: 1, max: 5000, enabled: hurricaneMonitoring.enabled !== false, mode: hurricaneMonitoring.zone_mode === "all" ? "all" : "zone", alertMode: hurricaneMonitoring.alert_zone_mode === "all" ? "all" : "zone", hasAlert: true, desc: "Storms within this radius drive hurricane sensors and alerts.", thresholds: `
+        <div class="zone-card-row">
+          <label for="hurricane-monitoring-min-threat">Min threat level</label>
+          <select id="hurricane-monitoring-min-threat" class="zone-threshold-input">${threatOptions(hurricaneMonitoring.min_threat_level)}</select>
+        </div>
+        <div class="zone-card-row">
+          <label for="hurricane-monitoring-outlook-prob">Outlook min probability</label>
+          <div class="zone-card-radius">
+            <input type="number" id="hurricane-monitoring-outlook-prob" min="0" max="100" step="1" value="${Math.round(hurricaneMonitoring.outlook_min_probability ?? 40)}"/>
+            <span class="unit">%</span>
+          </div>
+        </div>` },
+      { key: "tornado", label: "Tornado", icon: "tornado", color: "#e040fb", enabledId: "tornado-monitoring-enabled", radiusId: "tornado-monitoring-max-distance", radius: tornadoMonitoring.max_distance_miles, min: 1, max: 500, enabled: tornadoMonitoring.enabled !== false, mode: tornadoMonitoring.zone_mode === "all" ? "all" : "zone", alertMode: tornadoMonitoring.alert_zone_mode === "all" ? "all" : "zone", hasAlert: true, desc: "Warning polygons within this radius trigger tornado sensors and alerts.", thresholds: `
+        <div class="zone-card-row zone-card-row-toggle">
+          <label for="tornado-monitoring-only-home">Only when polygon includes home</label>
+          <label class="toggle-switch">
+            <input type="checkbox" id="tornado-monitoring-only-home" ${tornadoMonitoring.only_affecting_home !== false ? "checked" : ""}/>
+            <span class="toggle-slider"></span>
+          </label>
+        </div>` },
+      { key: "earthquake", label: "Earthquake", icon: "earthquake", color: "#ffa726", enabledId: "earthquake-monitoring-enabled", radiusId: "earthquake-radius-miles", radius: earthquakeMonitoring.radius_miles, min: 1, max: 5000, enabled: earthquakeMonitoring.enabled !== false, mode: earthquakeMonitoring.zone_mode === "all" ? "all" : "zone", alertMode: earthquakeMonitoring.alert_zone_mode === "all" ? "all" : "zone", hasAlert: true, desc: "Quakes inside this radius count as nearby for sensors and alerts.", thresholds: `
+        <div class="zone-card-row">
+          <label for="earthquake-min-magnitude">Min magnitude</label>
+          <div class="zone-card-radius">
+            <input type="number" id="earthquake-min-magnitude" min="0" max="10" step="0.1" value="${earthquakeMonitoring.min_magnitude ?? 2.5}"/>
+          </div>
+        </div>` },
+      { key: "lightning", label: "Lightning", icon: "lightning-bolt", color: "#ffee58", enabledId: "lightning-monitoring-enabled", radiusId: "lightning-geofield-radius-miles", radius: lightningMonitoring.geofield_radius_miles ?? 100, min: 1, max: 500, enabled: lightningMonitoring.enabled !== false, mode: lightningMonitoring.zone_mode === "all" ? "all" : "zone", alertMode: "zone", hasAlert: false, desc: "Live strikes inside this radius feed lightning sensors." },
+      { key: "volcano", label: "Volcano", icon: "volcano", color: "#ff7043", enabledId: "volcano-monitoring-enabled", radiusId: "volcano-radius-miles", radius: volcanoMonitoring.radius_miles ?? 500, min: 1, max: 5000, enabled: volcanoMonitoring.enabled !== false, mode: volcanoMonitoring.zone_mode === "all" ? "all" : "zone", alertMode: volcanoMonitoring.alert_zone_mode === "all" ? "all" : "zone", hasAlert: true, desc: "Active volcanoes inside this radius count as nearby for sensors and alerts.", thresholds: `
+        <div class="zone-card-row">
+          <label for="volcano-min-alert-level">Min activity level</label>
+          <select id="volcano-min-alert-level" class="zone-threshold-input">${volcanoLevelOptions(volcanoMonitoring.min_alert_level)}</select>
+        </div>` },
     ];
     const renderZoneCard = (z) => `
       <div class="zone-card ${z.enabled ? "" : "is-disabled"}" data-zone-card="${z.key}" style="--zone-color:${z.color}">
@@ -6409,14 +6574,25 @@ class HomeWeatherPanel extends HTMLElement {
             <span class="unit">mi</span>
           </div>
         </div>
+        ${z.thresholds || ""}
         <div class="zone-card-row">
           <label>Sensor scope</label>
-          <div class="zone-mode-seg" data-zone-mode-for="${z.key}" role="group" aria-label="${z.label} zone mode">
+          <div class="zone-mode-seg" data-zone-mode-for="${z.key}" role="group" aria-label="${z.label} sensor scope">
             <button type="button" data-mode="zone" class="${z.mode === "zone" ? "active" : ""}">Use zone</button>
-            <button type="button" data-mode="all" class="${z.mode === "all" ? "active" : ""}">Show all data</button>
+            <button type="button" data-mode="all" class="${z.mode === "all" ? "active" : ""}">Bypass</button>
           </div>
         </div>
-        <div class="zone-card-note" style="${z.mode === "all" ? "" : "display:none"}">Zone bypassed — sensors report all ${z.label.toLowerCase()} data regardless of distance.</div>
+        <div class="zone-card-note" data-zone-note-for="${z.key}" style="${z.mode === "all" ? "" : "display:none"}">Zone bypassed — sensors report all ${z.label.toLowerCase()} data regardless of distance.</div>
+        ${z.hasAlert ? `
+        <div class="zone-card-row">
+          <label>Alert scope</label>
+          <div class="zone-mode-seg" data-alert-mode-for="${z.key}" role="group" aria-label="${z.label} alert scope">
+            <button type="button" data-mode="zone" class="${z.alertMode === "zone" ? "active" : ""}">Use zone</button>
+            <button type="button" data-mode="all" class="${z.alertMode === "all" ? "active" : ""}">Bypass</button>
+          </div>
+        </div>
+        <div class="zone-card-note" data-alert-note-for="${z.key}" style="${z.alertMode === "all" ? "" : "display:none"}">Zone bypassed — spoken alerts fire for all ${z.label.toLowerCase()} activity regardless of distance and thresholds.</div>
+        ` : ""}
       </div>`;
 
     return `
@@ -6469,35 +6645,17 @@ class HomeWeatherPanel extends HTMLElement {
             <section class="settings-pane ${activePane === "monitoring" ? "active" : ""}" data-settings-pane="monitoring">
               <div class="settings-pane-head">
                 <div class="settings-pane-title">Hazard Monitoring</div>
-                <div class="settings-pane-sub">Data-quality filters per hazard. Zone radius and enable/bypass switches live in <strong>Alert Zones</strong>; spoken alert thresholds live in <strong>Announcements</strong>.</div>
+                <div class="settings-pane-sub">Data-source and map-quality filters per hazard. Zone radius, thresholds, and sensor/alert scope live in <strong>Alert Zones</strong>; spoken alert sounds and behavior live in <strong>Announcements</strong>.</div>
               </div>
-              ${renderMonitoringCard("Hurricane", "Threat threshold for sensor tracking", `
-                <p class="form-hint">Detail sensors show values only when a storm is inside your hurricane zone; empty means nothing nearby under current thresholds.</p>
-                <div class="form-group">
-                  <label>Min threat level (sensors)</label>
-                  <select id="hurricane-monitoring-min-threat">
-                    <option value="none" ${hurricaneMonitoring.min_threat_level === "none" ? "selected" : ""}>None</option>
-                    <option value="monitor" ${hurricaneMonitoring.min_threat_level === "monitor" ? "selected" : ""}>Monitor</option>
-                    <option value="watch" ${hurricaneMonitoring.min_threat_level === "watch" ? "selected" : ""}>Watch</option>
-                    <option value="high" ${hurricaneMonitoring.min_threat_level === "high" ? "selected" : ""}>High</option>
-                  </select>
-                </div>
-              `)}
-              ${renderMonitoringCard("Tornado", "Warning polygon matching and NWS zone", `
-                ${renderToggle("tornado-monitoring-only-home", tornadoMonitoring.only_affecting_home !== false, "Only trigger when polygon includes home")}
-                <p class="form-hint">When enabled, sensors only trigger if the warning polygon actually covers your home; otherwise the tornado zone radius applies.</p>
+              ${renderMonitoringCard("Tornado", "NWS forecast zone", `
                 <div class="form-group">
                   <label>NWS Zone ID (optional)</label>
                   <input type="text" id="nws-zone" placeholder="e.g. NYZ072" value="${(this._settings.nws_zone || "").replace(/"/g, "&quot;")}"/>
-                  <p class="form-hint">When set, tornado warnings are fetched for this specific NWS zone. Leave blank to use your home location.</p>
+                  <p class="form-hint">When set, tornado warnings are fetched for this specific NWS zone. Leave blank to use your home location. Polygon matching and zone radius live in <strong>Alert Zones</strong>.</p>
                 </div>
               `)}
-              ${renderMonitoringCard("Earthquake", "USGS feeds and magnitude thresholds", `
-                <p class="form-hint">Nearby alerts and sensors use the real-time USGS feed within your earthquake zone. The hazard map shows worldwide seismic activity from a separate feed.</p>
-                <div class="form-group">
-                  <label>Nearby min magnitude</label>
-                  <input type="number" id="earthquake-min-magnitude" min="0" max="10" step="0.1" value="${earthquakeMonitoring.min_magnitude}"/>
-                </div>
+              ${renderMonitoringCard("Earthquake", "USGS feeds and map display", `
+                <p class="form-hint">Nearby alerts and sensors use the real-time USGS feed within your earthquake zone. Magnitude and radius live in <strong>Alert Zones</strong>. The hazard map shows worldwide seismic activity from a separate feed.</p>
                 <div class="form-group">
                   <label>Nearby alert feed (USGS real-time)</label>
                   <select id="earthquake-feed-type">
@@ -6539,15 +6697,7 @@ class HomeWeatherPanel extends HTMLElement {
                 </div>
               `)}
               ${renderMonitoringCard("Volcano", "Worldwide activity from GVP, GDACS, and USGS", `
-                <p class="form-hint">Sensors track active volcanoes at or above the level below inside your volcano zone (from <strong>Alert Zones</strong>). Sources: Smithsonian GVP catalog, GDACS live alerts, and USGS HANS.</p>
-                <div class="form-group">
-                  <label>Min activity level (sensors)</label>
-                  <select id="volcano-min-alert-level">
-                    <option value="advisory" ${volcanoMonitoring.min_alert_level === "advisory" ? "selected" : ""}>Advisory</option>
-                    <option value="watch" ${volcanoMonitoring.min_alert_level === "watch" ? "selected" : ""}>Watch</option>
-                    <option value="warning" ${volcanoMonitoring.min_alert_level === "warning" ? "selected" : ""}>Warning</option>
-                  </select>
-                </div>
+                <p class="form-hint">Sensors track active volcanoes inside your volcano zone using the min activity level set in <strong>Alert Zones</strong>. Sources: Smithsonian GVP catalog, GDACS live alerts, and USGS HANS.</p>
                 ${renderToggle("volcano-map-show-all", volcanoMonitoring.map_show_all_volcanoes !== false, "Show all worldwide volcanoes on hazard map")}
                 <p class="form-hint">Active volcanoes always appear on the map with pulsing markers and affected-area rings; this toggle controls the dormant catalog layer.</p>
               `)}
@@ -6747,22 +6897,7 @@ class HomeWeatherPanel extends HTMLElement {
               ${renderToggle("tropical-announce-new-storm", tropicalAlerts.announce_new_storm !== false, "New nearby hurricane detected")}
               ${renderToggle("tropical-announce-outlook", tropicalAlerts.announce_outlook_development !== false, "Outlook development")}
             </div>
-            <div class="subsection-title">Alert Thresholds</div>
-            <div class="form-row-inline">
-              <div class="form-group">
-                <label>Min Threat Level</label>
-                <select id="tropical-alerts-min-threat">
-                  <option value="none" ${tropicalAlerts.min_threat_level === "none" ? "selected" : ""}>None</option>
-                  <option value="monitor" ${tropicalAlerts.min_threat_level === "monitor" ? "selected" : ""}>Monitor</option>
-                  <option value="watch" ${tropicalAlerts.min_threat_level === "watch" ? "selected" : ""}>Watch</option>
-                  <option value="high" ${tropicalAlerts.min_threat_level === "high" ? "selected" : ""}>High</option>
-                </select>
-              </div>
-              <div class="form-group">
-                <label>Outlook Min Probability</label>
-                <input type="number" id="tropical-alerts-outlook-prob" min="0" max="100" value="${tropicalAlerts.outlook_min_probability}"/>
-              </div>
-            </div>
+            <p class="form-hint">Threat level, outlook probability, distance, and alert scope are set on the Hurricane card in <strong>Alert Zones</strong>.</p>
             <div class="form-actions-row">
               <button type="button" class="test-tts-btn" id="test-tropical-btn">Test alert</button>
             </div>
@@ -6813,16 +6948,7 @@ class HomeWeatherPanel extends HTMLElement {
                 ${renderSlider("earthquake-alerts-tts-volume", earthquakeAlerts.tts_volume, 0, 1, 0.05, "%")}
               </div>
             </div>
-            <div class="form-row-inline">
-              <div class="form-group">
-                <label>Min Magnitude</label>
-                <input type="number" id="earthquake-alerts-min-magnitude" min="0" max="10" step="0.1" value="${earthquakeAlerts.min_magnitude}"/>
-              </div>
-              <div class="form-group">
-                <label>Max Distance (mi)</label>
-                <input type="number" id="earthquake-alerts-max-distance" min="1" max="5000" value="${earthquakeAlerts.max_distance_miles}"/>
-              </div>
-            </div>
+            <p class="form-hint">Minimum magnitude, distance, and alert scope are set on the Earthquake card in <strong>Alert Zones</strong>.</p>
             <div class="subsection-title">Behavior</div>
             <div class="toggle-group">
               ${renderToggle("earthquake-alerts-tsunami-priority", earthquakeAlerts.tsunami_priority !== false, "Always announce tsunami-flagged events")}
@@ -6852,14 +6978,7 @@ class HomeWeatherPanel extends HTMLElement {
                 ${renderSlider("volcano-alerts-tts-volume", volcanoAlerts.tts_volume, 0, 1, 0.05, "%")}
               </div>
             </div>
-            <div class="form-group">
-              <label>Min Activity Level</label>
-              <select id="volcano-alerts-min-level">
-                <option value="advisory" ${volcanoAlerts.min_alert_level === "advisory" ? "selected" : ""}>Advisory</option>
-                <option value="watch" ${volcanoAlerts.min_alert_level === "watch" ? "selected" : ""}>Watch</option>
-                <option value="warning" ${volcanoAlerts.min_alert_level === "warning" ? "selected" : ""}>Warning</option>
-              </select>
-            </div>
+            <p class="form-hint">Minimum activity level, distance, and alert scope are set on the Volcano card in <strong>Alert Zones</strong>.</p>
             <div class="subsection-title">Behavior</div>
             <div class="toggle-group">
               ${renderToggle("volcano-alerts-announce-cleared", volcanoAlerts.announce_cleared === true, "Announce when activity clears")}
@@ -6996,6 +7115,8 @@ class HomeWeatherPanel extends HTMLElement {
           `, true, "enable-voice-satellite", tts.enable_voice_satellite)}
             </section>
 
+            ${this._renderAppearanceTab(activePane)}
+
             <section class="settings-pane ${activePane === "advanced" ? "active" : ""}" data-settings-pane="advanced">
               <div class="settings-pane-head">
                 <div class="settings-pane-title">Advanced</div>
@@ -7042,6 +7163,188 @@ class HomeWeatherPanel extends HTMLElement {
     `;
   }
 
+  // ---- Appearance / theme ----------------------------------------------
+
+  /** Base palette (all --hw-* tokens) for a theme mode. */
+  _themeBase(mode) {
+    if (mode === "light") {
+      return {
+        bg: "#f4f6f8", surface: "#ffffff", surface2: "#eef1f4", elevated: "#ffffff",
+        inputBg: "#ffffff", text: "#1a1c1e", muted: "#5b6470", disabled: "#9aa3ad",
+        accent: "#0277bd", accentHover: "#0288d1", accentDim: "rgba(2, 119, 189, 0.14)",
+        danger: "#d32f2f", warning: "#ed6c02", success: "#2e7d32",
+        border: "rgba(0, 0, 0, 0.10)", borderStrong: "rgba(0, 0, 0, 0.16)", hover: "rgba(0, 0, 0, 0.04)",
+        swatchBorder: "#c9d1da",
+      };
+    }
+    return {
+      bg: "#111111", surface: "#1c1c1c", surface2: "#161616", elevated: "#282828",
+      inputBg: "#282828", text: "#e1e1e1", muted: "#9b9b9b", disabled: "#6f6f6f",
+      accent: "#03a9f4", accentHover: "#29b6f6", accentDim: "rgba(3, 169, 244, 0.15)",
+      danger: "#f44336", warning: "#ff9800", success: "#4caf50",
+      border: "rgba(255, 255, 255, 0.08)", borderStrong: "rgba(255, 255, 255, 0.12)", hover: "rgba(255, 255, 255, 0.04)",
+      swatchBorder: "#333333",
+    };
+  }
+
+  /** Normalized appearance settings: { mode, overrides }. */
+  _getAppearance() {
+    const ap = this._settings?.appearance || {};
+    const mode = ap.mode === "light" ? "light" : "dark";
+    const overrides = ap.overrides && typeof ap.overrides === "object" ? { ...ap.overrides } : {};
+    return { mode, overrides };
+  }
+
+  /** Hex swatch value for a control key given a base palette. */
+  _themeSwatchHex(base, key) {
+    if (key === "border") return base.swatchBorder;
+    return base[key] || "#000000";
+  }
+
+  _hexToRgba(hex, alpha) {
+    const h = String(hex || "").replace("#", "");
+    const full = h.length === 3 ? h.split("").map((c) => c + c).join("") : h;
+    const int = parseInt(full, 16);
+    if (Number.isNaN(int) || full.length !== 6) return `rgba(3, 169, 244, ${alpha})`;
+    const r = (int >> 16) & 255, g = (int >> 8) & 255, b = int & 255;
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+
+  /** Lighten (positive) or darken (negative) a hex color by an amount. */
+  _shiftColor(hex, amt) {
+    const h = String(hex || "").replace("#", "");
+    const full = h.length === 3 ? h.split("").map((c) => c + c).join("") : h;
+    const int = parseInt(full, 16);
+    if (Number.isNaN(int) || full.length !== 6) return hex;
+    const clamp = (v) => Math.max(0, Math.min(255, v));
+    const r = clamp(((int >> 16) & 255) + amt);
+    const g = clamp(((int >> 8) & 255) + amt);
+    const b = clamp((int & 255) + amt);
+    return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
+  }
+
+  /** Apply the active theme to the host as inline CSS variables (survives re-render). */
+  _applyTheme() {
+    const host = this;
+    if (!host || !host.style) return;
+    const { mode, overrides: ov } = this._getAppearance();
+    const base = this._themeBase(mode);
+    const t = { ...base };
+    if (ov.accent) {
+      t.accent = ov.accent;
+      t.accentHover = this._shiftColor(ov.accent, mode === "light" ? -14 : 18);
+      t.accentDim = this._hexToRgba(ov.accent, 0.15);
+    }
+    if (ov.bg) t.bg = ov.bg;
+    if (ov.surface) { t.surface = ov.surface; t.surface2 = ov.surface; t.elevated = ov.surface; t.inputBg = ov.surface; }
+    if (ov.text) t.text = ov.text;
+    if (ov.muted) { t.muted = ov.muted; t.disabled = ov.muted; }
+    if (ov.border) { t.border = ov.border; t.borderStrong = ov.border; }
+    if (ov.danger) t.danger = ov.danger;
+    if (ov.warning) t.warning = ov.warning;
+    if (ov.success) t.success = ov.success;
+    const set = (k, v) => host.style.setProperty(k, v);
+    set("--hw-bg", t.bg);
+    set("--hw-surface", t.surface);
+    set("--hw-surface-2", t.surface2);
+    set("--hw-elevated", t.elevated);
+    set("--hw-input-bg", t.inputBg);
+    set("--hw-text", t.text);
+    set("--hw-muted", t.muted);
+    set("--hw-disabled", t.disabled);
+    set("--hw-accent", t.accent);
+    set("--hw-accent-hover", t.accentHover);
+    set("--hw-accent-dim", t.accentDim);
+    set("--hw-danger", t.danger);
+    set("--hw-warning", t.warning);
+    set("--hw-success", t.success);
+    set("--hw-border", t.border);
+    set("--hw-border-strong", t.borderStrong);
+    set("--hw-hover", t.hover);
+    // Translucent header bar tuned to the current surface so the sticky topbar
+    // matches the theme (it otherwise falls back to a hardcoded dark rgba).
+    const headerBg = /^#/.test(t.surface) ? this._hexToRgba(t.surface, 0.78) : t.surface;
+    set("--app-header-background-color", headerBg);
+    host.setAttribute("data-hw-theme", mode);
+  }
+
+  /** Collect appearance from the form (mode from control; overrides tracked live). */
+  _collectAppearanceSettings() {
+    const s = this.shadowRoot;
+    const current = this._getAppearance();
+    const activeMode = s?.querySelector(".theme-mode-seg button.active")?.dataset.themeMode;
+    return {
+      mode: activeMode === "light" ? "light" : activeMode === "dark" ? "dark" : current.mode,
+      overrides: current.overrides,
+    };
+  }
+
+  _renderAppearanceTab(activePane) {
+    const { mode, overrides } = this._getAppearance();
+    const base = this._themeBase(mode);
+    const swatches = [
+      { key: "accent", label: "Accent", hint: "Buttons, links, highlights" },
+      { key: "bg", label: "Background", hint: "App backdrop" },
+      { key: "surface", label: "Cards / surfaces", hint: "Panels, inputs, menus" },
+      { key: "text", label: "Text", hint: "Primary text" },
+      { key: "muted", label: "Secondary text", hint: "Hints and labels" },
+      { key: "border", label: "Borders", hint: "Dividers and outlines" },
+      { key: "danger", label: "Danger", hint: "Errors and warnings" },
+      { key: "warning", label: "Warning", hint: "Cautions" },
+      { key: "success", label: "Success", hint: "Confirmations" },
+    ];
+    const swatchRow = (sw) => {
+      const val = overrides[sw.key] || this._themeSwatchHex(base, sw.key);
+      const isOn = !!overrides[sw.key];
+      return `
+        <div class="theme-swatch-row ${isOn ? "is-overridden" : ""}">
+          <div class="theme-swatch-info">
+            <span class="theme-swatch-label">${sw.label}</span>
+            <span class="theme-swatch-hint">${sw.hint}</span>
+          </div>
+          <label class="theme-swatch">
+            <input type="color" data-theme-token="${sw.key}" value="${val}" aria-label="${sw.label} color"/>
+            <span class="theme-swatch-dot" style="background:${val}"></span>
+          </label>
+        </div>`;
+    };
+    return `
+      <section class="settings-pane ${activePane === "appearance" ? "active" : ""}" data-settings-pane="appearance">
+        <div class="settings-pane-head">
+          <div class="settings-pane-title">Appearance</div>
+          <div class="settings-pane-sub">Choose a base theme and fine-tune individual colors. Changes preview instantly; Save to keep them.</div>
+        </div>
+        <div class="settings-card">
+          <div class="settings-card-title">Theme</div>
+          <div class="theme-mode-block">
+            <div class="theme-mode-seg" role="group" aria-label="Theme mode">
+              <button type="button" data-theme-mode="dark" class="${mode === "dark" ? "active" : ""}">
+                <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M12 3a9 9 0 109 9c0-.46-.04-.92-.1-1.36a5.39 5.39 0 01-4.4 2.26 5.4 5.4 0 01-5.4-5.4c0-1.81.9-3.42 2.26-4.4A9.1 9.1 0 0012 3z"/></svg>
+                <span>Dark</span>
+              </button>
+              <button type="button" data-theme-mode="light" class="${mode === "light" ? "active" : ""}">
+                <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M12 7a5 5 0 100 10 5 5 0 000-10zm0-5v3m0 14v3M4.2 4.2l2.1 2.1m11.4 11.4l2.1 2.1M2 12h3m14 0h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg>
+                <span>Light</span>
+              </button>
+            </div>
+            <p class="form-hint" style="margin:0;">Panel-wide base palette. The default is Dark.</p>
+          </div>
+        </div>
+        <div class="settings-card">
+          <div class="settings-card-header">
+            <div>
+              <div class="settings-card-title">Colors</div>
+              <div class="settings-card-sub">Override any element. Untouched colors follow the base theme.</div>
+            </div>
+            <button type="button" class="btn btn-secondary btn-sm" id="theme-reset-btn">Reset to defaults</button>
+          </div>
+          <div class="theme-swatch-grid">
+            ${swatches.map(swatchRow).join("")}
+          </div>
+        </div>
+      </section>`;
+  }
+
   _syncSettingsFromForm() {
     if (this._currentView !== "settings") return;
     const s = this.shadowRoot;
@@ -7067,6 +7370,7 @@ class HomeWeatherPanel extends HTMLElement {
     this._settings.volcano_monitoring = this._collectVolcanoMonitoringSettings();
     this._settings.earthquakes = { ...this._settings.earthquake_monitoring };
     this._settings.lightning = this._collectLightningSettings();
+    this._settings.appearance = this._collectAppearanceSettings();
 
     const messagePrefix = s.getElementById("message-prefix");
     if (messagePrefix) this._settings.message_prefix = messagePrefix.value || "Weather update";
@@ -7189,30 +7493,24 @@ class HomeWeatherPanel extends HTMLElement {
     const s = this.shadowRoot;
     const defaults = {
       enabled: false, sound_file: "", sound_volume: 0.8, tts_volume: 0.9,
-      min_threat_level: "watch", max_distance_miles: 500,
       announce_inside_cone: true, announce_threat_escalation: true,
-      announce_new_storm: true, announce_outlook_development: true, outlook_min_probability: 40,
+      announce_new_storm: true, announce_outlook_development: true,
     };
-    if (!s) return defaults;
+    if (!s) return { ...(this._settings.tropical_alerts || {}), ...defaults };
     const getVal = (id, def) => (s.getElementById(id)?.value ?? def);
     const getChecked = (id) => !!s.getElementById(id)?.checked;
-    const levels = ["none", "monitor", "watch", "high"];
-    const minThreat = getVal("tropical-alerts-min-threat", defaults.min_threat_level);
-    // Distance follows the hurricane zone (single source of truth in Alert Zones).
-    const existing = this._settings.tropical_alerts || {};
-    const zoneDistance = parseInt(getVal("hurricane-monitoring-max-distance", String(existing.max_distance_miles ?? defaults.max_distance_miles)), 10);
+    // Threat level, outlook probability, distance, and alert scope live in
+    // hurricane_monitoring (Alert Zones tab) — TTS block is TTS-only.
     return {
+      ...(this._settings.tropical_alerts || {}),
       enabled: getChecked("tropical-alerts-enabled"),
       sound_file: (getVal("tropical-alerts-sound-file", "") || "").trim(),
       sound_volume: Math.min(1, Math.max(0, parseFloat(getVal("tropical-alerts-sound-volume", "0.8")))),
       tts_volume: Math.min(1, Math.max(0, parseFloat(getVal("tropical-alerts-tts-volume", "0.9")))),
-      min_threat_level: levels.includes(minThreat) ? minThreat : defaults.min_threat_level,
-      max_distance_miles: Math.min(5000, Math.max(1, zoneDistance || defaults.max_distance_miles)),
       announce_inside_cone: getChecked("tropical-announce-cone"),
       announce_threat_escalation: getChecked("tropical-announce-escalation"),
       announce_new_storm: getChecked("tropical-announce-new-storm"),
       announce_outlook_development: getChecked("tropical-announce-outlook"),
-      outlook_min_probability: Math.min(100, Math.max(0, parseInt(getVal("tropical-alerts-outlook-prob", String(defaults.outlook_min_probability)), 10) || defaults.outlook_min_probability)),
     };
   }
 
@@ -7220,23 +7518,18 @@ class HomeWeatherPanel extends HTMLElement {
     const s = this.shadowRoot;
     const defaults = {
       enabled: false, sound_file: "", sound_volume: 0.8, tts_volume: 0.9,
-      only_affecting_home: true, max_distance_miles: 25, announce_cleared: false,
+      announce_cleared: false,
     };
-    if (!s) return defaults;
+    if (!s) return { ...(this._settings.tornado_alerts || {}), ...defaults };
     const getVal = (id, def) => (s.getElementById(id)?.value ?? def);
     const getChecked = (id) => !!s.getElementById(id)?.checked;
-    // Geofield options follow the tornado zone + monitoring settings
-    // (single source of truth in Alert Zones / Hazard Monitoring).
-    const existing = this._settings.tornado_alerts || {};
-    const zoneDistance = parseInt(getVal("tornado-monitoring-max-distance", String(existing.max_distance_miles ?? defaults.max_distance_miles)), 10);
-    const onlyHomeEl = s.getElementById("tornado-monitoring-only-home");
+    // Distance, polygon matching, and alert scope live in tornado_monitoring.
     return {
+      ...(this._settings.tornado_alerts || {}),
       enabled: getChecked("tornado-alerts-enabled"),
       sound_file: (getVal("tornado-alerts-sound-file", "") || "").trim(),
       sound_volume: Math.min(1, Math.max(0, parseFloat(getVal("tornado-alerts-sound-volume", "0.8")))),
       tts_volume: Math.min(1, Math.max(0, parseFloat(getVal("tornado-alerts-tts-volume", "0.9")))),
-      only_affecting_home: onlyHomeEl ? !!onlyHomeEl.checked : (existing.only_affecting_home !== false),
-      max_distance_miles: Math.min(500, Math.max(1, zoneDistance || defaults.max_distance_miles)),
       announce_cleared: getChecked("tornado-announce-cleared"),
     };
   }
@@ -7245,19 +7538,18 @@ class HomeWeatherPanel extends HTMLElement {
     const s = this.shadowRoot;
     const defaults = {
       enabled: false, sound_file: "", sound_volume: 0.8, tts_volume: 0.9,
-      min_magnitude: 4.0, max_distance_miles: 100, tsunami_priority: true,
-      announce_updated: false, announce_cleared: false,
+      tsunami_priority: true, announce_updated: false, announce_cleared: false,
     };
-    if (!s) return defaults;
+    if (!s) return { ...(this._settings.earthquake_alerts || {}), ...defaults };
     const getVal = (id, def) => (s.getElementById(id)?.value ?? def);
     const getChecked = (id) => !!s.getElementById(id)?.checked;
+    // Magnitude, distance, and alert scope live in earthquake_monitoring.
     return {
+      ...(this._settings.earthquake_alerts || {}),
       enabled: getChecked("earthquake-alerts-enabled"),
       sound_file: (getVal("earthquake-alerts-sound-file", "") || "").trim(),
       sound_volume: Math.min(1, Math.max(0, parseFloat(getVal("earthquake-alerts-sound-volume", "0.8")))),
       tts_volume: Math.min(1, Math.max(0, parseFloat(getVal("earthquake-alerts-tts-volume", "0.9")))),
-      min_magnitude: Math.min(10, Math.max(0, parseFloat(getVal("earthquake-alerts-min-magnitude", String(defaults.min_magnitude))) || defaults.min_magnitude)),
-      max_distance_miles: Math.min(5000, Math.max(1, parseInt(getVal("earthquake-alerts-max-distance", String(defaults.max_distance_miles)), 10) || defaults.max_distance_miles)),
       tsunami_priority: getChecked("earthquake-alerts-tsunami-priority"),
       announce_updated: getChecked("earthquake-alerts-announce-updated"),
       announce_cleared: getChecked("earthquake-alerts-announce-cleared"),
@@ -7272,10 +7564,18 @@ class HomeWeatherPanel extends HTMLElement {
     return activeBtn.dataset.mode === "all" ? "all" : "zone";
   }
 
+  /** Read the Alert scope (zone/bypass) segmented switch for a hazard. */
+  _getAlertZoneModeFromForm(hazardKey, fallback = "zone") {
+    const s = this.shadowRoot;
+    const activeBtn = s?.querySelector(`.zone-mode-seg[data-alert-mode-for="${hazardKey}"] button.active`);
+    if (!activeBtn) return fallback;
+    return activeBtn.dataset.mode === "all" ? "all" : "zone";
+  }
+
   _collectHurricaneMonitoringSettings() {
     const s = this.shadowRoot;
     const existing = this._settings.hurricane_monitoring || {};
-    const defaults = { enabled: true, zone_mode: "zone", max_distance_miles: 500, min_threat_level: "monitor" };
+    const defaults = { enabled: true, zone_mode: "zone", alert_zone_mode: "zone", max_distance_miles: 500, min_threat_level: "monitor", outlook_min_probability: 40 };
     if (!s) return { ...defaults, ...existing };
     const getVal = (id, def) => (s.getElementById(id)?.value ?? def);
     const getChecked = (id) => !!s.getElementById(id)?.checked;
@@ -7285,15 +7585,17 @@ class HomeWeatherPanel extends HTMLElement {
       ...existing,
       enabled: getChecked("hurricane-monitoring-enabled"),
       zone_mode: this._getZoneModeFromForm("hurricane", existing.zone_mode || "zone"),
+      alert_zone_mode: this._getAlertZoneModeFromForm("hurricane", existing.alert_zone_mode || "zone"),
       min_threat_level: levels.includes(minThreat) ? minThreat : defaults.min_threat_level,
       max_distance_miles: Math.min(5000, Math.max(1, parseInt(getVal("hurricane-monitoring-max-distance", String(existing.max_distance_miles ?? defaults.max_distance_miles)), 10) || defaults.max_distance_miles)),
+      outlook_min_probability: Math.min(100, Math.max(0, parseInt(getVal("hurricane-monitoring-outlook-prob", String(existing.outlook_min_probability ?? defaults.outlook_min_probability)), 10) || defaults.outlook_min_probability)),
     };
   }
 
   _collectTornadoMonitoringSettings() {
     const s = this.shadowRoot;
     const existing = this._settings.tornado_monitoring || {};
-    const defaults = { enabled: true, zone_mode: "zone", only_affecting_home: true, max_distance_miles: 25 };
+    const defaults = { enabled: true, zone_mode: "zone", alert_zone_mode: "zone", only_affecting_home: true, max_distance_miles: 25 };
     if (!s) return { ...defaults, ...existing };
     const getVal = (id, def) => (s.getElementById(id)?.value ?? def);
     const getChecked = (id) => !!s.getElementById(id)?.checked;
@@ -7301,6 +7603,7 @@ class HomeWeatherPanel extends HTMLElement {
       ...existing,
       enabled: getChecked("tornado-monitoring-enabled"),
       zone_mode: this._getZoneModeFromForm("tornado", existing.zone_mode || "zone"),
+      alert_zone_mode: this._getAlertZoneModeFromForm("tornado", existing.alert_zone_mode || "zone"),
       only_affecting_home: getChecked("tornado-monitoring-only-home"),
       max_distance_miles: Math.min(500, Math.max(1, parseInt(getVal("tornado-monitoring-max-distance", String(existing.max_distance_miles ?? defaults.max_distance_miles)), 10) || defaults.max_distance_miles)),
     };
@@ -7312,6 +7615,7 @@ class HomeWeatherPanel extends HTMLElement {
     const defaults = {
       enabled: true,
       zone_mode: "zone",
+      alert_zone_mode: "zone",
       min_magnitude: 2.5,
       radius_miles: 500,
       feed_type: "all_hour",
@@ -7330,6 +7634,7 @@ class HomeWeatherPanel extends HTMLElement {
       ...existing,
       enabled: getChecked("earthquake-monitoring-enabled"),
       zone_mode: this._getZoneModeFromForm("earthquake", existing.zone_mode || "zone"),
+      alert_zone_mode: this._getAlertZoneModeFromForm("earthquake", existing.alert_zone_mode || "zone"),
       min_magnitude: Math.min(10, Math.max(0, parseFloat(getVal("earthquake-min-magnitude", String(defaults.min_magnitude))) || defaults.min_magnitude)),
       radius_miles: Math.min(5000, Math.max(1, parseInt(getVal("earthquake-radius-miles", String(existing.radius_miles ?? defaults.radius_miles)), 10) || defaults.radius_miles)),
       feed_type: validFeeds.includes(feedType) ? feedType : defaults.feed_type,
@@ -7362,20 +7667,18 @@ class HomeWeatherPanel extends HTMLElement {
     const s = this.shadowRoot;
     const defaults = {
       enabled: false, sound_file: "", sound_volume: 0.8, tts_volume: 0.9,
-      min_alert_level: "watch", announce_cleared: false,
+      announce_cleared: false,
     };
-    if (!s) return { ...defaults, ...(this._settings.volcano_alerts || {}) };
+    if (!s) return { ...(this._settings.volcano_alerts || {}), ...defaults };
     const getVal = (id, def) => (s.getElementById(id)?.value ?? def);
     const getChecked = (id) => !!s.getElementById(id)?.checked;
-    const levels = ["advisory", "watch", "warning"];
-    const minLevel = getVal("volcano-alerts-min-level", defaults.min_alert_level);
+    // Min activity level, distance, and alert scope live in volcano_monitoring.
     return {
       ...(this._settings.volcano_alerts || {}),
       enabled: getChecked("volcano-alerts-enabled"),
       sound_file: (getVal("volcano-alerts-sound-file", "") || "").trim(),
       sound_volume: Math.min(1, Math.max(0, parseFloat(getVal("volcano-alerts-sound-volume", "0.8")))),
       tts_volume: Math.min(1, Math.max(0, parseFloat(getVal("volcano-alerts-tts-volume", "0.9")))),
-      min_alert_level: levels.includes(minLevel) ? minLevel : defaults.min_alert_level,
       announce_cleared: getChecked("volcano-alerts-announce-cleared"),
     };
   }
@@ -7383,7 +7686,7 @@ class HomeWeatherPanel extends HTMLElement {
   _collectVolcanoMonitoringSettings() {
     const s = this.shadowRoot;
     const existing = this._settings.volcano_monitoring || {};
-    const defaults = { enabled: true, zone_mode: "zone", radius_miles: 500, min_alert_level: "advisory", map_show_all_volcanoes: true };
+    const defaults = { enabled: true, zone_mode: "zone", alert_zone_mode: "zone", radius_miles: 500, min_alert_level: "advisory", map_show_all_volcanoes: true };
     if (!s) return { ...defaults, ...existing };
     const getVal = (id, def) => (s.getElementById(id)?.value ?? def);
     const getChecked = (id) => !!s.getElementById(id)?.checked;
@@ -7393,6 +7696,7 @@ class HomeWeatherPanel extends HTMLElement {
       ...existing,
       enabled: getChecked("volcano-monitoring-enabled"),
       zone_mode: this._getZoneModeFromForm("volcano", existing.zone_mode || "zone"),
+      alert_zone_mode: this._getAlertZoneModeFromForm("volcano", existing.alert_zone_mode || "zone"),
       radius_miles: Math.min(5000, Math.max(1, parseInt(getVal("volcano-radius-miles", String(existing.radius_miles ?? defaults.radius_miles)), 10) || defaults.radius_miles)),
       min_alert_level: levels.includes(minLevel) ? minLevel : defaults.min_alert_level,
       map_show_all_volcanoes: getChecked("volcano-map-show-all"),

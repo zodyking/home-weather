@@ -1546,11 +1546,28 @@ class TTSTriggerManager:
             _LOGGER.warning("Tropical alerts fetch failed: %s", err)
             return
 
+        # Thresholds (min threat, distance, outlook probability) and the alert
+        # scope live in hurricane_monitoring (Alert Zones). The tropical_alerts
+        # block only carries the announce toggles.
+        monitoring = config.get("hurricane_monitoring") or {}
+        alert_mode = str(
+            monitoring.get("alert_zone_mode", monitoring.get("zone_mode", "zone"))
+        ).lower()
+        effective_tropical = dict(tropical)
+        if alert_mode == "all":
+            effective_tropical["min_threat_level"] = "none"
+            effective_tropical["max_distance_miles"] = float("inf")
+            effective_tropical["outlook_min_probability"] = 0
+        else:
+            effective_tropical["min_threat_level"] = monitoring.get("min_threat_level", "monitor")
+            effective_tropical["max_distance_miles"] = float(monitoring.get("max_distance_miles", 500))
+            effective_tropical["outlook_min_probability"] = int(monitoring.get("outlook_min_probability", 40))
+
         bootstrap = not self._tropical_bootstrapped
         events = detect_tropical_tts_events(
             self._tropical_snapshot,
             payload,
-            tropical,
+            effective_tropical,
             bootstrap=bootstrap,
         )
         self._tropical_snapshot = build_tropical_tts_snapshot(payload)
@@ -1608,7 +1625,8 @@ class TTSTriggerManager:
         if not media_players:
             return
         payload = dict(event.data or {})
-        if not passes_tornado_tts_filter(payload, tornado, cleared=cleared):
+        monitoring = config.get("tornado_monitoring") or {}
+        if not passes_tornado_tts_filter(payload, tornado, monitoring, cleared=cleared):
             return
         msg = format_tornado_warning_for_tts(payload, cleared=cleared)
         await play_hazard_alert_notification(
@@ -1655,7 +1673,8 @@ class TTSTriggerManager:
         if not media_players:
             return
         payload = dict(event.data or {})
-        if not passes_earthquake_tts_filter(payload, eq_cfg, event_type):
+        monitoring = config.get("earthquake_monitoring") or {}
+        if not passes_earthquake_tts_filter(payload, eq_cfg, event_type, monitoring):
             return
         cleared = event_type == "home_weather_earthquake_cleared"
         updated = event_type == "home_weather_earthquake_updated"
@@ -1704,7 +1723,8 @@ class TTSTriggerManager:
         if not media_players:
             return
         payload = dict(event.data or {})
-        if not passes_volcano_tts_filter(payload, volcano_cfg, event_type):
+        monitoring = config.get("volcano_monitoring") or {}
+        if not passes_volcano_tts_filter(payload, volcano_cfg, event_type, monitoring):
             return
         cleared = event_type == "home_weather_volcano_activity_cleared"
         updated = event_type == "home_weather_volcano_activity_updated"

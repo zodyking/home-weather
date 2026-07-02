@@ -72,3 +72,47 @@ def test_migration_merges_all_default_keys():
     merged = migrate_config({})
     for key in DEFAULT_CONFIG:
         assert key in merged
+
+
+def test_migration_seeds_alert_thresholds_into_monitoring():
+    """Legacy per-alert thresholds move into the monitoring blocks."""
+    raw = {
+        "earthquake_monitoring": {"enabled": True},
+        "earthquake_alerts": {"min_magnitude": 5.5},
+        "volcano_monitoring": {"enabled": True},
+        "volcano_alerts": {"min_alert_level": "warning"},
+        "hurricane_monitoring": {"enabled": True},
+        "tropical_alerts": {"outlook_min_probability": 70},
+    }
+    merged = migrate_config(raw)
+    assert merged["earthquake_monitoring"]["min_magnitude"] == 5.5
+    assert merged["volcano_monitoring"]["min_alert_level"] == "warning"
+    assert merged["hurricane_monitoring"]["outlook_min_probability"] == 70
+
+
+def test_migration_defaults_alert_zone_mode_from_zone_mode():
+    raw = {
+        "earthquake_monitoring": {"enabled": True, "zone_mode": "all"},
+        "volcano_monitoring": {"enabled": True},
+    }
+    merged = migrate_config(raw)
+    # Adopts the sensor zone_mode when alert_zone_mode is absent.
+    assert merged["earthquake_monitoring"]["alert_zone_mode"] == "all"
+    assert merged["volcano_monitoring"]["alert_zone_mode"] == "zone"
+
+
+def test_migration_preserves_explicit_alert_zone_mode():
+    raw = {
+        "earthquake_monitoring": {"enabled": True, "zone_mode": "zone", "alert_zone_mode": "all"},
+    }
+    merged = migrate_config(raw)
+    assert merged["earthquake_monitoring"]["alert_zone_mode"] == "all"
+
+
+def test_migration_explicit_monitoring_threshold_wins_over_alert():
+    raw = {
+        "earthquake_monitoring": {"enabled": True, "min_magnitude": 2.0},
+        "earthquake_alerts": {"min_magnitude": 6.0},
+    }
+    merged = migrate_config(raw)
+    assert merged["earthquake_monitoring"]["min_magnitude"] == 2.0

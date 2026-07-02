@@ -235,3 +235,20 @@ def test_build_coordinator_payload_no_worldwide_fallback(monkeypatch):
     assert payload["in_geofield"] is False
     assert payload["primary_event"] is None
     assert payload["nearest_place"] is None
+
+
+def test_build_coordinator_payload_alert_events_default_to_events(monkeypatch):
+    _patch_map_today_filter(monkeypatch)
+    events = parse_earthquake_features([NEAR_EQ], HOME, DEFAULT_EQ_CONFIG)
+    payload = build_coordinator_payload(events)
+    assert payload["alert_events"] == events
+
+
+def test_build_coordinator_payload_alert_events_override(monkeypatch):
+    """When the alert scope bypasses the zone, alert_events carries the wider feed."""
+    _patch_map_today_filter(monkeypatch)
+    events = parse_earthquake_features([NEAR_EQ], HOME, DEFAULT_EQ_CONFIG)
+    alert_events = [parse_earthquake_feature(NEAR_EQ, HOME), parse_earthquake_feature(FAR_EQ, HOME)]
+    payload = build_coordinator_payload(events, None, alert_events)
+    assert len(payload["events"]) == 1
+    assert len(payload["alert_events"]) == 2
