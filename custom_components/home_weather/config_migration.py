@@ -25,6 +25,7 @@ def migrate_config(data: dict[str, Any]) -> dict[str, Any]:
 
     _migrate_monitoring_blocks(merged, data)
     _migrate_alert_thresholds_into_monitoring(merged, data)
+    _migrate_announcement_players(merged, data)
     return merged
 
 
@@ -121,3 +122,71 @@ def _migrate_alert_thresholds_into_monitoring(
         "air_quality_monitoring",
     ):
         _default_alert_mode(block_key)
+
+
+# All announcement type IDs for per-speaker volume/bypass settings
+_HAZARD_ALERT_TYPES = (
+    "nws_alerts",
+    "tropical_alerts",
+    "tornado_alerts",
+    "earthquake_alerts",
+    "volcano_alerts",
+    "wildfire_alerts",
+    "air_quality_alerts",
+    "travel_alerts",
+    "spacecraft_alerts",
+    "solar_weather_alerts",
+    "neo_alerts",
+)
+_WEATHER_ALERT_TYPES = (
+    "current_change",
+    "upcoming_change",
+    "scheduled_forecast",
+    "sun_alerts",
+)
+
+
+def _migrate_announcement_players(
+    merged: dict[str, Any], raw: dict[str, Any]
+) -> None:
+    """Seed announcement_players from legacy per-type volumes for existing installs.
+
+    When upgrading from a config without announcement_players, set each player's
+    volume per alert type from the legacy tts_volume (hazards) or the player's
+    default volume (weather types), with bypass=false so behavior is unchanged.
+    """
+    raw_ap = raw.get("announcement_players")
+    # Only seed if announcement_players was absent or empty in stored config
+    if raw_ap and isinstance(raw_ap, dict) and any(raw_ap.values()):
+        return
+
+    media_players = merged.get("media_players") or []
+    if not media_players:
+        return
+
+    announcement_players: dict[str, dict[str, dict[str, Any]]] = {}
+
+    # Hazard alert types: use the legacy tts_volume from each alert block
+    for type_id in _HAZARD_ALERT_TYPES:
+        alert_block = merged.get(type_id) or {}
+        tts_vol = alert_block.get("tts_volume", 0.9)
+        type_map: dict[str, dict[str, Any]] = {}
+        for mp in media_players:
+            entity_id = mp.get("entity_id")
+            if entity_id:
+                type_map[entity_id] = {"volume": tts_vol, "bypass": False}
+        if type_map:
+            announcement_players[type_id] = type_map
+
+    # Weather/sun alert types: use each player's own default volume
+    for type_id in _WEATHER_ALERT_TYPES:
+        type_map = {}
+        for mp in media_players:
+            entity_id = mp.get("entity_id")
+            if entity_id:
+                vol = mp.get("volume", 0.6)
+                type_map[entity_id] = {"volume": vol, "bypass": False}
+        if type_map:
+            announcement_players[type_id] = type_map
+
+    merged["announcement_players"] = announcement_players

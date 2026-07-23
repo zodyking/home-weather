@@ -292,6 +292,9 @@ class HomeWeatherPanel extends HTMLElement {
       if (!this._settings.tts) this._settings.tts = { enabled: false, language: "en", platform: null };
       if (!Array.isArray(this._settings.media_players)) this._settings.media_players = [];
       this._settings.media_players = this._normalizeMediaPlayers(this._settings.media_players);
+      if (!this._settings.announcement_players || typeof this._settings.announcement_players !== "object") {
+        this._settings.announcement_players = {};
+      }
       this._mapsLayers = this._normalizeMapLayers(this._mapsLayers);
       const lightningMon = this._settings?.lightning_monitoring || this._settings?.lightning || {};
       this._mapsLayers.lightning = lightningMon.show_on_map !== false;
@@ -775,7 +778,7 @@ class HomeWeatherPanel extends HTMLElement {
       if (this._saveStatusTimer) clearTimeout(this._saveStatusTimer);
       this._saveStatusTimer = setTimeout(() => {
         this._saveStatusTimer = null;
-        this._setSaveStatus("idle", "Changes save automatically");
+        this._setSaveStatus("idle", "");
       }, 2500);
     } catch (e) {
       // On failure, keep the user's edits in this._settings so nothing is lost
@@ -3732,6 +3735,81 @@ class HomeWeatherPanel extends HTMLElement {
           margin-bottom: var(--form-gap);
         }
         .form-row-inline .form-group { margin-bottom: 0; }
+        
+        /* Per-speaker playback controls */
+        .per-speaker-header {
+          display: grid;
+          grid-template-columns: 1fr 140px 60px;
+          gap: 8px;
+          padding: 6px 12px;
+          font-size: 11px;
+          font-weight: 600;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+          color: var(--hw-muted);
+          border-bottom: 1px solid var(--hw-border);
+          margin-bottom: 4px;
+        }
+        .per-speaker-header span:last-child { text-align: center; }
+        .per-speaker-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: var(--form-gap); }
+        .per-speaker-row {
+          display: grid;
+          grid-template-columns: 1fr auto;
+          gap: 8px;
+          align-items: center;
+          padding: 8px 12px;
+          background: var(--hw-overlay-subtle);
+          border-radius: 8px;
+        }
+        .per-speaker-name {
+          font-size: 13px;
+          font-weight: 500;
+          color: var(--primary-text-color);
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .per-speaker-controls {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .per-speaker-volume {
+          width: 80px;
+          height: 6px;
+          accent-color: var(--panel-accent);
+          cursor: pointer;
+        }
+        .per-speaker-volume:disabled {
+          opacity: 0.4;
+          cursor: not-allowed;
+        }
+        .per-speaker-volume-val {
+          font-size: 12px;
+          min-width: 36px;
+          text-align: right;
+          color: var(--hw-muted);
+        }
+        .per-speaker-bypass { margin: 0; }
+        .per-speaker-bypass-label {
+          font-size: 11px;
+          color: var(--hw-muted);
+        }
+        .per-speaker-empty {
+          padding: 16px;
+          text-align: center;
+          background: var(--hw-overlay-subtle);
+          border-radius: 8px;
+          margin-bottom: var(--form-gap);
+        }
+        .per-speaker-link {
+          display: block;
+          margin-top: 8px;
+          color: var(--panel-accent);
+          text-decoration: none;
+        }
+        .per-speaker-link:hover { text-decoration: underline; }
+        
         .settings-toggle-row,
         .inline-toggle {
           display: flex;
@@ -5417,6 +5495,31 @@ class HomeWeatherPanel extends HTMLElement {
     wireTestButton("test-solar-weather-siren-btn", "home_weather/test_solar_weather_siren", "Playing\u2026");
     wireTestButton("test-neo-alert-btn", "home_weather/test_neo_alert");
     wireTestButton("test-neo-siren-btn", "home_weather/test_neo_siren", "Playing\u2026");
+    
+    // Per-speaker volume/bypass controls - live updates
+    s.querySelectorAll(".per-speaker-volume").forEach((slider) => {
+      slider.addEventListener("input", (e) => {
+        const val = parseFloat(e.target.value);
+        const row = e.target.closest(".per-speaker-row");
+        const display = row?.querySelector(".per-speaker-volume-val");
+        if (display) display.textContent = `${Math.round(val * 100)}%`;
+      });
+    });
+    s.querySelectorAll(".per-speaker-bypass-input").forEach((chk) => {
+      chk.addEventListener("change", (e) => {
+        const row = e.target.closest(".per-speaker-row");
+        const slider = row?.querySelector(".per-speaker-volume");
+        if (slider) slider.disabled = e.target.checked;
+      });
+    });
+    // Per-speaker link to media players section
+    s.querySelectorAll(".per-speaker-link").forEach((link) => {
+      link.addEventListener("click", (e) => {
+        e.preventDefault();
+        const target = e.target.dataset.nav;
+        if (target) this._expandAndScrollToSection(target);
+      });
+    });
     
     // Add media player
     const addMediaBtn = s.getElementById("add-media-btn");
@@ -7246,6 +7349,64 @@ class HomeWeatherPanel extends HTMLElement {
       </div>
     `;
 
+    // Convert kebab-case prefix to snake_case type_id for announcement_players
+    const prefixToTypeId = (prefix) => prefix.replace(/-/g, "_");
+    
+    // Render per-speaker playback controls for an announcement type
+    const renderPerSpeakerSection = (typeId, defaultVolume = 0.9) => {
+      const mediaPlayers = this._settings.media_players || [];
+      const announcementPlayers = this._settings.announcement_players || {};
+      const typeOverrides = announcementPlayers[typeId] || {};
+      
+      if (mediaPlayers.length === 0) {
+        return `
+          <div class="per-speaker-empty">
+            <span class="hw-text-muted">No media players configured.</span>
+            <a href="#" class="per-speaker-link" data-nav="media-players-section">Configure in Media Players section</a>
+          </div>
+        `;
+      }
+      
+      return `
+        <div class="per-speaker-list" data-type-id="${typeId}">
+          ${mediaPlayers.map((mp) => {
+            const entityId = mp.entity_id || "";
+            const override = typeOverrides[entityId] || {};
+            const volume = override.volume !== undefined ? override.volume : defaultVolume;
+            const bypass = override.bypass || false;
+            const displayName = entityId.split(".").pop() || entityId;
+            
+            return `
+              <div class="per-speaker-row" data-entity-id="${entityId}">
+                <span class="per-speaker-name" title="${entityId}">${displayName}</span>
+                <div class="per-speaker-controls">
+                  <input type="range" 
+                         class="per-speaker-volume" 
+                         min="0" max="1" step="0.05" 
+                         value="${volume}"
+                         data-type-id="${typeId}"
+                         data-entity-id="${entityId}"
+                         ${bypass ? 'disabled' : ''}
+                  />
+                  <span class="per-speaker-volume-val">${Math.round(volume * 100)}%</span>
+                  <label class="toggle-switch per-speaker-bypass">
+                    <input type="checkbox" 
+                           class="per-speaker-bypass-input"
+                           data-type-id="${typeId}"
+                           data-entity-id="${entityId}"
+                           ${bypass ? 'checked' : ''}
+                    />
+                    <span class="toggle-slider"></span>
+                  </label>
+                  <span class="per-speaker-bypass-label">Skip</span>
+                </div>
+              </div>
+            `;
+          }).join("")}
+        </div>
+      `;
+    };
+    
     const renderAlertAudioSection = (prefix, alerts, {
       sirenBtnId,
       alertBtnId,
@@ -7253,33 +7414,35 @@ class HomeWeatherPanel extends HTMLElement {
       behaviorTitle = "",
       behaviorContent = "",
       afterBehaviorHtml = "",
-    }) => `
-      <div class="form-group">
-        <label>Alert Sound</label>
-        <select id="${prefix}-sound-file">
-          <option value="">None</option>
-          ${(this._wwwSounds || []).map((f) => `<option value="${f}" ${alerts.sound_file === f ? "selected" : ""}>${f}</option>`).join("")}
-        </select>
-      </div>
-      <div class="form-row-inline">
+    }) => {
+      const typeId = prefixToTypeId(prefix);
+      const defaultVol = alerts.tts_volume !== undefined ? alerts.tts_volume : 0.9;
+      
+      return `
         <div class="form-group">
-          <label>Siren Volume</label>
-          ${renderSlider(`${prefix}-sound-volume`, alerts.sound_volume, 0, 1, 0.05, "%")}
+          <label>Alert Sound</label>
+          <select id="${prefix}-sound-file">
+            <option value="">None</option>
+            ${(this._wwwSounds || []).map((f) => `<option value="${f}" ${alerts.sound_file === f ? "selected" : ""}>${f}</option>`).join("")}
+          </select>
         </div>
-        <div class="form-group">
-          <label>TTS Volume</label>
-          ${renderSlider(`${prefix}-tts-volume`, alerts.tts_volume, 0, 1, 0.05, "%")}
+        <div class="subsection-title">Per-speaker playback</div>
+        <div class="per-speaker-header">
+          <span>Speaker</span>
+          <span>Volume</span>
+          <span>Skip</span>
         </div>
-      </div>
-      ${hintHtml}
-      ${behaviorTitle ? `<div class="subsection-title">${behaviorTitle}</div>` : ""}
-      ${behaviorContent ? `<div class="toggle-group">${behaviorContent}</div>` : ""}
-      ${afterBehaviorHtml}
-      <div class="form-actions-row">
-        <button type="button" class="test-tts-btn btn-secondary-test" id="${sirenBtnId}">Test siren</button>
-        <button type="button" class="test-tts-btn" id="${alertBtnId}">Test alert</button>
-      </div>
-    `;
+        ${renderPerSpeakerSection(typeId, defaultVol)}
+        ${hintHtml}
+        ${behaviorTitle ? `<div class="subsection-title">${behaviorTitle}</div>` : ""}
+        ${behaviorContent ? `<div class="toggle-group">${behaviorContent}</div>` : ""}
+        ${afterBehaviorHtml}
+        <div class="form-actions-row">
+          <button type="button" class="test-tts-btn btn-secondary-test" id="${sirenBtnId}">Test siren</button>
+          <button type="button" class="test-tts-btn" id="${alertBtnId}">Test alert</button>
+        </div>
+      `;
+    };
     
     const renderCollapsible = (id, title, subtitle, content, hasToggle = false, toggleId = "", toggleChecked = false, toggleAttrs = "", sectionClass = "", sectionStyle = "") => `
       <div class="collapsible-section ${this._expandedSections.has(id) ? "open" : ""} ${sectionClass}" data-section-id="${id}"${sectionStyle ? ` style="${sectionStyle}"` : ""}>
@@ -7861,6 +8024,13 @@ class HomeWeatherPanel extends HTMLElement {
                 `).join("")}
               </div>
             </div>
+            <div class="subsection-title">Per-speaker playback</div>
+            <div class="per-speaker-header">
+              <span>Speaker</span>
+              <span>Volume</span>
+              <span>Skip</span>
+            </div>
+            ${renderPerSpeakerSection("scheduled_forecast", 0.6)}
             <div class="form-actions-row">
               <button type="button" class="test-tts-btn" id="test-forecast-btn">Test forecast</button>
             </div>
@@ -7868,6 +8038,13 @@ class HomeWeatherPanel extends HTMLElement {
 
           ${renderNestedSection("current-change", "Current Condition Alerts", "Speak when weather changes", `
             <p class="form-hint">Triggered when the weather condition changes (e.g. sunny → cloudy).</p>
+            <div class="subsection-title">Per-speaker playback</div>
+            <div class="per-speaker-header">
+              <span>Speaker</span>
+              <span>Volume</span>
+              <span>Skip</span>
+            </div>
+            ${renderPerSpeakerSection("current_change", 0.6)}
             <div class="form-actions-row">
               <button type="button" class="test-tts-btn" id="test-current-change-btn">Test alert</button>
             </div>
@@ -7884,6 +8061,13 @@ class HomeWeatherPanel extends HTMLElement {
               </select>
               <p class="form-hint">How far ahead to warn about precipitation.</p>
             </div>
+            <div class="subsection-title">Per-speaker playback</div>
+            <div class="per-speaker-header">
+              <span>Speaker</span>
+              <span>Volume</span>
+              <span>Skip</span>
+            </div>
+            ${renderPerSpeakerSection("upcoming_change", 0.6)}
             <div class="form-actions-row">
               <button type="button" class="test-tts-btn" id="test-upcoming-change-btn">Test alert</button>
             </div>
@@ -7928,6 +8112,13 @@ class HomeWeatherPanel extends HTMLElement {
                 ${this._renderEntityAutocomplete("sunset-automation-entity", sunAlerts.sunset_automation.entity_id || "", "automation", "Search automations...")}
               </div>
             </div>
+            <div class="subsection-title">Per-speaker playback</div>
+            <div class="per-speaker-header">
+              <span>Speaker</span>
+              <span>Volume</span>
+              <span>Skip</span>
+            </div>
+            ${renderPerSpeakerSection("sun_alerts", 0.6)}
             <div class="form-actions-row">
               <button type="button" class="test-tts-btn" id="test-sunrise-btn">Test sunrise</button>
               <button type="button" class="test-tts-btn btn-secondary-test" id="test-sunset-btn">Test sunset</button>
@@ -8246,7 +8437,7 @@ class HomeWeatherPanel extends HTMLElement {
             </section>
 
             <div class="settings-form-footer">
-              <span class="settings-save-status" id="settings-save-status" role="status" aria-live="polite" data-state="idle">Changes save automatically</span>
+              <span class="settings-save-status" id="settings-save-status" role="status" aria-live="polite" data-state="idle"></span>
               <button class="btn btn-secondary" id="cancel-btn">Revert</button>
               <button class="btn btn-primary" id="save-btn">Save now</button>
             </div>
@@ -8643,6 +8834,40 @@ class HomeWeatherPanel extends HTMLElement {
         };
       }).filter((m) => m.entity_id);
     }
+    
+    // Collect per-speaker announcement settings from all per-speaker controls
+    this._settings.announcement_players = this._collectAnnouncementPlayers();
+  }
+  
+  _collectAnnouncementPlayers() {
+    const s = this.shadowRoot;
+    if (!s) return this._settings.announcement_players || {};
+    
+    const result = { ...(this._settings.announcement_players || {}) };
+    
+    // Find all per-speaker lists
+    s.querySelectorAll(".per-speaker-list").forEach((list) => {
+      const typeId = list.dataset.typeId;
+      if (!typeId) return;
+      
+      if (!result[typeId]) result[typeId] = {};
+      
+      // Collect each speaker row
+      list.querySelectorAll(".per-speaker-row").forEach((row) => {
+        const entityId = row.dataset.entityId;
+        if (!entityId) return;
+        
+        const volumeInput = row.querySelector(".per-speaker-volume");
+        const bypassInput = row.querySelector(".per-speaker-bypass-input");
+        
+        result[typeId][entityId] = {
+          volume: parseFloat(volumeInput?.value ?? 0.6),
+          bypass: bypassInput?.checked ?? false,
+        };
+      });
+    });
+    
+    return result;
   }
 
   _collectTtsSettings() {

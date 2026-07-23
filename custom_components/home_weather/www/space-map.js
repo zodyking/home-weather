@@ -39,6 +39,24 @@
     { name: "Pisces", glyph: "\u2653", element: "Water", quality: "Mutable" },
   ];
 
+  // Chinese Zodiac: 12 animals in traditional order starting from Rat
+  // Each animal corresponds to a 2-hour period (shichen) and maps to 30° sectors
+  // Aligned so Rat starts at the same position as Aries (0°) for visual symmetry
+  const CHINESE_ZODIAC = [
+    { name: "Rat", hanzi: "鼠", pinyin: "Shǔ", element: "Water", yin: true },
+    { name: "Ox", hanzi: "牛", pinyin: "Niú", element: "Earth", yin: false },
+    { name: "Tiger", hanzi: "虎", pinyin: "Hǔ", element: "Wood", yin: true },
+    { name: "Rabbit", hanzi: "兔", pinyin: "Tù", element: "Wood", yin: false },
+    { name: "Dragon", hanzi: "龍", pinyin: "Lóng", element: "Earth", yin: true },
+    { name: "Snake", hanzi: "蛇", pinyin: "Shé", element: "Fire", yin: false },
+    { name: "Horse", hanzi: "馬", pinyin: "Mǎ", element: "Fire", yin: true },
+    { name: "Goat", hanzi: "羊", pinyin: "Yáng", element: "Earth", yin: false },
+    { name: "Monkey", hanzi: "猴", pinyin: "Hóu", element: "Metal", yin: true },
+    { name: "Rooster", hanzi: "雞", pinyin: "Jī", element: "Metal", yin: false },
+    { name: "Dog", hanzi: "狗", pinyin: "Gǒu", element: "Earth", yin: true },
+    { name: "Pig", hanzi: "豬", pinyin: "Zhū", element: "Water", yin: false },
+  ];
+
   const PLANET_GLYPHS = {
     Mercury: "\u263F", Venus: "\u2640", Earth: "\u2295", Mars: "\u2642",
     Jupiter: "\u2643", Saturn: "\u2644", Uranus: "\u2645", Neptune: "\u2646",
@@ -150,6 +168,7 @@
       ink: "#ece7d8",
       muted: "#9aa2b1",
       glyph: "#dcbb52",
+      chineseGlyph: "#c9956a",
       halo: "rgba(212, 175, 55, 0.10)",
       moonLit: "#e8e6df",
       moonDark: "rgba(16, 20, 32, 0.85)",
@@ -173,6 +192,7 @@
       ink: "#2a2318",
       muted: "#6d6452",
       glyph: "#7d621c",
+      chineseGlyph: "#8b5a2b",
       halo: "rgba(138, 109, 31, 0.10)",
       moonLit: "#f5f1e6",
       moonDark: "rgba(84, 70, 46, 0.65)",
@@ -1289,6 +1309,15 @@
     _drawZodiacBand(ctx, cx, cy, innerPx, outerPx, highlightIdx) {
       const pal = this._palette();
       const midPx = (innerPx + outerPx) / 2;
+      const bandPx = outerPx - innerPx;
+
+      // Chinese zodiac outer band dimensions
+      const chineseBandWidth = Math.max(18, bandPx * 0.55);
+      const chineseInner = outerPx + 2;
+      const chineseOuter = chineseInner + chineseBandWidth;
+      const chineseMid = (chineseInner + chineseOuter) / 2;
+
+      // ── Western Zodiac Band ──
 
       // Sector fills (alternating vellum wash + highlighted sign)
       for (let i = 0; i < 12; i += 1) {
@@ -1322,7 +1351,6 @@
       }
 
       // Upright glyphs at sector midpoints
-      const bandPx = outerPx - innerPx;
       const glyphSize = Math.max(10, Math.min(17, bandPx * 0.52));
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
@@ -1334,15 +1362,68 @@
         ctx.font = `${i === highlightIdx ? glyphSize + 2 : glyphSize}px ${SERIF}`;
         ctx.fillText(ZODIAC[i].glyph + TS, gx, gy);
       }
-      // Sign names appear when there is room (zoomed in / large screens)
-      if (bandPx >= 46) {
-        ctx.font = `600 ${Math.min(10, bandPx * 0.2)}px ${SERIF}`;
+
+      // ── Chinese Zodiac Outer Band ──
+
+      // Subtle sector fills (alternating with Yin/Yang pattern)
+      for (let i = 0; i < 12; i += 1) {
+        const lon0 = i * 30;
+        const lon1 = lon0 + 30;
+        this._annulusSector(ctx, cx, cy, chineseInner, chineseOuter, lon0, lon1);
+        // Yin signs (odd indices) get a subtle wash, Yang (even) transparent
+        if (CHINESE_ZODIAC[i].yin) {
+          ctx.fillStyle = pal.band;
+          ctx.globalAlpha = 0.5;
+          ctx.fill();
+          ctx.globalAlpha = 1;
+        }
+      }
+
+      // Outer ring of Chinese band
+      ctx.lineWidth = 1.2;
+      ctx.strokeStyle = pal.goldSoft;
+      ctx.beginPath(); ctx.arc(cx, cy, chineseOuter, 0, TWO_PI); ctx.stroke();
+
+      // Inner ring (already drawn as outer of Western band, but add subtle separator)
+      ctx.lineWidth = 0.6;
+      ctx.strokeStyle = pal.tick;
+      ctx.beginPath(); ctx.arc(cx, cy, chineseInner, 0, TWO_PI); ctx.stroke();
+
+      // 30° spokes extending through Chinese band
+      for (let d = 0; d < 360; d += 30) {
+        const a = d * DEG;
+        ctx.strokeStyle = pal.tick;
+        ctx.lineWidth = 0.6;
+        ctx.beginPath();
+        ctx.moveTo(cx + Math.cos(a) * chineseInner, cy - Math.sin(a) * chineseInner);
+        ctx.lineTo(cx + Math.cos(a) * chineseOuter, cy - Math.sin(a) * chineseOuter);
+        ctx.stroke();
+      }
+
+      // Chinese hanzi characters at sector midpoints
+      const chineseGlyphSize = Math.max(11, Math.min(16, chineseBandWidth * 0.6));
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      for (let i = 0; i < 12; i += 1) {
+        const mid = (i * 30 + 15) * DEG;
+        const gx = cx + Math.cos(mid) * chineseMid;
+        const gy = cy - Math.sin(mid) * chineseMid;
+        // Use a warm red-gold for Chinese characters
+        ctx.fillStyle = pal.chineseGlyph || "rgba(200, 160, 100, 0.9)";
+        ctx.font = `${chineseGlyphSize}px ${SERIF}`;
+        ctx.fillText(CHINESE_ZODIAC[i].hanzi, gx, gy);
+      }
+
+      // Animal names appear when there is room (zoomed in / large screens)
+      if (chineseBandWidth >= 28) {
+        const nameSize = Math.min(8, chineseBandWidth * 0.22);
+        ctx.font = `500 ${nameSize}px ${SERIF}`;
         for (let i = 0; i < 12; i += 1) {
           const mid = (i * 30 + 15) * DEG;
-          const nx = cx + Math.cos(mid) * (midPx + glyphSize * 0.95);
-          const ny = cy - Math.sin(mid) * (midPx + glyphSize * 0.95);
+          const nx = cx + Math.cos(mid) * (chineseMid + chineseGlyphSize * 0.8);
+          const ny = cy - Math.sin(mid) * (chineseMid + chineseGlyphSize * 0.8);
           ctx.fillStyle = pal.muted;
-          ctx.fillText(ZODIAC[i].name.toUpperCase(), nx, ny);
+          ctx.fillText(CHINESE_ZODIAC[i].name.toUpperCase(), nx, ny);
         }
       }
     }

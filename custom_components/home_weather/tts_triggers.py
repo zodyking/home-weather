@@ -542,6 +542,7 @@ class TTSTriggerManager:
         await dispatch_tts(
             self.hass, media_players, tts_config, message,
             request_id=request_id, alert_kind="upcoming_change",
+            config=config, type_id="upcoming_change",
         )
         _LOGGER.info("Test upcoming-change TTS dispatched")
 
@@ -589,6 +590,7 @@ class TTSTriggerManager:
         await dispatch_tts(
             self.hass, media_players, tts_config, msg,
             request_id=request_id, alert_kind="sunrise",
+            config=config, type_id="sun_alerts",
         )
         _LOGGER.info("Test sunrise TTS dispatched")
 
@@ -610,6 +612,7 @@ class TTSTriggerManager:
         await dispatch_tts(
             self.hass, media_players, tts_config, msg,
             request_id=request_id, alert_kind="sunset",
+            config=config, type_id="sun_alerts",
         )
         _LOGGER.info("Test sunset TTS dispatched")
 
@@ -1292,6 +1295,7 @@ class TTSTriggerManager:
                     await dispatch_tts_and_wait(
                         self.hass, media_players, tts_config, msg,
                         alert_kind="sunrise",
+                        config=config, type_id="sun_alerts",
                     )
                     _LOGGER.info("Sunrise final TTS sent")
             elif window_start <= now < next_rising:
@@ -1303,6 +1307,7 @@ class TTSTriggerManager:
                     await dispatch_tts_and_wait(
                         self.hass, media_players, tts_config, msg,
                         alert_kind="sunrise",
+                        config=config, type_id="sun_alerts",
                     )
                     _LOGGER.info("Sunrise upcoming TTS: %d minutes", mins_until)
 
@@ -1336,6 +1341,7 @@ class TTSTriggerManager:
                     await dispatch_tts_and_wait(
                         self.hass, media_players, tts_config, msg,
                         alert_kind="sunset",
+                        config=config, type_id="sun_alerts",
                     )
                     _LOGGER.info("Sunset final TTS sent")
             elif window_start <= now < next_setting:
@@ -1347,6 +1353,7 @@ class TTSTriggerManager:
                     await dispatch_tts_and_wait(
                         self.hass, media_players, tts_config, msg,
                         alert_kind="sunset",
+                        config=config, type_id="sun_alerts",
                     )
                     _LOGGER.info("Sunset upcoming TTS: %d minutes", mins_until)
 
@@ -1523,6 +1530,7 @@ class TTSTriggerManager:
             message,
             request_id=request_id,
             alert_kind="scheduled_forecast",
+            config=config, type_id="scheduled_forecast",
         )
         _LOGGER.info("Scheduled forecast TTS sent to %s", target_media_player or "all players")
 
@@ -1604,6 +1612,7 @@ class TTSTriggerManager:
             volume_override=volume,
             request_id=request_id,
             alert_kind="current_change",
+            config=config, type_id="current_change",
         )
         _LOGGER.info("Current change TTS sent: %s -> %s", old_condition, new_condition)
 
@@ -1652,6 +1661,7 @@ class TTSTriggerManager:
             message,
             volume_override=None,
             alert_kind="upcoming_change",
+            config=config, type_id="upcoming_change",
         )
         _LOGGER.info(
             "Upcoming precip TTS sent: %s in %d minutes",
@@ -1729,6 +1739,7 @@ class TTSTriggerManager:
             volume_override=volume,
             request_id=request_id,
             alert_kind="webhook",
+            config=config, type_id="scheduled_forecast",
         )
         _LOGGER.info("Webhook forecast TTS sent for %s to %s", name or "unnamed user", target_media_player or "all players")
 

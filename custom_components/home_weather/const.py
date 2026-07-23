@@ -48,6 +48,12 @@ DEFAULT_CONFIG: Final = {
     # Each media player has its own complete TTS config
     "media_players": [],  # list of { entity_id, tts_entity_id, volume, preroll_ms, cache, language, options }
     "message_prefix": "Here's your weather forecast",
+    # Per-announcement-type per-media-player volume/bypass overrides.
+    # Shape: { "<type_id>": { "<entity_id>": { "volume": 0.0-1.0, "bypass": false } } }
+    # Type IDs: nws_alerts, tropical_alerts, tornado_alerts, earthquake_alerts, volcano_alerts,
+    # wildfire_alerts, air_quality_alerts, travel_alerts, spacecraft_alerts, solar_weather_alerts,
+    # neo_alerts, current_change, upcoming_change, scheduled_forecast, sun_alerts
+    "announcement_players": {},
     "sun_alerts": {
         "enabled": False,
         "sunrise_tts": {"enabled": False, "minutes_before": 15, "interval_minutes": 5},

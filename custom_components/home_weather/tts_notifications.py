@@ -170,6 +170,47 @@ def _normalize_condition(condition: str) -> str:
     return condition_label_for_tts(slug)
 
 
+def _spoken(text: str | None) -> str:
+    """Clean raw text for natural spoken TTS output.
+    
+    - Trims whitespace
+    - Replaces underscores, hyphens, and camelCase slugs with spaces
+    - Collapses multiple whitespace
+    - Applies sentence case (first char uppercase, rest lowercase)
+    - Expands common abbreviations
+    """
+    if not text:
+        return ""
+    
+    import re
+    
+    s = str(text).strip()
+    
+    # Convert camelCase/PascalCase to spaces
+    s = re.sub(r"([a-z])([A-Z])", r"\1 \2", s)
+    
+    # Replace underscores and hyphens with spaces
+    s = s.replace("_", " ").replace("-", " ")
+    
+    # Collapse multiple whitespace
+    s = re.sub(r"\s+", " ", s).strip()
+    
+    # Sentence case: first letter uppercase, rest lowercase
+    # (preserve all-uppercase abbreviations by checking if entire word is uppercase)
+    words = s.split()
+    result = []
+    for i, word in enumerate(words):
+        if word.isupper() and len(word) > 1:
+            # Preserve abbreviations like "NWS", "EPA", etc.
+            result.append(word)
+        elif i == 0:
+            result.append(word.capitalize())
+        else:
+            result.append(word.lower())
+    
+    return " ".join(result)
+
+
 def _format_temperature(temp: int | float | None) -> str:
     """Format temperature for TTS."""
     if temp is None:
@@ -438,7 +479,7 @@ def build_webhook_message(
         first = upcoming_precip[0]
         time_desc = _get_time_description(first["time"])
         cond = _normalize_condition(first["condition"])
-        parts.append(f"{cond.capitalize()} expected {time_desc}.")
+        parts.append(f"Expect {cond} {time_desc}.")
     else:
         # No precipitation expected
         parts.append("No precipitation expected today.")
@@ -476,11 +517,14 @@ def build_current_change_message(
     if temp is not None:
         return (
             f"{greeting_time}, weather alert. "
-            f"Conditions have changed to {new_cond}, "
+            f"Conditions have shifted from {old_cond} to {new_cond}, "
             f"and it's currently {_format_temperature(temp)}."
         )
     else:
-        return f"{greeting_time}, weather alert. Conditions have changed to {new_cond}."
+        return (
+            f"{greeting_time}, weather alert. "
+            f"Conditions have shifted from {old_cond} to {new_cond}."
+        )
 
 
 # ============================================================================
@@ -566,7 +610,7 @@ def build_upcoming_change_message(
     
     return (
         f"{greeting_time}, weather alert. "
-        f"{kind.capitalize()} expected {time_phrase} "
+        f"Expect {kind} {time_phrase} "
         f"with a {_format_percentage(probability)} chance."
     )
 
@@ -683,6 +727,53 @@ def _schedule_volume_restore(
     hass.async_create_task(
         restore_volume_when_idle(hass, entity_id, previous_volume)
     )
+
+
+# ============================================================================
+# Per-announcement player resolution
+# ============================================================================
+
+
+def resolve_announcement_players(
+    config: dict[str, Any],
+    type_id: str,
+    media_players: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Resolve media players for a specific announcement type with per-player settings.
+    
+    Returns a list of media player configs with:
+    - Bypassed players removed
+    - Each player's volume set from announcement_players[type_id][entity_id].volume
+      (falls back to the player's default volume if no override)
+    
+    Type IDs include hazard alert keys (nws_alerts, tropical_alerts, etc.) and
+    weather types (current_change, upcoming_change, scheduled_forecast, sun_alerts).
+    """
+    announcement_players = config.get("announcement_players") or {}
+    type_overrides = announcement_players.get(type_id) or {}
+    
+    resolved: list[dict[str, Any]] = []
+    for mp in media_players:
+        entity_id = mp.get("entity_id")
+        if not entity_id:
+            continue
+        if not mp.get("tts_entity_id"):
+            continue
+        
+        override = type_overrides.get(entity_id) or {}
+        
+        # Skip bypassed players
+        if override.get("bypass", False):
+            continue
+        
+        # Copy player config and apply volume override
+        player_copy = dict(mp)
+        if "volume" in override:
+            player_copy["volume"] = max(0, min(1, float(override["volume"])))
+        
+        resolved.append(player_copy)
+    
+    return resolved
 
 
 # ============================================================================
@@ -1029,14 +1120,36 @@ async def dispatch_tts(
     *,
     request_id: str | None = None,
     alert_kind: str = "",
+    config: dict[str, Any] | None = None,
+    type_id: str | None = None,
 ) -> None:
-    """Apply optional AI rewrite, then send TTS to configured media players."""
+    """Apply optional AI rewrite, then send TTS to configured media players.
+    
+    When config and type_id are provided, resolves per-player volumes and
+    filters out bypassed players via resolve_announcement_players.
+    """
     final_message = await apply_ai_rewrite(
         hass, tts_config, message,
         request_id=request_id, alert_kind=alert_kind,
     )
+    
+    # Resolve per-player volumes if config/type_id provided
+    players = media_players_config
+    if config is not None and type_id:
+        players = resolve_announcement_players(config, type_id, media_players_config)
+        if not players:
+            _fire_tts_status(
+                hass, "skipped",
+                request_id=request_id,
+                reason=f"All players bypassed for {type_id}",
+                alert_kind=alert_kind,
+            )
+            return
+        # Per-player volumes are set in resolved list; don't override
+        volume_override = None
+    
     await send_tts(
-        hass, media_players_config, final_message, volume_override,
+        hass, players, final_message, volume_override,
         request_id=request_id, alert_kind=alert_kind,
     )
 
@@ -1055,8 +1168,19 @@ async def dispatch_tts_and_wait(
     *,
     request_id: str | None = None,
     alert_kind: str = "",
+    config: dict[str, Any] | None = None,
+    type_id: str | None = None,
 ) -> None:
-    """Send TTS and wait for playback to finish on all target speakers."""
+    """Send TTS and wait for playback to finish on all target speakers.
+    
+    When config and type_id are provided, resolves per-player volumes and
+    filters out bypassed players via resolve_announcement_players.
+    """
+    # When resolving, use resolved list for both dispatch and waiting
+    players = media_players_config
+    if config is not None and type_id:
+        players = resolve_announcement_players(config, type_id, media_players_config)
+    
     await dispatch_tts(
         hass,
         media_players_config,
@@ -1065,9 +1189,11 @@ async def dispatch_tts_and_wait(
         volume_override,
         request_id=request_id,
         alert_kind=alert_kind,
+        config=config,
+        type_id=type_id,
     )
     await wait_for_media_players_after_tts(
-        hass, media_player_entity_ids(media_players_config),
+        hass, media_player_entity_ids(players),
     )
 
 
@@ -1301,7 +1427,11 @@ async def play_nws_siren(
     *,
     request_id: str | None = None,
 ) -> None:
-    """Play the configured NWS siren on all media players via /local/ www path."""
+    """Play the configured NWS siren on all media players via /local/ www path.
+    
+    Uses per-player volume from media_players_config (resolved via
+    resolve_announcement_players) rather than global sound_volume.
+    """
     nws = config.get("nws_alerts", {})
     sound_file_raw = nws.get("sound_file") or ""
     if not normalize_nws_sound_filename(sound_file_raw) or not media_players_config:
@@ -1323,17 +1453,20 @@ async def play_nws_siren(
         return
 
     media_id, media_type = nws_local_playback(hass, media_path)
-    sound_vol = max(0, min(1, float(nws.get("sound_volume", 0.8))))
+    # Fallback to legacy global sound_volume only if per-player volume not set
+    default_vol = max(0, min(1, float(nws.get("sound_volume", 0.8))))
 
     for mp in media_players_config:
         eid = mp.get("entity_id")
         if not eid:
             continue
+        # Use per-player volume (already set by resolve_announcement_players)
+        vol = mp.get("volume", default_vol)
         try:
             await hass.services.async_call(
                 "media_player",
                 "volume_set",
-                {"entity_id": eid, "volume_level": sound_vol},
+                {"entity_id": eid, "volume_level": vol},
                 blocking=True,
             )
             _LOGGER.debug("Playing NWS siren on %s: %s", eid, media_id)
@@ -1370,8 +1503,9 @@ async def replay_active_nws_alerts(
 ) -> None:
     """Replay active alerts: siren once, then combined TTS summary.
 
-    When use_chime_tts is enabled in config and Chime TTS is installed,
-    combines the siren audio and TTS into a single seamless playback.
+    Uses per-player volumes from announcement_players config. When
+    use_chime_tts is enabled and Chime TTS is installed, combines the
+    siren audio and TTS into a single seamless playback.
     """
     nws = config.get("nws_alerts", {})
     if not nws.get("enabled") or not alerts or not media_players_config:
@@ -1391,26 +1525,34 @@ async def replay_active_nws_alerts(
     if not msg.strip():
         return
 
-    tts_vol = max(0, min(1, float(nws.get("tts_volume", 0.9))))
+    # Fallback volume for legacy configs
+    default_vol = max(0, min(1, float(nws.get("tts_volume", 0.9))))
+    
+    # Resolve per-player volumes and remove bypassed players
+    resolved_players = resolve_announcement_players(config, "nws_alerts", media_players_config)
+    if not resolved_players:
+        return
+
     sound_file_raw = nws.get("sound_file") or ""
 
     # Auto-use Chime TTS when available for seamless siren + TTS playback
     if sound_file_raw and is_chime_tts_available(hass):
         chime_path = build_nws_local_media_id(normalize_nws_sound_filename(sound_file_raw))
 
-        for mp in media_players_config:
+        for mp in resolved_players:
             eid = mp.get("entity_id")
             tts_entity = mp.get("tts_entity_id")
             if not eid or not tts_entity:
                 continue
 
+            vol = mp.get("volume", default_vol)
             success = await dispatch_chime_tts(
                 hass,
                 eid,
                 tts_entity,
                 msg,
                 chime_path,
-                volume=tts_vol,
+                volume=vol,
                 request_id=request_id,
                 alert_kind="nws_alert_replay",
             )
@@ -1419,23 +1561,24 @@ async def replay_active_nws_alerts(
                     "Chime TTS failed for %s in replay, using legacy method", eid
                 )
                 await _legacy_nws_replay_single_player(
-                    hass, config, mp, msg, tts_vol, request_id=request_id,
+                    hass, config, mp, msg, vol, request_id=request_id,
                 )
 
         _LOGGER.info("Chime TTS NWS replay completed")
         return
 
-    await play_nws_siren(hass, config, media_players_config, request_id=request_id)
+    await play_nws_siren(hass, config, resolved_players, request_id=request_id)
 
-    for mp in media_players_config:
+    for mp in resolved_players:
         eid = mp.get("entity_id")
         if not eid:
             continue
+        vol = mp.get("volume", default_vol)
         try:
             await hass.services.async_call(
                 "media_player",
                 "volume_set",
-                {"entity_id": eid, "volume_level": tts_vol},
+                {"entity_id": eid, "volume_level": vol},
                 blocking=True,
             )
         except Exception as exc:
@@ -1443,14 +1586,14 @@ async def replay_active_nws_alerts(
 
     await send_tts(
         hass,
-        media_players_config,
+        resolved_players,
         msg,
-        volume_override=tts_vol,
+        volume_override=None,
         request_id=request_id,
         alert_kind="nws_alert_replay",
     )
     await wait_for_media_players_after_tts(
-        hass, media_player_entity_ids(media_players_config),
+        hass, media_player_entity_ids(resolved_players),
     )
 
 
@@ -1595,11 +1738,13 @@ async def play_nws_alert_notification(
 ) -> None:
     """Play siren sound (if configured) then TTS for an NWS weather alert.
 
-    When use_chime_tts is enabled in config and Chime TTS is installed,
-    combines the siren audio and TTS into a single seamless playback.
+    Uses per-player volumes from announcement_players config. When
+    use_chime_tts is enabled and Chime TTS is installed, combines the
+    siren audio and TTS into a single seamless playback.
     """
     nws = config.get("nws_alerts", {})
-    tts_vol = max(0, min(1, float(nws.get("tts_volume", 0.9))))
+    # Fallback volume for legacy configs
+    default_vol = max(0, min(1, float(nws.get("tts_volume", 0.9))))
     msg = format_nws_alert_for_tts(alert_properties)
     tts_config = config.get("tts", {})
     msg = await apply_ai_rewrite(
@@ -1614,25 +1759,36 @@ async def play_nws_alert_notification(
         )
         return
 
+    # Resolve per-player volumes and remove bypassed players
+    resolved_players = resolve_announcement_players(config, "nws_alerts", media_players_config)
+    if not resolved_players:
+        _fire_tts_status(
+            hass, "skipped",
+            request_id=request_id, reason="All players bypassed for NWS alerts",
+            alert_kind="nws_alert",
+        )
+        return
+
     sound_file_raw = nws.get("sound_file") or ""
 
     # Auto-use Chime TTS when available for seamless siren + TTS playback
     if sound_file_raw and is_chime_tts_available(hass):
         chime_path = build_nws_local_media_id(normalize_nws_sound_filename(sound_file_raw))
 
-        for mp in media_players_config:
+        for mp in resolved_players:
             eid = mp.get("entity_id")
             tts_entity = mp.get("tts_entity_id")
             if not eid or not tts_entity:
                 continue
 
+            vol = mp.get("volume", default_vol)
             success = await dispatch_chime_tts(
                 hass,
                 eid,
                 tts_entity,
                 msg,
                 chime_path,
-                volume=tts_vol,
+                volume=vol,
                 request_id=request_id,
                 alert_kind="nws_alert",
             )
@@ -1641,33 +1797,34 @@ async def play_nws_alert_notification(
                     "Chime TTS failed for %s, using legacy NWS method", eid
                 )
                 await _legacy_nws_alert_single_player(
-                    hass, config, mp, msg, tts_vol, request_id=request_id,
+                    hass, config, mp, msg, vol, request_id=request_id,
                 )
 
         _LOGGER.info("Chime TTS NWS alert completed")
         return
 
-    await play_nws_siren(hass, config, media_players_config, request_id=request_id)
+    await play_nws_siren(hass, config, resolved_players, request_id=request_id)
 
-    for mp in media_players_config:
+    for mp in resolved_players:
         eid = mp.get("entity_id")
         if not eid:
             continue
+        vol = mp.get("volume", default_vol)
         try:
             await hass.services.async_call(
                 "media_player", "volume_set",
-                {"entity_id": eid, "volume_level": tts_vol},
+                {"entity_id": eid, "volume_level": vol},
                 blocking=True,
             )
         except Exception as exc:
             _LOGGER.warning("NWS alert volume_set failed for %s: %s", eid, exc)
 
     await send_tts(
-        hass, media_players_config, msg, volume_override=tts_vol,
+        hass, resolved_players, msg, volume_override=None,
         request_id=request_id, alert_kind="nws_alert",
     )
     await wait_for_media_players_after_tts(
-        hass, media_player_entity_ids(media_players_config),
+        hass, media_player_entity_ids(resolved_players),
     )
 
 
@@ -1759,7 +1916,7 @@ def format_tornado_warning_for_tts(
     """Build spoken tornado warning alert."""
     if cleared:
         return "Tornado all clear. The tornado warning affecting your area has ended."
-    headline = (payload.get("headline") or "").strip()
+    headline = _spoken(payload.get("headline") or "")
     if payload.get("affecting_home"):
         base = "Tornado warning for your area. A tornado warning polygon now includes your location. Take shelter immediately."
     else:
@@ -1780,7 +1937,7 @@ def format_earthquake_alert_for_tts(
     if cleared:
         return "Earthquake update. The previously reported nearby earthquake is no longer within your alert range."
     mag = payload.get("magnitude")
-    place = payload.get("place") or "unknown location"
+    place = _spoken(payload.get("place")) or "unknown location"
     dist = payload.get("distance_miles")
     depth = payload.get("depth_km")
     mag_text = f"Magnitude {mag}" if mag is not None else "An earthquake"
@@ -1872,20 +2029,20 @@ def format_volcano_alert_for_tts(
     updated: bool = False,
 ) -> str:
     """Build spoken volcano activity alert."""
-    name = payload.get("name") or "A volcano"
+    name = _spoken(payload.get("name")) or "A volcano"
     if cleared:
         return (
             f"Volcano update. Activity at {name} has cleared and it is "
             "no longer at an elevated alert level."
         )
-    level = str(payload.get("activity_level") or "advisory").lower()
+    level = _spoken(payload.get("activity_level") or "advisory")
     dist = payload.get("distance_miles")
     prefix = "Volcano update." if updated else "Volcano alert."
     parts = [prefix, f"{name} is now at {level} level"]
     if dist is not None:
         parts[-1] += f", {_round_miles(dist)} from home"
     parts[-1] += "."
-    synopsis = (payload.get("synopsis") or "").strip()
+    synopsis = _spoken(payload.get("synopsis") or "")
     if synopsis:
         parts.append(synopsis[:200])
     return " ".join(parts)
@@ -1926,14 +2083,14 @@ def format_wildfire_alert_for_tts(
     updated: bool = False,
 ) -> str:
     """Build spoken wildfire alert."""
-    name = payload.get("name") or "A wildfire"
+    name = _spoken(payload.get("name")) or "A wildfire"
     if cleared:
         return (
             f"Wildfire update. {name} is no longer within your wildfire alert zone."
         )
     dist = payload.get("distance_miles")
     acres = payload.get("acres")
-    location = payload.get("location") or payload.get("state") or "unknown location"
+    location = _spoken(payload.get("location") or payload.get("state")) or "unknown location"
     prefix = "Wildfire update." if updated else "Wildfire alert."
     parts = [prefix, f"{name} near {location}"]
     if dist is not None:
@@ -1974,8 +2131,8 @@ def format_air_quality_alert_for_tts(
     updated: bool = False,
 ) -> str:
     """Build spoken air quality alert."""
-    name = payload.get("name") or "Your area"
-    state = payload.get("state") or ""
+    name = _spoken(payload.get("name")) or "Your area"
+    state = _spoken(payload.get("state") or "")
     area_label = f"{name}, {state}".strip(", ")
     if cleared:
         return (
@@ -1983,7 +2140,7 @@ def format_air_quality_alert_for_tts(
             "within your air quality alert range."
         )
     aqi = payload.get("aqi")
-    category = payload.get("category") or "elevated"
+    category = _spoken(payload.get("category") or "elevated")
     dist = payload.get("distance_miles")
     prefix = "Air quality update." if updated else "Air quality alert."
     parts = [prefix, f"Air quality in {area_label} is {category}"]
@@ -2023,7 +2180,11 @@ async def play_hazard_siren(
     request_id: str | None = None,
     alert_kind: str = "hazard_siren",
 ) -> None:
-    """Play optional siren from a hazard alert config section."""
+    """Play optional siren from a hazard alert config section.
+    
+    Uses per-player volume from media_players_config (resolved via
+    resolve_announcement_players) rather than global sound_volume.
+    """
     sound_file_raw = section.get("sound_file") or ""
     if not normalize_nws_sound_filename(sound_file_raw) or not media_players_config:
         return
@@ -2041,16 +2202,19 @@ async def play_hazard_siren(
         return
 
     media_id, media_type = nws_local_playback(hass, media_path)
-    sound_vol = max(0, min(1, float(section.get("sound_volume", 0.8))))
+    # Fallback to legacy global sound_volume only if per-player volume not set
+    default_vol = max(0, min(1, float(section.get("sound_volume", 0.8))))
 
     for mp in media_players_config:
         eid = mp.get("entity_id")
         if not eid:
             continue
+        # Use per-player volume (already set by resolve_announcement_players)
+        vol = mp.get("volume", default_vol)
         try:
             await hass.services.async_call(
                 "media_player", "volume_set",
-                {"entity_id": eid, "volume_level": sound_vol},
+                {"entity_id": eid, "volume_level": vol},
                 blocking=True,
             )
             await hass.services.async_call(
@@ -2083,12 +2247,14 @@ async def play_hazard_alert_notification(
 ) -> None:
     """Play optional siren then TTS for a hazard alert section.
 
-    When use_chime_tts is enabled in config and Chime TTS is installed,
-    combines the siren audio and TTS into a single seamless playback.
-    Otherwise falls back to the legacy two-call method.
+    Uses per-player volumes from announcement_players config. When
+    use_chime_tts is enabled and Chime TTS is installed, combines the
+    siren audio and TTS into a single seamless playback. Otherwise
+    falls back to the legacy two-call method.
     """
     section = config.get(section_key) or {}
-    tts_vol = max(0, min(1, float(section.get("tts_volume", 0.9))))
+    # Fallback tts_volume for legacy configs without announcement_players
+    default_vol = max(0, min(1, float(section.get("tts_volume", 0.9))))
     tts_config = config.get("tts", {})
     msg = await apply_ai_rewrite(
         hass, tts_config, message,
@@ -2103,6 +2269,15 @@ async def play_hazard_alert_notification(
     if not msg.strip():
         return
 
+    # Resolve per-player volumes and remove bypassed players
+    resolved_players = resolve_announcement_players(config, section_key, media_players_config)
+    if not resolved_players:
+        _fire_tts_status(
+            hass, "skipped", request_id=request_id,
+            reason="All players bypassed for this alert type", alert_kind=alert_kind,
+        )
+        return
+
     sound_file_raw = section.get("sound_file") or ""
 
     # Auto-use Chime TTS when available for seamless siren + TTS playback
@@ -2110,19 +2285,21 @@ async def play_hazard_alert_notification(
         chime_path = build_nws_local_media_id(normalize_nws_sound_filename(sound_file_raw))
         all_succeeded = True
 
-        for mp in media_players_config:
+        for mp in resolved_players:
             eid = mp.get("entity_id")
             tts_entity = mp.get("tts_entity_id")
             if not eid or not tts_entity:
                 continue
 
+            # Use per-player volume
+            vol = mp.get("volume", default_vol)
             success = await dispatch_chime_tts(
                 hass,
                 eid,
                 tts_entity,
                 msg,
                 chime_path,
-                volume=tts_vol,
+                volume=vol,
                 request_id=request_id,
                 alert_kind=alert_kind,
             )
@@ -2132,7 +2309,7 @@ async def play_hazard_alert_notification(
                     "Chime TTS failed for %s, using legacy method", eid
                 )
                 await _legacy_hazard_alert_single_player(
-                    hass, section, mp, msg, tts_vol,
+                    hass, section, mp, msg, vol,
                     request_id=request_id, alert_kind=alert_kind,
                 )
 
@@ -2141,29 +2318,32 @@ async def play_hazard_alert_notification(
         return
 
     await play_hazard_siren(
-        hass, section, media_players_config,
+        hass, section, resolved_players,
         request_id=request_id, alert_kind=f"{alert_kind}_siren",
     )
 
-    for mp in media_players_config:
+    # Per-player volume is already set in resolved_players
+    for mp in resolved_players:
         eid = mp.get("entity_id")
         if not eid:
             continue
+        vol = mp.get("volume", default_vol)
         try:
             await hass.services.async_call(
                 "media_player", "volume_set",
-                {"entity_id": eid, "volume_level": tts_vol},
+                {"entity_id": eid, "volume_level": vol},
                 blocking=True,
             )
         except Exception as exc:
             _LOGGER.warning("Hazard alert volume_set failed for %s: %s", eid, exc)
 
+    # volume_override=None -> each player uses its own volume from the config
     await send_tts(
-        hass, media_players_config, msg, volume_override=tts_vol,
+        hass, resolved_players, msg, volume_override=None,
         request_id=request_id, alert_kind=alert_kind,
     )
     await wait_for_media_players_after_tts(
-        hass, media_player_entity_ids(media_players_config),
+        hass, media_player_entity_ids(resolved_players),
     )
 
 
@@ -2209,12 +2389,12 @@ def format_travel_advisory_for_tts(
     changed: bool = False,
 ) -> str:
     """Build spoken U.S. State Department travel advisory alert."""
-    country = payload.get("country") or "A destination"
+    country = _spoken(payload.get("country")) or "A destination"
     level = int(payload.get("level") or 0)
-    level_name = payload.get("level_name") or payload.get("level_label") or f"Level {level}"
+    level_name = _spoken(payload.get("level_name") or payload.get("level_label")) or f"Level {level}"
     prefix = "Travel advisory update." if changed else "Travel advisory."
     parts = [prefix, f"{country} is now at {level_name}, level {level}."]
-    summary = (payload.get("summary_text") or "").strip()
+    summary = _spoken(payload.get("summary_text") or "")
     if summary:
         snippet = summary[:320].rsplit(" ", 1)[0] if len(summary) > 320 else summary
         parts.append(snippet)
@@ -2228,7 +2408,7 @@ def _xray_class_rank(class_char: str) -> int:
 
 def format_spacecraft_alert_for_tts(payload: dict[str, Any]) -> str:
     """Build spoken spacecraft overhead alert."""
-    name = payload.get("name") or payload.get("craft_name") or "A spacecraft"
+    name = _spoken(payload.get("name") or payload.get("craft_name")) or "A spacecraft"
     elev = payload.get("max_elevation_deg")
     if elev is not None:
         return f"Space alert. {name} is passing overhead at about {int(round(elev))} degrees elevation."
