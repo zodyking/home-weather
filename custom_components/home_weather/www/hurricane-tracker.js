@@ -2974,7 +2974,6 @@
           </div>
           <div class="hw-legend-group">
             <div class="hw-legend-group-title">Storm tracks</div>
-            <div class="hw-legend-row"><span class="hw-legend-line is-past"></span>Past track</div>
             <div class="hw-legend-row"><span class="hw-legend-line is-fcst"></span>Forecast track</div>
             <div class="hw-legend-row"><span class="hw-legend-swatch" style="background:rgba(229,57,53,0.18);border-color:rgba(229,57,53,0.8)"></span>Forecast cone (uncertainty)</div>
             <div class="hw-legend-row"><span class="hw-legend-line is-watchline"></span>Coastal watch / warning</div>
@@ -3629,19 +3628,6 @@
             opacity: 0.55,
           },
         }).addTo(this._layerGroup);
-      }
-
-      /* Past track: dotted, muted — clearly historical. */
-      if (storm.pastTrack?.coordinates?.length) {
-        const pastLatLngs = storm.pastTrack.coordinates.map((c) => [c[1], c[0]]);
-        L.polyline(pastLatLngs, {
-          color: pastColor,
-          weight: 3,
-          opacity: 0.85,
-          dashArray: "1 8",
-          lineCap: "round",
-        }).addTo(this._layerGroup);
-        pastLatLngs.forEach((ll) => bounds.push(ll));
       }
 
       /* Forecast track: solid storm color over a contrast casing. */

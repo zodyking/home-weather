@@ -966,7 +966,9 @@
     /* ------------------------------ shell / DOM ----------------------------- */
 
     _normalizeMode(mode) {
-      return (mode === "earth" || mode === "earth_mode") ? "earth" : "solar_system";
+      if (mode === "earth" || mode === "earth_mode") return "earth";
+      if (mode === "sun" || mode === "sun_weather") return "sun";
+      return "solar_system";
     }
 
     _el(sel) {
@@ -992,7 +994,7 @@
         <div class="hw-space" data-theme="${esc(theme)}">
           <div class="sm-stage">
             <canvas class="sm-canvas" tabindex="0" role="application"
-              aria-label="Celestial atlas. Interactive chart of the ${this._mode === "earth" ? "Earth system" : "solar system"}."
+              aria-label="Celestial atlas. Interactive chart of the ${this._mode === "earth" ? "Earth system" : this._mode === "sun" ? "Sun and solar weather" : "solar system"}."
               aria-describedby="sm-kbd-help"></canvas>
             <div id="sm-kbd-help" class="sm-sr">
               Arrow keys pan. Plus and minus zoom. Zero resets the view.
@@ -1004,6 +1006,8 @@
                   aria-pressed="${this._mode === "solar_system"}">Solar System</button>
                 <button type="button" data-sm-mode="earth"
                   aria-pressed="${this._mode === "earth"}">Earth</button>
+                <button type="button" data-sm-mode="sun"
+                  aria-pressed="${this._mode === "sun"}">Sun</button>
               </div>
               <button type="button" class="sm-chip" data-sm="drawer-toggle"
                 aria-expanded="false" aria-controls="sm-drawer"></button>
@@ -1076,7 +1080,7 @@
       const canvas = this._canvas;
       if (canvas) {
         canvas.setAttribute("aria-label",
-          `Celestial atlas. Interactive chart of the ${this._mode === "earth" ? "Earth system" : "solar system"}.`);
+          `Celestial atlas. Interactive chart of the ${this._mode === "earth" ? "Earth system" : this._mode === "sun" ? "Sun and solar weather" : "solar system"}.`);
       }
     }
 
@@ -1201,6 +1205,7 @@
       this._drawSky(ctx, w, h);
       this._pickables = [];
       if (this._mode === "earth") this._drawEarthMode(ctx, w, h);
+      else if (this._mode === "sun") this._drawSunMode(ctx, w, h);
       else this._drawSolarMode(ctx, w, h);
       this._drawSelection(ctx);
     }
@@ -1618,10 +1623,6 @@
       const cx = w / 2 + this._vp.x;
       const cy = h / 2 + this._vp.y;
 
-      // Zodiac band with the Moon's sign highlighted — geocentric chart
-      const moonSign = signFromLon(ms.lon);
-      this._drawZodiacBand(ctx, cx, cy, zInner * k, zOuter * k, moonSign.index);
-
       // Orbit shells
       RINGS.forEach((ring, i) => {
         const rPx = ring.r * k;
@@ -1712,6 +1713,118 @@
 
       // Compass cue: north marker on the outer band
       this._label(ctx, "N", cx, cy - (zOuter * k) - 10, { align: "center", size: 10, color: pal.muted });
+    }
+
+    /* -------------------------------- sun mode ------------------------------- */
+
+    _drawSunMode(ctx, w, h) {
+      const pal = this._palette();
+      const cx = w / 2 + this._vp.x;
+      const cy = h / 2 + this._vp.y;
+      const baseR = Math.min(w, h) * 0.28;
+      const sunR = baseR * this._vp.zoom;
+
+      // Sun glow layers
+      for (let i = 4; i >= 1; i--) {
+        const r = sunR * (1 + i * 0.25);
+        const g = ctx.createRadialGradient(cx, cy, sunR * 0.3, cx, cy, r);
+        g.addColorStop(0, `rgba(255,200,50,${0.12 / i})`);
+        g.addColorStop(0.6, `rgba(255,140,20,${0.06 / i})`);
+        g.addColorStop(1, "rgba(255,100,0,0)");
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(cx, cy, r, 0, TWO_PI); ctx.fill();
+      }
+
+      // Corona rays
+      ctx.save();
+      ctx.translate(cx, cy);
+      const rayCount = 24;
+      for (let i = 0; i < rayCount; i++) {
+        const angle = (i / rayCount) * TWO_PI;
+        const len = sunR * (1.3 + Math.sin(i * 2.7) * 0.2);
+        ctx.strokeStyle = `rgba(255,200,80,${0.15 + Math.sin(i * 1.3) * 0.05})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(Math.cos(angle) * sunR * 0.95, Math.sin(angle) * sunR * 0.95);
+        ctx.lineTo(Math.cos(angle) * len, Math.sin(angle) * len);
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      // Sun disc
+      const sg = ctx.createRadialGradient(cx - sunR * 0.3, cy - sunR * 0.3, sunR * 0.1, cx, cy, sunR);
+      sg.addColorStop(0, "#fff8e0");
+      sg.addColorStop(0.3, "#ffd54f");
+      sg.addColorStop(0.7, "#ffb300");
+      sg.addColorStop(1, "#e65100");
+      ctx.fillStyle = sg;
+      ctx.beginPath(); ctx.arc(cx, cy, sunR, 0, TWO_PI); ctx.fill();
+
+      // Sun label
+      this._label(ctx, "Sun", cx, cy - sunR - 18, { align: "center", size: 14, color: pal.text, bold: true });
+
+      // Make sun pickable for detail card
+      this._pickables.push({
+        id: "sun:Sun", kind: "sun", sx: cx, sy: cy, hit: sunR, label: "Sun",
+      });
+
+      // Solar weather stats panel
+      const sw = this._solarData;
+      const panelX = 24;
+      let panelY = 80;
+      const lineH = 26;
+
+      ctx.fillStyle = pal.text;
+      ctx.font = `bold 16px ${SANS}`;
+      ctx.textAlign = "left";
+      ctx.fillText("SOLAR WEATHER", panelX, panelY);
+      panelY += 10;
+
+      ctx.font = `13px ${SANS}`;
+      ctx.fillStyle = pal.muted;
+
+      if (!sw) {
+        panelY += lineH;
+        ctx.fillText("Loading solar data…", panelX, panelY);
+      } else {
+        const rows = [];
+        if (sw.k_index != null) {
+          const kp = sw.k_index;
+          let level = "Quiet";
+          if (kp >= 5) level = "Storm";
+          else if (kp >= 4) level = "Active";
+          else if (kp >= 3) level = "Unsettled";
+          rows.push(["Kp Index", `${kp} (${level})`]);
+        }
+        if (sw.xray_class) rows.push(["X-ray Class", String(sw.xray_class)]);
+        if (sw.sunspot_number != null) rows.push(["Sunspot Number", String(sw.sunspot_number)]);
+        if (sw.solar_wind_speed != null) rows.push(["Solar Wind", `${sw.solar_wind_speed} km/s`]);
+        if (sw.solar_wind_density != null) rows.push(["Wind Density", `${sw.solar_wind_density} p/cm³`]);
+        if (sw.bt != null) rows.push(["Bt (IMF)", `${sw.bt} nT`]);
+        if (sw.bz != null) rows.push(["Bz (IMF)", `${sw.bz} nT`]);
+        if (sw.flare_active) rows.push(["Solar Flare", "Active"]);
+        if (sw.cme_watch) rows.push(["CME Watch", "Yes"]);
+        if (sw.aurora_activity) rows.push(["Aurora Activity", String(sw.aurora_activity)]);
+
+        if (rows.length === 0) {
+          panelY += lineH;
+          ctx.fillText("No solar data available", panelX, panelY);
+        } else {
+          rows.forEach(([label, value]) => {
+            panelY += lineH;
+            ctx.fillStyle = pal.muted;
+            ctx.fillText(label, panelX, panelY);
+            ctx.fillStyle = pal.text;
+            ctx.fillText(value, panelX + 130, panelY);
+          });
+        }
+      }
+
+      // Data source note
+      panelY += lineH + 10;
+      ctx.fillStyle = pal.muted;
+      ctx.font = `11px ${SANS}`;
+      ctx.fillText("Source: NOAA SWPC", panelX, panelY);
     }
 
     /* ------------------------------- selection ------------------------------- */
@@ -1948,8 +2061,48 @@
       if (!drawer || !toggle) return;
 
       if (this._mode === "earth") this._renderEarthDrawer(drawer, toggle);
+      else if (this._mode === "sun") this._renderSunDrawer(drawer, toggle);
       else this._renderSolarDrawer(drawer, toggle);
       this._syncDrawerVisibility();
+    }
+
+    _renderSunDrawer(drawer, toggle) {
+      const sw = this._solarData;
+      toggle.textContent = "\u2600 Solar Data";
+      toggle.hidden = false;
+
+      if (!sw) {
+        drawer.innerHTML = `
+          <div class="sm-drawer-title">\u2600 SOLAR WEATHER</div>
+          <div class="sm-drawer-empty">Loading solar weather data\u2026</div>
+        `;
+        return;
+      }
+
+      const rows = [];
+      if (sw.k_index != null) {
+        let level = "Quiet";
+        if (sw.k_index >= 5) level = "Storm";
+        else if (sw.k_index >= 4) level = "Active";
+        else if (sw.k_index >= 3) level = "Unsettled";
+        rows.push(`<div class="sm-drawer-row" data-sm-row="kp"><span class="sm-drawer-label">Kp Index</span><span class="sm-drawer-value">${sw.k_index} (${level})</span></div>`);
+      }
+      if (sw.xray_class) rows.push(`<div class="sm-drawer-row"><span class="sm-drawer-label">X-ray Class</span><span class="sm-drawer-value">${esc(sw.xray_class)}</span></div>`);
+      if (sw.sunspot_number != null) rows.push(`<div class="sm-drawer-row"><span class="sm-drawer-label">Sunspot Number</span><span class="sm-drawer-value">${sw.sunspot_number}</span></div>`);
+      if (sw.solar_wind_speed != null) rows.push(`<div class="sm-drawer-row"><span class="sm-drawer-label">Solar Wind</span><span class="sm-drawer-value">${sw.solar_wind_speed} km/s</span></div>`);
+      if (sw.solar_wind_density != null) rows.push(`<div class="sm-drawer-row"><span class="sm-drawer-label">Wind Density</span><span class="sm-drawer-value">${sw.solar_wind_density} p/cm\u00B3</span></div>`);
+      if (sw.bt != null) rows.push(`<div class="sm-drawer-row"><span class="sm-drawer-label">Bt (IMF)</span><span class="sm-drawer-value">${sw.bt} nT</span></div>`);
+      if (sw.bz != null) rows.push(`<div class="sm-drawer-row"><span class="sm-drawer-label">Bz (IMF)</span><span class="sm-drawer-value">${sw.bz} nT</span></div>`);
+      if (sw.flare_active) rows.push(`<div class="sm-drawer-row"><span class="sm-drawer-label">Solar Flare</span><span class="sm-drawer-value">Active</span></div>`);
+      if (sw.cme_watch) rows.push(`<div class="sm-drawer-row"><span class="sm-drawer-label">CME Watch</span><span class="sm-drawer-value">Yes</span></div>`);
+      if (sw.aurora_activity) rows.push(`<div class="sm-drawer-row"><span class="sm-drawer-label">Aurora Activity</span><span class="sm-drawer-value">${esc(sw.aurora_activity)}</span></div>`);
+
+      const html = rows.length > 0 ? rows.join("") : `<div class="sm-drawer-empty">No solar data available</div>`;
+      drawer.innerHTML = `
+        <div class="sm-drawer-title">\u2600 SOLAR WEATHER</div>
+        ${html}
+        <div class="sm-drawer-note">Source: NOAA SWPC</div>
+      `;
     }
 
     _renderSolarDrawer(drawer, toggle) {

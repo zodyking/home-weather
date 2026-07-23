@@ -6139,6 +6139,7 @@ class HomeWeatherPanel extends HTMLElement {
           items: [
             { type: "radio", action: "space-mode", value: "solar_system", label: "Solar System", checked: this._spaceMode === "solar_system" },
             { type: "radio", action: "space-mode", value: "earth", label: "Earth", checked: this._spaceMode === "earth" },
+            { type: "radio", action: "space-mode", value: "sun", label: "Sun", checked: this._spaceMode === "sun" },
             { type: "divider" },
             { type: "radio", action: "nav", value: "settings", label: "Space settings…" },
           ],
