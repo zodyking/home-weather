@@ -25,6 +25,10 @@ class HomeWeatherPanel extends HTMLElement {
     this._useFahrenheit = true;
     this._weatherData = null;
     this._settings = {};
+    // Seed appearance from localStorage so the very first paint uses the
+    // remembered theme (no dark flash) before the config WS round-trip lands.
+    this._settings.appearance = this._readStoredAppearance();
+    this._themeSaveTimer = null;
     this._narrow = null;
     this._graphHoverIndex = null;
     this._apexCharts = [];
@@ -266,7 +270,24 @@ class HomeWeatherPanel extends HTMLElement {
       const response = await this._hass.callWS({ type: "home_weather/get_config" });
       this._config = response.config || {};
       this._settings = JSON.parse(JSON.stringify(this._config || {}));
-      if (!this._settings.appearance) this._settings.appearance = { mode: "dark", overrides: {} };
+      // Resolve theme: prefer the saved server-side appearance; otherwise keep
+      // whatever we already applied from localStorage (avoids a dark flash and
+      // preserves the user's last choice on a fresh/blank config).
+      if (this._settings.appearance && this._settings.appearance.mode) {
+        this._settings.appearance = {
+          mode: this._settings.appearance.mode === "light" ? "light" : "dark",
+          overrides: this._settings.appearance.overrides && typeof this._settings.appearance.overrides === "object"
+            ? this._settings.appearance.overrides
+            : {},
+        };
+      } else {
+        this._settings.appearance = this._readStoredAppearance();
+      }
+      // Keep localStorage in sync with the authoritative config.
+      try {
+        window.localStorage.setItem("hw_theme_mode", this._settings.appearance.mode);
+        window.localStorage.setItem("hw_theme_overrides", JSON.stringify(this._settings.appearance.overrides || {}));
+      } catch (_) { /* ignore */ }
       this._applyTheme();
       if (!this._settings.tts) this._settings.tts = { enabled: false, language: "en", platform: null };
       if (!Array.isArray(this._settings.media_players)) this._settings.media_players = [];
@@ -669,24 +690,99 @@ class HomeWeatherPanel extends HTMLElement {
     }, 3200);
   }
 
-  async _saveSettings() {
-    if (!this._hass) return;
-    this._syncSettingsFromForm();
+  /** Update the inline save-status pill in place (no re-render). */
+  _setSaveStatus(state, message) {
+    const el = this.shadowRoot?.getElementById("settings-save-status");
+    if (!el) return;
+    el.setAttribute("data-state", state);
+    if (message != null) el.textContent = message;
+  }
+
+  /** Debounced auto-save fired from form edits. Applies optimistically and
+   *  saves in the background so the UI never blocks. */
+  _scheduleAutoSave() {
+    if (this._currentView !== "settings") return;
+    if (this._autoSaveTimer) clearTimeout(this._autoSaveTimer);
+    this._setSaveStatus("saving", "Saving\u2026");
+    this._autoSaveTimer = setTimeout(() => {
+      this._autoSaveTimer = null;
+      this._saveSettings({ silent: true });
+    }, 800);
+  }
+
+  /** Quiet weather refresh that never re-renders while the settings form is
+   *  open, so a background save can't clobber the user's inputs/focus. */
+  async _loadWeatherDataQuiet() {
+    if (!this._hass || !this._config || !this._config.weather_entity) return;
     try {
-      this._loading = true;
-      this._render();
-      await this._hass.callWS({ type: "home_weather/set_config", config: this._settings });
-      this._config = { ...this._settings };
-      await this._loadWeatherData();
-      this._loadWebhookInfo();
-      this._showSettingsNotice("Settings have been saved");
+      const response = await this._hass.callWS({ type: "home_weather/get_weather" });
+      this._weatherData = response.data;
     } catch (e) {
+      console.error("Error loading weather:", e);
+    }
+    if (this._currentView !== "settings") this._render();
+  }
+
+  /** Quiet webhook-info refresh. Updates the cache and, when it's safe to do so
+   *  (the user isn't actively editing a field), re-renders so any freshly
+   *  generated webhook URLs appear. Never clobbers an in-progress edit. */
+  async _loadWebhookInfoQuiet() {
+    if (!this._hass) return;
+    try {
+      const r = await this._hass.callWS({ type: "home_weather/get_webhook_info" });
+      this._webhookInfo = {};
+      (r.webhooks || []).forEach((w) => {
+        this._webhookInfo[w.webhook_id] = {
+          url: w.url || "",
+          url_internal: w.url_internal || "",
+          url_external: w.url_external || "",
+          last_triggered: w.last_triggered,
+        };
+      });
+      if (this._currentView !== "settings" || !this._isEditingField()) {
+        this._render();
+      }
+    } catch (e) {
+      console.error("Failed to load webhook info:", e);
+    }
+  }
+
+  /** True when a form control inside the panel currently has focus, so a
+   *  background refresh should avoid re-rendering and stealing the user's spot. */
+  _isEditingField() {
+    const active = this.shadowRoot?.activeElement;
+    if (!active) return false;
+    const tag = active.tagName;
+    return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || active.isContentEditable;
+  }
+
+  async _saveSettings({ silent = false } = {}) {
+    if (!this._hass) return;
+    // Any pending debounced autosave is superseded by this explicit save.
+    if (this._autoSaveTimer) { clearTimeout(this._autoSaveTimer); this._autoSaveTimer = null; }
+    this._syncSettingsFromForm();
+    // Optimistic UI: adopt the new settings locally immediately so the panel
+    // reflects them at once and never waits on the WS round-trip.
+    const snapshot = JSON.parse(JSON.stringify(this._settings));
+    this._config = JSON.parse(JSON.stringify(snapshot));
+    this._setSaveStatus("saving", "Saving\u2026");
+    try {
+      await this._hass.callWS({ type: "home_weather/set_config", config: snapshot });
+      this._setSaveStatus("saved", "All changes saved");
+      // Refresh derived data in the background, never blocking the form.
+      this._loadWeatherDataQuiet();
+      this._loadWebhookInfoQuiet();
+      if (this._saveStatusTimer) clearTimeout(this._saveStatusTimer);
+      this._saveStatusTimer = setTimeout(() => {
+        this._saveStatusTimer = null;
+        this._setSaveStatus("idle", "Changes save automatically");
+      }, 2500);
+    } catch (e) {
+      // On failure, keep the user's edits in this._settings so nothing is lost
+      // and surface a clear, retryable error.
       console.error("Error saving:", e);
-      this._error = "Failed to save settings";
-      this._showSettingsNotice("Failed to save settings");
-    } finally {
-      this._loading = false;
-      this._render();
+      this._setSaveStatus("error", "Save failed \u2014 your changes are kept. Retry or edit to save again.");
+      if (!silent) this._showSettingsNotice("Failed to save settings");
     }
   }
 
@@ -1055,9 +1151,49 @@ class HomeWeatherPanel extends HTMLElement {
     const dropdown = root.querySelector(".hw-entity-select-dropdown");
     if (!hidden || !trigger || !dropdown) return;
 
+    let scrollListener = null;
+    let resizeListener = null;
+
+    const positionDropdown = () => {
+      const rect = trigger.getBoundingClientRect();
+      const gap = 4;
+      const maxH = Math.min(320, window.innerHeight * 0.5);
+      const spaceBelow = window.innerHeight - rect.bottom - gap;
+      const spaceAbove = rect.top - gap;
+      const dropUp = spaceBelow < maxH && spaceAbove > spaceBelow;
+      dropdown.style.left = `${rect.left}px`;
+      dropdown.style.width = `${rect.width}px`;
+      if (dropUp) {
+        dropdown.style.top = "auto";
+        dropdown.style.bottom = `${window.innerHeight - rect.top + gap}px`;
+        dropdown.style.maxHeight = `${Math.min(maxH, spaceAbove)}px`;
+      } else {
+        dropdown.style.top = `${rect.bottom + gap}px`;
+        dropdown.style.bottom = "auto";
+        dropdown.style.maxHeight = `${Math.min(maxH, spaceBelow)}px`;
+      }
+    };
+
+    const clearPositionListeners = () => {
+      if (scrollListener) {
+        window.removeEventListener("scroll", scrollListener, true);
+        scrollListener = null;
+      }
+      if (resizeListener) {
+        window.removeEventListener("resize", resizeListener);
+        resizeListener = null;
+      }
+    };
+
     const close = () => {
       root.classList.remove("open");
       trigger.setAttribute("aria-expanded", "false");
+      dropdown.style.left = "";
+      dropdown.style.top = "";
+      dropdown.style.bottom = "";
+      dropdown.style.width = "";
+      dropdown.style.maxHeight = "";
+      clearPositionListeners();
     };
 
     const selectValue = (entityId, title) => {
@@ -1079,8 +1215,17 @@ class HomeWeatherPanel extends HTMLElement {
 
     trigger.addEventListener("click", (e) => {
       e.stopPropagation();
-      const open = root.classList.toggle("open");
-      trigger.setAttribute("aria-expanded", open ? "true" : "false");
+      const isOpen = root.classList.toggle("open");
+      trigger.setAttribute("aria-expanded", isOpen ? "true" : "false");
+      if (isOpen) {
+        positionDropdown();
+        scrollListener = () => close();
+        resizeListener = () => positionDropdown();
+        window.addEventListener("scroll", scrollListener, true);
+        window.addEventListener("resize", resizeListener);
+      } else {
+        close();
+      }
     });
 
     dropdown.querySelectorAll(".hw-entity-select-option").forEach((opt) => {
@@ -1097,7 +1242,16 @@ class HomeWeatherPanel extends HTMLElement {
           container.querySelectorAll("[data-weather-entity-select].open").forEach((el) => {
             el.classList.remove("open");
             el.querySelector(".hw-entity-select-trigger")?.setAttribute("aria-expanded", "false");
+            const dd = el.querySelector(".hw-entity-select-dropdown");
+            if (dd) {
+              dd.style.left = "";
+              dd.style.top = "";
+              dd.style.bottom = "";
+              dd.style.width = "";
+              dd.style.maxHeight = "";
+            }
           });
+          clearPositionListeners();
         }
       });
     }
@@ -2142,6 +2296,14 @@ class HomeWeatherPanel extends HTMLElement {
           --hw-border: #252525;
           --hw-border-strong: #333333;
           --hw-hover: #222222;
+          /* Neutral overlays (flip with theme via _applyTheme). Defaults match
+             the dark theme; the light theme swaps in dark-tinted equivalents so
+             subtle fills/dividers stay visible on light surfaces. */
+          --hw-overlay-subtle: rgba(255, 255, 255, 0.025);
+          --hw-overlay-hover: rgba(255, 255, 255, 0.045);
+          --hw-overlay-border: rgba(255, 255, 255, 0.1);
+          --hw-overlay-border-strong: rgba(255, 255, 255, 0.16);
+          --hw-divider-soft: rgba(255, 255, 255, 0.08);
           /* Match Home Assistant's header/sidebar bar height so the panel's
              menu bar lines up with the "Home Assistant" section on the left.
              Fallback matches the Dashboard topbar so every page is consistent. */
@@ -3495,6 +3657,37 @@ class HomeWeatherPanel extends HTMLElement {
           background: var(--hw-surface);
           border-top: 1px solid var(--hw-border-strong);
         }
+        .settings-save-status {
+          margin-right: auto;
+          align-self: center;
+          display: inline-flex;
+          align-items: center;
+          gap: 7px;
+          font-size: 12.5px;
+          font-weight: 500;
+          color: var(--hw-muted);
+          min-height: 20px;
+          transition: color var(--dur-fast) var(--ease);
+        }
+        .settings-save-status::before {
+          content: "";
+          width: 8px;
+          height: 8px;
+          border-radius: 50%;
+          background: var(--hw-muted);
+          flex-shrink: 0;
+          transition: background var(--dur-fast) var(--ease);
+        }
+        .settings-save-status[data-state="saving"] { color: var(--hw-accent-hover); }
+        .settings-save-status[data-state="saving"]::before { background: var(--hw-accent); animation: hwSavePulse 1s var(--ease) infinite; }
+        .settings-save-status[data-state="saved"] { color: var(--hw-success); }
+        .settings-save-status[data-state="saved"]::before { background: var(--hw-success); }
+        .settings-save-status[data-state="error"] { color: var(--hw-danger); }
+        .settings-save-status[data-state="error"]::before { background: var(--hw-danger); }
+        @keyframes hwSavePulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+        @media (max-width: 560px) {
+          .settings-save-status { width: 100%; margin-right: 0; order: -1; }
+        }
         .settings-toast {
           position: fixed;
           left: 50%;
@@ -3547,8 +3740,8 @@ class HomeWeatherPanel extends HTMLElement {
           padding: 8px 12px;
           margin-bottom: 6px;
           justify-content: space-between;
-          background: rgba(255, 255, 255, 0.025);
-          border-left: 3px solid rgba(255,255,255,0.1);
+          background: var(--hw-overlay-subtle);
+          border-left: 3px solid var(--hw-overlay-border);
           border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
           max-width: min(400px, 100%);
           box-sizing: border-box;
@@ -3556,7 +3749,7 @@ class HomeWeatherPanel extends HTMLElement {
         }
         .settings-toggle-row:hover,
         .inline-toggle:hover {
-          background: rgba(255, 255, 255, 0.045);
+          background: var(--hw-overlay-hover);
           border-left-color: var(--panel-accent);
         }
         .settings-toggle-row--wide,
@@ -3612,7 +3805,7 @@ class HomeWeatherPanel extends HTMLElement {
         .toggle-switch input:checked + .toggle-slider:before { transform: translateX(20px); background: white; }
         .toggle-label { font-size: 13px; color: var(--secondary-text-color); margin-left: 8px; }
         .collapsible-section { background: var(--card-background-color); border: 1px solid var(--card-border); border-radius: var(--radius-md); overflow: hidden; transition: border-color 0.2s ease; }
-        .collapsible-section.open { border-color: rgba(255,255,255,0.16); }
+        .collapsible-section.open { border-color: var(--hw-overlay-border-strong); }
         .collapsible-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; cursor: pointer; user-select: none; transition: background 0.2s; gap: 12px; }
         .collapsible-header:hover { background: var(--secondary-background-color); }
         .collapsible-header-left { display: flex; align-items: center; gap: 14px; flex: 1; min-width: 0; }
@@ -3641,9 +3834,9 @@ class HomeWeatherPanel extends HTMLElement {
         .collapsible-content { padding: var(--section-padding); display: none; flex-direction: column; gap: var(--form-gap); }
         .collapsible-header + .collapsible-content { border-top: 1px solid var(--card-border); }
         .collapsible-section.open > .collapsible-content { display: flex; }
-        .subsection-block { display: flex; flex-direction: column; gap: var(--form-gap-sm); padding-top: var(--form-gap); margin-top: var(--form-gap-sm); border-top: 1px solid rgba(255,255,255,0.08); }
+        .subsection-block { display: flex; flex-direction: column; gap: var(--form-gap-sm); padding-top: var(--form-gap); margin-top: var(--form-gap-sm); border-top: 1px solid var(--hw-divider-soft); }
         .subsection-block:first-child { padding-top: 0; margin-top: 0; border-top: none; }
-        .subsection-title { font-size: 11px; font-weight: 600; color: var(--secondary-text-color); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; padding-top: var(--form-gap); border-top: 1px solid rgba(255,255,255,0.06); }
+        .subsection-title { font-size: 11px; font-weight: 600; color: var(--secondary-text-color); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; padding-top: var(--form-gap); border-top: 1px solid var(--hw-divider-soft); }
         .subsection-block .subsection-title:first-child { padding-top: 0; border-top: none; }
         .subsection-block + .subsection-title { margin-top: var(--form-gap); }
         .range-slider { display: flex; align-items: center; gap: 12px; width: 100%; }
@@ -3807,11 +4000,8 @@ class HomeWeatherPanel extends HTMLElement {
         .hw-entity-select.open .hw-entity-select-chevron { transform: rotate(180deg); }
         .hw-entity-select-dropdown {
           display: none;
-          position: absolute;
-          top: calc(100% + 4px);
-          left: 0;
-          right: 0;
-          z-index: 220;
+          position: fixed;
+          z-index: 9999;
           max-height: min(320px, 50vh);
           overflow-y: auto;
           padding: 6px;
@@ -4274,14 +4464,36 @@ class HomeWeatherPanel extends HTMLElement {
             top: calc(var(--hw-menubar-height) + 8px);
             z-index: 60;
             flex-direction: row;
+            flex-wrap: nowrap;
+            gap: 6px;
             overflow-x: auto;
+            overscroll-behavior-x: contain;
             -webkit-overflow-scrolling: touch;
             scrollbar-width: none;
+            scroll-snap-type: x proximity;
             padding: 6px;
             border-radius: var(--radius-md);
+            max-width: 100%;
           }
           .settings-sidenav::-webkit-scrollbar { display: none; }
-          .settings-sidenav button { width: auto; flex-shrink: 0; min-height: 40px; }
+          .settings-sidenav button {
+            width: auto;
+            flex: 0 0 auto;
+            min-height: 44px;
+            padding: 0 14px;
+            scroll-snap-align: start;
+            border-radius: 999px;
+            border: 1px solid transparent;
+          }
+          .settings-sidenav button.active { border-color: var(--hw-accent-dim); }
+        }
+        /* Below 768px: keep forms single-column and tap targets generous. */
+        @media (max-width: 768px) {
+          .settings-form-grid { grid-template-columns: 1fr; }
+          .settings-card { padding: 16px; }
+          .form-row-inline { flex-direction: column; }
+          .settings-form-footer { flex-wrap: wrap; }
+          .settings-form-footer .btn { flex: 1 1 auto; min-height: 44px; }
         }
 
         /* Alert zone cards + hazard monitoring collapsibles */
@@ -4622,6 +4834,11 @@ class HomeWeatherPanel extends HTMLElement {
     } else if (this._currentView === "space") {
       this._initSpaceMap();
     }
+    // Now that this render's DOM (incl. any child-component roots) exists, tag
+    // the roots with the active theme so embedded components can key off
+    // [data-hw-theme]. The --hw-* tokens already inherit into their shadow DOMs
+    // from the host, so this is purely an explicit signal for child code.
+    this._propagateThemeToChildren(this._getAppearance().mode);
   }
 
   /**
@@ -4817,6 +5034,7 @@ class HomeWeatherPanel extends HTMLElement {
           }
         });
         this._applyTheme();
+        this._persistAppearance();
         if (this._currentView === "trends") this._initApexChart();
       });
     });
@@ -4829,6 +5047,7 @@ class HomeWeatherPanel extends HTMLElement {
         if (dot) dot.style.background = inp.value;
         inp.closest(".theme-swatch-row")?.classList.add("is-overridden");
         this._applyTheme();
+        this._persistAppearance();
       });
     });
     s.getElementById("theme-reset-btn")?.addEventListener("click", () => {
@@ -4843,6 +5062,7 @@ class HomeWeatherPanel extends HTMLElement {
         inp.closest(".theme-swatch-row")?.classList.remove("is-overridden");
       });
       this._applyTheme();
+      this._persistAppearance();
     });
 
     // Alert Zones: independent scope segmented switches (separate sensor + alert zone/bypass)
@@ -5020,8 +5240,10 @@ class HomeWeatherPanel extends HTMLElement {
       card.querySelectorAll(".media-player-volume").forEach((slider) => {
         slider.addEventListener("input", () => {
           this._syncMediaPlayerFromCard(i);
+          const pct = Math.round(parseFloat(slider.value) * 100);
           const valueDisplay = slider.nextElementSibling;
-          if (valueDisplay) valueDisplay.textContent = Math.round(parseFloat(slider.value) * 100) + "%";
+          if (valueDisplay) valueDisplay.textContent = pct + "%";
+          slider.setAttribute("aria-valuetext", pct + " percent");
         });
       });
     });
@@ -5210,15 +5432,35 @@ class HomeWeatherPanel extends HTMLElement {
       });
     }
     
-    // Save and Cancel
+    // Save and Cancel (explicit)
     const saveBtn = s.getElementById("save-btn");
     const cancelBtn = s.getElementById("cancel-btn");
     if (saveBtn) saveBtn.addEventListener("click", () => this._saveSettings());
     if (cancelBtn) cancelBtn.addEventListener("click", () => {
+      if (this._autoSaveTimer) { clearTimeout(this._autoSaveTimer); this._autoSaveTimer = null; }
       this._settings = JSON.parse(JSON.stringify(this._config || {}));
       this._clearSettingsNotice();
       this._render();
     });
+
+    // Auto-save: debounced background save on any settings edit. Applied
+    // optimistically so the form never blocks. The theme controls persist
+    // separately (instantly) via _persistAppearance, so we skip them here.
+    const settingsForm = s.querySelector(".settings-form");
+    if (settingsForm && !settingsForm._autoSaveBound) {
+      settingsForm._autoSaveBound = true;
+      const onEdit = (e) => {
+        const t = e.target;
+        if (!t) return;
+        // Theme swatches/mode buttons handle their own instant persistence.
+        if (t.closest && t.closest(".theme-mode-block, .theme-swatch-grid")) return;
+        // Ignore events from embedded child components (zone editor, etc.).
+        if (t.closest && t.closest("#zone-editor-root, #hurricane-tracker-root, #space-map-root")) return;
+        this._scheduleAutoSave();
+      };
+      settingsForm.addEventListener("input", onEdit);
+      settingsForm.addEventListener("change", onEdit);
+    }
   }
 
   _renderSettingsNotice() {
@@ -5886,7 +6128,6 @@ class HomeWeatherPanel extends HTMLElement {
       value: key,
       label,
       checked: this._spaceLayers[key] !== false,
-      disabled: this._spaceMode !== "solar_system",
     }));
     return this._renderMenubar({
       backAction: "nav",
@@ -5897,7 +6138,7 @@ class HomeWeatherPanel extends HTMLElement {
           label: "View",
           items: [
             { type: "radio", action: "space-mode", value: "solar_system", label: "Solar System", checked: this._spaceMode === "solar_system" },
-            { type: "radio", action: "space-mode", value: "sun_weather", label: "Sun Weather", checked: this._spaceMode === "sun_weather" },
+            { type: "radio", action: "space-mode", value: "earth", label: "Earth", checked: this._spaceMode === "earth" },
             { type: "divider" },
             { type: "radio", action: "nav", value: "settings", label: "Space settings…" },
           ],
@@ -5930,7 +6171,7 @@ class HomeWeatherPanel extends HTMLElement {
   }
 
   _loadSpaceMapScript() {
-    if (window.SpaceMap && window.THREE?.WebGLRenderer) return Promise.resolve();
+    if (window.SpaceMap && typeof window.SpaceMap === "function") return Promise.resolve();
     if (this._spaceMapPromise) return this._spaceMapPromise;
     const version = this._version || Date.now();
     const loadScript = (src, globalName, verify) => new Promise((resolve, reject) => {
@@ -5976,15 +6217,10 @@ class HomeWeatherPanel extends HTMLElement {
       document.head.appendChild(script);
     });
     this._spaceMapPromise = loadScript(
-      `/local/home_weather/three.min.js?v=${version}`,
-      "THREE",
-      (three) => !!three?.WebGLRenderer,
+      `/local/home_weather/space-map.js?v=${version}`,
+      "SpaceMap",
+      (spaceMap) => typeof spaceMap === "function",
     )
-      .then(() => loadScript(
-        `/local/home_weather/space-map.js?v=${version}`,
-        "SpaceMap",
-        (spaceMap) => typeof spaceMap === "function",
-      ))
       .catch((err) => {
         this._spaceMapPromise = null;
         throw err;
@@ -6031,6 +6267,12 @@ class HomeWeatherPanel extends HTMLElement {
         mode: this._spaceMode,
         layers: this._spaceLayers,
         logScale: spaceMonitoring.log_scale_orbits !== false,
+        onModeChange: (mode) => {
+          // Keep panel state + menubar radios in sync when the user switches
+          // modes with the in-canvas segmented control.
+          this._spaceMode = mode;
+          this._syncMenubarChecks("space-mode", (v) => v === mode);
+        },
       });
       this._spaceMap.mount();
       if (!this._spaceRefreshTimer) {
@@ -7133,11 +7375,12 @@ class HomeWeatherPanel extends HTMLElement {
       const playbackBlock = `
         <div class="media-player-playback-block">
           <div class="form-group">
-            <label>Volume</label>
+            <label for="${cardId}-volume">Announcement volume</label>
             <div class="range-slider">
-              <input type="range" class="media-player-volume" data-field="volume" min="0" max="1" step="0.05" value="${m.volume || 0.6}"/>
+              <input type="range" id="${cardId}-volume" class="media-player-volume" data-field="volume" min="0" max="1" step="0.05" value="${m.volume || 0.6}" aria-label="Announcement volume for ${title}" aria-valuetext="${Math.round((m.volume || 0.6) * 100)} percent"/>
               <span class="range-value">${Math.round((m.volume || 0.6) * 100)}%</span>
             </div>
+            <p class="form-hint">This speaker is set to this level for announcements, then returned to its previous volume automatically.</p>
           </div>
           <div class="playback-options-row">
             <div class="form-group">
@@ -7172,7 +7415,7 @@ class HomeWeatherPanel extends HTMLElement {
           ${renderMiniCollapsible(`${cardId}-playback`, "Playback", playbackBlock)}
           ${renderMiniCollapsible(`${cardId}-voice`, "Voice options", voiceBlock, '<span class="optional-tag">Optional</span>')}
           <div class="media-player-actions">
-            <button type="button" class="test-tts-btn" data-test-media="${i}">Test TTS</button>
+            <button type="button" class="test-tts-btn" data-test-media="${i}" title="Play a short announcement at the configured volume">Test announcement</button>
           </div>
         </div>
       `;
@@ -7963,7 +8206,7 @@ class HomeWeatherPanel extends HTMLElement {
           `, true, "enable-voice-satellite", tts.enable_voice_satellite)}
             </section>
 
-            ${this._renderAppearanceTab(activePane, renderNestedSection)}
+            ${this._renderAppearanceTabFull(activePane, renderNestedSection)}
 
             <section class="settings-pane ${activePane === "advanced" ? "active" : ""}" data-settings-pane="advanced">
               <div class="settings-pane-head">
@@ -8002,8 +8245,9 @@ class HomeWeatherPanel extends HTMLElement {
             </section>
 
             <div class="settings-form-footer">
-              <button class="btn btn-secondary" id="cancel-btn">Cancel</button>
-              <button class="btn btn-primary" id="save-btn">Save changes</button>
+              <span class="settings-save-status" id="settings-save-status" role="status" aria-live="polite" data-state="idle">Changes save automatically</span>
+              <button class="btn btn-secondary" id="cancel-btn">Revert</button>
+              <button class="btn btn-primary" id="save-btn">Save now</button>
             </div>
           </div>
         </div>
@@ -8041,6 +8285,68 @@ class HomeWeatherPanel extends HTMLElement {
     const mode = ap.mode === "light" ? "light" : "dark";
     const overrides = ap.overrides && typeof ap.overrides === "object" ? { ...ap.overrides } : {};
     return { mode, overrides };
+  }
+
+  /** Read a persisted appearance from localStorage (used for an instant,
+   *  flash-free theme before the config WS round-trip resolves). Falls back to
+   *  dark when nothing valid is stored. */
+  _readStoredAppearance() {
+    try {
+      const mode = window.localStorage.getItem("hw_theme_mode");
+      let overrides = {};
+      const rawOv = window.localStorage.getItem("hw_theme_overrides");
+      if (rawOv) {
+        const parsed = JSON.parse(rawOv);
+        if (parsed && typeof parsed === "object") overrides = parsed;
+      }
+      return { mode: mode === "light" ? "light" : "dark", overrides };
+    } catch (_) {
+      return { mode: "dark", overrides: {} };
+    }
+  }
+
+  /** Persist the active appearance to localStorage synchronously so the next
+   *  load can theme instantly, and (debounced) to the backend so it survives
+   *  across devices. Never blocks the UI. */
+  _persistAppearance() {
+    const { mode, overrides } = this._getAppearance();
+    try {
+      window.localStorage.setItem("hw_theme_mode", mode);
+      window.localStorage.setItem("hw_theme_overrides", JSON.stringify(overrides || {}));
+    } catch (_) { /* storage may be unavailable (private mode) */ }
+    // Background save to HA storage so the preference follows the account.
+    if (this._config) this._config.appearance = { mode, overrides };
+    if (this._themeSaveTimer) clearTimeout(this._themeSaveTimer);
+    this._themeSaveTimer = setTimeout(() => {
+      this._themeSaveTimer = null;
+      if (!this._hass) return;
+      const cfg = { ...(this._settings || {}), appearance: { mode, overrides } };
+      this._hass.callWS({ type: "home_weather/set_config", config: cfg }).catch((e) => {
+        console.warn("Theme preference save failed (will retry on next save):", e);
+      });
+    }, 600);
+  }
+
+  /** Mirror the current theme mode + tokens onto embedded child component roots
+   *  (hurricane tracker, zone editor, space map) so their shadow DOMs inherit
+   *  the --hw-* custom properties and can key off [data-hw-theme]. Custom
+   *  properties inherit through shadow boundaries as long as they are set on an
+   *  ancestor of the child's shadow host, which these roots are. */
+  _propagateThemeToChildren(mode) {
+    const s = this.shadowRoot;
+    if (!s) return;
+    const roots = [
+      s.getElementById("hurricane-tracker-root"),
+      s.getElementById("zone-editor-root"),
+      s.getElementById("space-map-root"),
+    ];
+    roots.forEach((root) => {
+      if (root) root.setAttribute("data-hw-theme", mode);
+    });
+    // Notify live child component instances that expose a theme hook.
+    try { this._hurricaneTracker?.setTheme?.(mode); } catch (_) {}
+    try { this._zoneEditor?.setTheme?.(mode); } catch (_) {}
+    try { this._spaceMap?.setTheme?.(mode); } catch (_) {}
   }
 
   /** Hex swatch value for a control key given a base palette. */
@@ -8135,16 +8441,28 @@ class HomeWeatherPanel extends HTMLElement {
     set("--hw-inset-bg", t.surface2);
     set("--hw-code-bg", mode === "light" ? "rgba(21, 32, 48, 0.06)" : "rgba(255,255,255,0.06)");
     set("--hw-scrim", mode === "light" ? "rgba(15, 23, 42, 0.32)" : "rgba(0, 0, 0, 0.55)");
+    // Neutral overlays that must invert between themes (subtle fills, hairline
+    // dividers and borders that were previously hardcoded to white rgba and so
+    // vanished on light surfaces).
+    set("--hw-overlay-subtle", mode === "light" ? "rgba(15, 23, 42, 0.03)" : "rgba(255, 255, 255, 0.025)");
+    set("--hw-overlay-hover", mode === "light" ? "rgba(15, 23, 42, 0.06)" : "rgba(255, 255, 255, 0.045)");
+    set("--hw-overlay-border", mode === "light" ? "rgba(15, 23, 42, 0.12)" : "rgba(255, 255, 255, 0.1)");
+    set("--hw-overlay-border-strong", mode === "light" ? "rgba(15, 23, 42, 0.16)" : "rgba(255, 255, 255, 0.16)");
+    set("--hw-divider-soft", mode === "light" ? "rgba(15, 23, 42, 0.08)" : "rgba(255, 255, 255, 0.08)");
     // Translucent header bar tuned to the current surface so the sticky topbar
     // matches the theme (it otherwise falls back to a hardcoded dark rgba).
     const headerBg = /^#/.test(t.surface) ? this._hexToRgba(t.surface, 0.78) : t.surface;
     set("--app-header-background-color", headerBg);
     host.setAttribute("data-hw-theme", mode);
+    this._propagateThemeToChildren(mode);
   }
 
-  /** Collect appearance from the form. Currently forced to dark mode. */
+  /** Collect appearance settings. The theme controls update
+   *  this._settings.appearance live (instant apply), so we just normalize and
+   *  return the current selection here. */
   _collectAppearanceSettings() {
-    return { mode: "dark", overrides: {} };
+    const { mode, overrides } = this._getAppearance();
+    return { mode, overrides };
   }
 
   _renderAppearanceTab(activePane, renderNestedSection) {

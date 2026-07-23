@@ -19,6 +19,12 @@ from homeassistant.core import HomeAssistant
 from homeassistant.components.media_player.browse_media import (
     async_process_play_media_url,
 )
+try:  # MediaPlayerEntityFeature moved around across HA versions; degrade gracefully.
+    from homeassistant.components.media_player.const import MediaPlayerEntityFeature
+
+    _VOLUME_SET_FEATURE = int(MediaPlayerEntityFeature.VOLUME_SET)
+except Exception:  # pragma: no cover - defensive fallback
+    _VOLUME_SET_FEATURE = 4  # SUPPORT_VOLUME_SET bit
 from homeassistant.util import dt as dt_util
 
 from .condition_labels import (
@@ -566,6 +572,120 @@ def build_upcoming_change_message(
 
 
 # ============================================================================
+# Media player volume: capture / apply / restore
+# ============================================================================
+
+def _clamp_volume(value: float) -> float:
+    """Clamp a volume level into the 0.0 - 1.0 range."""
+    try:
+        return max(0.0, min(1.0, float(value)))
+    except (TypeError, ValueError):
+        return 0.6
+
+
+def _supports_volume_set(hass: HomeAssistant, entity_id: str) -> bool:
+    """Return True if the media player advertises the volume_set feature.
+
+    Players that don't report ``supported_features`` are assumed to support it
+    (the volume_set call is a no-op harmless for those that truly don't).
+    """
+    state = hass.states.get(entity_id)
+    if state is None:
+        return False
+    features = state.attributes.get("supported_features")
+    if features is None:
+        return True
+    try:
+        return bool(int(features) & _VOLUME_SET_FEATURE)
+    except (TypeError, ValueError):
+        return True
+
+
+def _current_volume_level(hass: HomeAssistant, entity_id: str) -> float | None:
+    """Return the player's current volume_level, or None if not reported."""
+    state = hass.states.get(entity_id)
+    if state is None:
+        return None
+    level = state.attributes.get("volume_level")
+    if level is None:
+        return None
+    try:
+        return float(level)
+    except (TypeError, ValueError):
+        return None
+
+
+async def apply_announcement_volume(
+    hass: HomeAssistant, entity_id: str, volume: float
+) -> float | None:
+    """Set a media player to the announcement volume, returning the prior level.
+
+    Captures the current ``volume_level`` first so the caller can restore it
+    once the announcement finishes. Returns ``None`` when the player doesn't
+    report/support volume, in which case no volume change is attempted and there
+    is nothing to restore.
+    """
+    if not entity_id or not _supports_volume_set(hass, entity_id):
+        return None
+    previous = _current_volume_level(hass, entity_id)
+    target = _clamp_volume(volume)
+    try:
+        await hass.services.async_call(
+            "media_player",
+            "volume_set",
+            {"entity_id": entity_id, "volume_level": target},
+            blocking=True,
+        )
+    except Exception as exc:  # noqa: BLE001 - best effort volume control
+        _LOGGER.warning("Failed to set announcement volume on %s: %s", entity_id, exc)
+        return None
+    return previous
+
+
+async def restore_volume_when_idle(
+    hass: HomeAssistant,
+    entity_id: str,
+    previous_volume: float | None,
+    *,
+    wait_for_start: bool = True,
+) -> None:
+    """Wait for playback to finish on ``entity_id`` then restore its volume.
+
+    Safe to schedule as a background task. Does nothing when there is no
+    captured previous volume (player didn't report one before the announcement).
+    """
+    if previous_volume is None or not entity_id:
+        return
+    try:
+        await _wait_for_media_player_idle(
+            hass, entity_id, wait_for_start=wait_for_start
+        )
+        await hass.services.async_call(
+            "media_player",
+            "volume_set",
+            {"entity_id": entity_id, "volume_level": _clamp_volume(previous_volume)},
+            blocking=False,
+        )
+        _LOGGER.debug(
+            "Restored volume on %s to %.2f after announcement",
+            entity_id, previous_volume,
+        )
+    except Exception as exc:  # noqa: BLE001 - best effort restore
+        _LOGGER.warning("Failed to restore volume on %s: %s", entity_id, exc)
+
+
+def _schedule_volume_restore(
+    hass: HomeAssistant, entity_id: str, previous_volume: float | None
+) -> None:
+    """Fire-and-forget background restore of a player's pre-announcement volume."""
+    if previous_volume is None or not entity_id:
+        return
+    hass.async_create_task(
+        restore_volume_when_idle(hass, entity_id, previous_volume)
+    )
+
+
+# ============================================================================
 # TTS Dispatch
 # ============================================================================
 
@@ -633,19 +753,14 @@ async def send_tts(
         options = mp.get("options", {})
         
         _LOGGER.info("Sending TTS to %s via %s", entity_id, tts_entity)
-        
+
+        previous_volume: float | None = None
         try:
-            # Step 1: Set volume
-            try:
-                await hass.services.async_call(
-                    "media_player",
-                    "volume_set",
-                    {"entity_id": entity_id, "volume_level": volume},
-                    blocking=False,
-                )
-            except Exception as vol_e:
-                _LOGGER.warning("Failed to set volume on %s: %s", entity_id, vol_e)
-            
+            # Step 1: Capture the player's current volume, then set the
+            # configured announcement volume (blocking so it applies before the
+            # TTS starts). The previous level is restored once playback ends.
+            previous_volume = await apply_announcement_volume(hass, entity_id, volume)
+
             # Step 2: Preroll delay
             if preroll_ms > 0:
                 await asyncio.sleep(preroll_ms / 1000)
@@ -681,13 +796,21 @@ async def send_tts(
                 request_id=request_id, entity_id=entity_id,
                 message_preview=message, alert_kind=alert_kind,
             )
-            
+
+            # Step 4: Restore the pre-announcement volume once playback ends.
+            # Runs in the background so multiple players are not serialized on
+            # each other's playback duration.
+            _schedule_volume_restore(hass, entity_id, previous_volume)
+
             # Delay between players
             if i < len(media_players_config) - 1:
                 await asyncio.sleep(0.5)
             
         except Exception as e:
             _LOGGER.error("Error sending TTS to %s: %s", entity_id, e, exc_info=True)
+            # Best-effort: if we changed the volume before failing, put it back.
+            if previous_volume is not None:
+                _schedule_volume_restore(hass, entity_id, previous_volume)
             _fire_tts_status(
                 hass, "failed",
                 request_id=request_id, entity_id=entity_id,

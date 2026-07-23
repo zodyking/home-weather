@@ -11,7 +11,11 @@ from homeassistant.components.webhook import async_generate_url
 from homeassistant.core import HomeAssistant, callback
 
 from .const import DOMAIN, WEBHOOK_LAST_TRIGGERED_KEY
-from .tts_notifications import _fire_tts_status
+from .tts_notifications import (
+    _fire_tts_status,
+    apply_announcement_volume,
+    restore_volume_when_idle,
+)
 from .tts_triggers import media_players_with_tts
 
 _LOGGER = logging.getLogger(__name__)
@@ -95,31 +99,44 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
 
         try:
             config = msg.get("config", {})
+            # Persist immediately, then acknowledge the client right away so the
+            # UI never blocks on coordinator refreshes or trigger reloads. The
+            # heavier work (data refresh + trigger reload) runs in the
+            # background so saving settings feels instant.
             await storage.async_save(config)
-            if coordinator:
-                await coordinator.async_request_refresh()
-            if entry_data:
-                for key in (
-                    "earthquake_coordinator",
-                    "tornado_coordinator",
-                    "hurricane_coordinator",
-                    "lightning_coordinator",
-                    "volcano_coordinator",
-                    "travel_coordinator",
-                    "wildfire_coordinator",
-                    "air_quality_coordinator",
-                    "space_coordinator",
-                ):
-                    hazard = entry_data.get(key)
-                    if hazard:
-                        await hazard.async_request_refresh()
-
-            # Reload triggers when config changes
-            if trigger_manager:
-                await trigger_manager.async_unload()
-                await trigger_manager.async_setup()
-
             connection.send_result(msg["id"], {"success": True})
+
+            async def _apply_config_side_effects() -> None:
+                """Refresh coordinators and reload triggers off the WS path."""
+                try:
+                    if coordinator:
+                        await coordinator.async_request_refresh()
+                    if entry_data:
+                        for key in (
+                            "earthquake_coordinator",
+                            "tornado_coordinator",
+                            "hurricane_coordinator",
+                            "lightning_coordinator",
+                            "volcano_coordinator",
+                            "travel_coordinator",
+                            "wildfire_coordinator",
+                            "air_quality_coordinator",
+                            "space_coordinator",
+                        ):
+                            hazard = entry_data.get(key)
+                            if hazard:
+                                await hazard.async_request_refresh()
+
+                    # Reload triggers when config changes
+                    if trigger_manager:
+                        await trigger_manager.async_unload()
+                        await trigger_manager.async_setup()
+                except Exception as exc:  # noqa: BLE001
+                    _LOGGER.error(
+                        "Error applying config side effects: %s", exc, exc_info=True
+                    )
+
+            hass.async_create_task(_apply_config_side_effects())
         except Exception as e:
             _LOGGER.error("Error saving config: %s", e)
             connection.send_error(msg["id"], "save_failed", str(e))
@@ -232,15 +249,10 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
         request_id = uuid.uuid4().hex
 
         try:
-            # Set volume
-            await hass.services.async_call(
-                "media_player",
-                "volume_set",
-                {
-                    "entity_id": media_player,
-                    "volume_level": volume,
-                },
-                blocking=False,
+            # Capture the current volume and set the announcement volume so the
+            # test plays at exactly the configured level, then restore it after.
+            previous_volume = await apply_announcement_volume(
+                hass, media_player, volume
             )
 
             # Build TTS service data - only include non-empty optional fields
@@ -273,6 +285,11 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
                 request_id=request_id, entity_id=media_player,
                 message_preview=message, alert_kind="test_tts",
             )
+            # Restore the pre-test volume once playback ends (background task).
+            if previous_volume is not None:
+                hass.async_create_task(
+                    restore_volume_when_idle(hass, media_player, previous_volume)
+                )
             connection.send_result(msg["id"], {"success": True, "request_id": request_id})
         except Exception as e:
             _LOGGER.error("Test TTS failed: %s", e)

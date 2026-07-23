@@ -16,7 +16,6 @@ PANEL_JS_FILES = (
     "blitzortung-client.js",
     "zone-editor.js",
     "space-map.js",
-    "three.min.js",
     "countries.geo.json",
 )
 VERSION_MARKER = ".panel-version"

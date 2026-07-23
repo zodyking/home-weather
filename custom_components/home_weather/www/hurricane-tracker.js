@@ -1,5 +1,14 @@
 /**
- * Hurricane Tracker - Leaflet map for NOAA/NHC storm data.
+ * Hurricane Tracker - Leaflet map for NOAA/NHC storm data plus multi-hazard
+ * overlays (tornado, earthquake, volcano, wildfire, air quality, travel,
+ * lightning). UI/UX redesign notes:
+ *  - Storm tracks: dotted muted past track, solid category-colored forecast
+ *    track over a contrast casing, restrained cone, category badge markers.
+ *  - Right-side status panel with threat hero + per-hazard cards; becomes a
+ *    bottom sheet with a collapsed peek on compact layouts.
+ *  - Labeled "Layers" menu (44px rows) replaces the unlabeled icon strip.
+ *  - Theme-aware chrome via --hw-* custom properties (dark fallbacks) with
+ *    [data-hw-theme="light"] overrides; setTheme(mode) hook for the panel.
  */
 (function (global) {
   "use strict";
@@ -40,6 +49,20 @@
   const LIGHTNING_HISTORY_MS = 60 * 60 * 1000;
   /** Poll server lightning stats (hour count, nearest) without full map reload. */
   const LIGHTNING_POLL_MS = 60 * 1000;
+
+  /** Layer/overlay toggle definitions for the Layers menu. */
+  const LAYER_DEFS = Object.freeze([
+    { key: "hurricane", label: "Hurricanes", icon: "hurricane", type: "layer" },
+    { key: "tornado", label: "Tornadoes", icon: "tornado", type: "layer" },
+    { key: "earthquakes", label: "Earthquakes", icon: "earthquake", type: "layer" },
+    { key: "volcanoes", label: "Volcanoes", icon: "volcano", type: "layer" },
+    { key: "lightning", label: "Lightning", icon: "lightning-bolt", type: "layer" },
+    { key: "travel", label: "Travel advisories", icon: "globe", type: "layer" },
+    { key: "wildfire", label: "Wildfires", icon: "fire", type: "layer" },
+    { key: "air_quality", label: "Air quality", icon: "air-quality", type: "layer" },
+    { key: "wind_radii", label: "Wind radii", icon: "wind-radii", type: "overlay" },
+    { key: "alert_zones", label: "Alert zones", icon: "alert-zones", type: "overlay" },
+  ]);
 
   class HurricaneTracker {
     constructor(options) {
@@ -97,12 +120,21 @@
       this._statusCollapsed = true;
       this._showZones = true;
       this._zoneConfig = [];
+      this._theme = "dark";
+      this._userChoseBasemap = false;
+      this._layersMenuOpen = false;
+      this._docDismissHandler = null;
+      this._docKeyHandler = null;
     }
 
     _isCompactLayout() {
       const width = this._root?.clientWidth ?? global.innerWidth ?? 1024;
       return width <= 768;
     }
+
+    /* ------------------------------------------------------------------ */
+    /* Public API (contract with weather-panel.js)                        */
+    /* ------------------------------------------------------------------ */
 
     setMapLayers(layers) {
       const prevLightning = this._mapLayers.lightning;
@@ -117,7 +149,7 @@
       if (layers.lightning !== undefined && layers.lightning !== prevLightning) {
         this._syncLightningLayer();
       }
-      this._syncBottomBarButtons();
+      this._syncLayerControls();
       if (this._map && this._layerGroup) this._renderMap();
     }
 
@@ -127,31 +159,6 @@
 
     setOnOverlayToggle(callback) {
       this._onOverlayToggle = callback;
-    }
-
-    _syncBottomBarButtons() {
-      const btns = this._root?.querySelectorAll(".hw-bottom-layer-btn");
-      if (!btns) return;
-      btns.forEach((btn) => {
-        const key = btn.dataset.layer;
-        const type = btn.dataset.type;
-        if (!key) return;
-        
-        if (type === "overlay") {
-          let active = false;
-          if (key === "wind_radii") {
-            active = this._showWindRadii;
-          } else if (key === "alert_zones") {
-            active = this._showZones;
-          }
-          btn.classList.toggle("is-active", active);
-          btn.setAttribute("aria-pressed", active ? "true" : "false");
-          return;
-        }
-        const active = !!this._mapLayers[key];
-        btn.classList.toggle("is-active", active);
-        btn.setAttribute("aria-pressed", active ? "true" : "false");
-      });
     }
 
     setLightningSettings(settings) {
@@ -172,6 +179,7 @@
 
     setShowWindRadii(show) {
       this._showWindRadii = !!show;
+      this._syncLayerControls();
       if (this._map && this._layerGroup) this._renderMap();
     }
 
@@ -184,6 +192,21 @@
     setShowZones(show, zones) {
       this._showZones = !!show;
       if (Array.isArray(zones)) this._zoneConfig = zones;
+      this._syncLayerControls();
+      if (this._map && this._layerGroup) this._renderMap();
+    }
+
+    /** Theme hook called by weather-panel when the user switches themes. */
+    setTheme(mode) {
+      const next = mode === "light" ? "light" : "dark";
+      if (next === this._theme) return;
+      this._theme = next;
+      // Follow the theme with the matching basemap unless the user explicitly
+      // picked one from the basemap menu.
+      if (!this._userChoseBasemap && this._baseLayers) {
+        this._applyBasemap(next === "light" ? "Light" : "Dark");
+      }
+      // Re-render vectors so theme-dependent casing/stroke colors update.
       if (this._map && this._layerGroup) this._renderMap();
     }
 
@@ -214,15 +237,22 @@
 
     async init(rootEl) {
       this._root = rootEl;
+      const attrTheme = rootEl?.getAttribute?.("data-hw-theme");
+      this._theme = attrTheme === "light" ? "light" : "dark";
       this._injectStyles();
       this._renderShell();
       await this._ensureDeps();
       this._bindControls();
       this._bindLayoutObserver();
+      this._bindGlobalDismiss();
       await this.loadData();
       this._refreshTimer = setInterval(() => this.loadData(), REFRESH_MS);
       this._startLightningPoll();
     }
+
+    /* ------------------------------------------------------------------ */
+    /* Lightning subsystem                                                 */
+    /* ------------------------------------------------------------------ */
 
     _startLightningPoll() {
       this._stopLightningPoll();
@@ -264,6 +294,7 @@
             aside.outerHTML = this._buildStatusPanelHtml();
             this._bindStatusPanelToggle();
             this._syncStatusPanelLayout();
+            this._updateLightningStatusDom();
           }
           requestAnimationFrame(() => this._map?.invalidateSize?.());
         }
@@ -280,6 +311,14 @@
       this._layoutObserver?.disconnect();
       this._layoutObserver = null;
       this._stopLightning(true);
+      if (this._docDismissHandler) {
+        document.removeEventListener("click", this._docDismissHandler);
+        this._docDismissHandler = null;
+      }
+      if (this._docKeyHandler) {
+        document.removeEventListener("keydown", this._docKeyHandler);
+        this._docKeyHandler = null;
+      }
       if (this._map) {
         this._map.remove();
         this._map = null;
@@ -305,6 +344,7 @@
       this._coordsEl = null;
       this._baseLayers = null;
       this._lightningLayerGroup = null;
+      this._layersMenuOpen = false;
     }
 
     _getLightningSettings() {
@@ -402,7 +442,9 @@
       if (nearestEl) nearestEl.textContent = stats.nearestMiles != null ? this._fmtMiles(stats.nearestMiles) : "—";
       if (statusEl) {
         statusEl.textContent = this._formatLightningStatus(stats.status);
-        statusEl.className = stats.status === "live" ? "is-live" : (stats.status === "error" || stats.status === "disabled") ? "is-danger" : "";
+        statusEl.classList.remove("is-live", "is-danger");
+        if (stats.status === "live") statusEl.classList.add("is-live");
+        else if (stats.status === "error" || stats.status === "disabled") statusEl.classList.add("is-danger");
       }
       const badge = root.querySelector("#hw-lightning-badge");
       if (badge) badge.textContent = String(stats.visibleCount);
@@ -577,380 +619,106 @@
       this._updateLightningStatusDom();
     }
 
+    /* ------------------------------------------------------------------ */
+    /* Styles                                                              */
+    /* ------------------------------------------------------------------ */
+
     _injectStyles() {
       if (this._shadow.querySelector("#hurricane-tracker-styles")) return;
       const style = document.createElement("style");
       style.id = "hurricane-tracker-styles";
       style.textContent = `
+        /* ---- design tokens -------------------------------------------- */
         .hurricane-layout {
+          --hz-bg: var(--hw-bg, #0f1216);
+          --hz-surface: var(--hw-surface, #171b22);
+          --hz-elevated: var(--hw-elevated, #1f2530);
+          --hz-hover: var(--hw-hover, #242b38);
+          --hz-border: var(--hw-border, rgba(255, 255, 255, 0.08));
+          --hz-border-strong: var(--hw-border-strong, rgba(255, 255, 255, 0.16));
+          --hz-text: var(--hw-text, #e8ecf1);
+          --hz-muted: var(--hw-muted, #9aa5b1);
+          --hz-accent: var(--hw-accent, #03a9f4);
+          --hz-accent-hover: var(--hw-accent-hover, #29b6f6);
+          --hz-ok: #4caf7d;
+          --hz-watch: #ffb74d;
+          --hz-danger: #ef5350;
+          --hz-glass: rgba(16, 20, 27, 0.9);
+          --hz-glass-border: rgba(255, 255, 255, 0.14);
+          --hz-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+          --hz-shadow-soft: 0 4px 16px rgba(0, 0, 0, 0.35);
+          --hz-tap: 44px;
+          --hz-peek: 92px;
           position: relative;
           width: 100%;
           height: 100%;
           min-height: 0;
           flex: 1;
           display: flex;
-          flex-direction: column;
+          flex-direction: row;
+          align-items: stretch;
           padding: 0;
           margin: 0;
           max-width: none;
           box-sizing: border-box;
           overflow: hidden;
+          color: var(--hz-text);
         }
-        .hurricane-layout.is-embedded {
-          min-height: 0;
-          height: 100%;
-          flex: 1;
+        [data-hw-theme="light"] .hurricane-layout {
+          --hz-glass: rgba(255, 255, 255, 0.93);
+          --hz-glass-border: rgba(20, 32, 48, 0.14);
+          --hz-shadow: 0 8px 28px rgba(28, 40, 58, 0.2);
+          --hz-shadow-soft: 0 4px 16px rgba(28, 40, 58, 0.14);
         }
-        .hurricane-layout.is-embedded .hurricane-map-wrap {
-          position: absolute;
-          inset: 0;
-          flex: none;
-          width: auto;
-          height: auto;
-          min-height: 0;
-          overflow: hidden;
+        .hurricane-layout *,
+        .hurricane-layout *::before,
+        .hurricane-layout *::after {
+          box-sizing: border-box;
         }
-        .hurricane-layout.is-embedded .hurricane-map {
-          width: 100%;
-          height: 100%;
-          min-height: 0;
-          border-radius: 0;
-          border: none;
-        }
-        @media (min-width: 769px) {
-          .hurricane-layout {
-            flex-direction: row;
-            align-items: stretch;
-          }
-          .hurricane-map-wrap {
-            position: relative;
-            inset: auto;
-            flex: 1 1 auto;
-            min-width: 0;
-            min-height: 0;
-            z-index: 1;
-            background: #111111;
-          }
-          .hurricane-layout.is-embedded .hurricane-map-wrap {
-            position: relative;
-            inset: auto;
-            flex: 1 1 auto;
-            width: auto;
-            height: auto;
-          }
-          .hurricane-map-wrap > .hurricane-map,
-          .hurricane-layout.is-embedded .hurricane-map {
-            position: relative;
-            width: 100%;
-            height: 100%;
-            min-width: 0;
-            min-height: 0;
-            inset: auto;
-          }
-          .hurricane-status {
-            position: relative;
-            top: auto;
-            right: auto;
-            bottom: auto;
-            left: auto;
-            flex: 0 0 clamp(248px, 28vw, 300px);
-            width: clamp(248px, 28vw, 300px);
-            max-width: clamp(248px, 28vw, 300px);
-            max-height: 100%;
-            height: 100%;
-            min-height: 0;
-            align-self: stretch;
-            margin: 0;
-            border-radius: 0;
-            border-top: none;
-            border-right: none;
-            border-bottom: none;
-            border-left: 1px solid var(--hw-border-strong, #333);
-            box-shadow: none;
-            z-index: 20;
-            background: var(--hw-surface, #1c1c1c);
-            background-color: var(--hw-surface, #1c1c1c);
-          }
-          .hurricane-map-empty-banner {
-            top: 12px;
-            left: 12px;
-            right: 12px;
-          }
-          .hw-map-controls-stack {
-            --hw-map-btn: 36px;
-            --hw-map-stack-width: 144px;
-          }
-          .hw-legend {
-            max-width: none;
-          }
-        }
-        .hurricane-status-details {
-          border: 1px solid var(--hw-border-strong, #333);
-          border-radius: 10px;
-          overflow: hidden;
-          background-color: var(--hw-surface, #1c1c1c);
-          flex-shrink: 0;
-        }
-        .hurricane-status-details + .hurricane-status-details {
-          margin-top: 8px;
-        }
-        .hurricane-status-details summary {
-          list-style: none;
-          cursor: pointer;
-          padding: 10px 12px;
-          font-size: 11px;
-          font-weight: 700;
-          letter-spacing: 0.1em;
-          text-transform: uppercase;
-          color: var(--hw-muted, #b0bec5) !important;
-          background-color: var(--hw-surface, #1c1c1c);
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 8px;
-        }
-        .hurricane-status-details summary .h-count {
-          margin-left: auto;
-          min-width: 22px;
-          padding: 2px 7px;
-          border-radius: 999px;
-          font-size: 10px;
-          font-weight: 700;
-          letter-spacing: 0;
-          text-transform: none;
-          color: var(--hw-text, #eceff1);
-          background: var(--hw-border-strong, #333);
-        }
-        .hurricane-status-details summary .h-chevron {
-          font-size: 12px;
-          color: #78909c;
-          transition: transform 0.15s ease;
-          flex-shrink: 0;
-        }
-        .hurricane-status-details summary::-webkit-details-marker { display: none; }
-        .hurricane-status-details[open] summary .h-chevron {
-          transform: rotate(90deg);
-        }
-        .hurricane-status-details[open] summary {
-          border-bottom: 1px solid var(--hw-border-strong, #333);
-        }
-        .hurricane-status-details-body {
-          padding: 8px 12px 10px;
-          display: flex;
-          flex-direction: column;
-          gap: 6px;
-          background-color: var(--hw-bg, #111111);
-        }
-        .marker-cluster-hw {
-          background: rgba(255, 183, 77, 0.25);
-          border: 2px solid rgba(255, 255, 255, 0.85);
-          border-radius: 50%;
-          color: #fff;
-          font-weight: 700;
-          font-size: 12px;
-        }
-        .marker-cluster-hw div {
-          background: rgba(239, 83, 80, 0.88);
-          border-radius: 50%;
-          width: 30px;
-          height: 30px;
-          margin-left: 5px;
-          margin-top: 5px;
-          text-align: center;
-          line-height: 30px;
-        }
-        .hurricane-status-headline {
-          margin: 0;
-          font-size: 14px;
-          font-weight: 600;
-          line-height: 1.45;
-          color: var(--hw-text, #e1e1e1) !important;
-        }
-        .hurricane-status-headline.is-watch { color: #ffb74d; }
-        .hurricane-status-headline.is-danger { color: #ef5350; }
-        .hurricane-status-section {
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-          padding-top: 4px;
-          border-top: 1px solid var(--hw-border-strong, #333);
-        }
-        .hurricane-status-section:first-of-type {
-          border-top: none;
-          padding-top: 0;
-        }
-        .hurricane-status-section h4 {
-          margin: 0;
-          font-size: 11px;
-          font-weight: 700;
-          letter-spacing: 0.12em;
-          text-transform: uppercase;
-          color: #9b9b9b;
-        }
+
+        /* ---- map stage -------------------------------------------------- */
         .hurricane-map-wrap {
-          position: absolute;
-          inset: 0;
+          position: relative;
+          flex: 1 1 auto;
+          min-width: 0;
+          min-height: 0;
           overflow: hidden;
           z-index: 1;
+          background: var(--hz-bg);
         }
         .hurricane-map {
-          position: relative;
-          z-index: 1;
-          width: 100%;
-          height: calc(100% - 48px);
-          min-height: 0;
-          border-radius: 0;
-          overflow: hidden;
-          border: none;
-          background: #111111;
-          isolation: isolate;
-        }
-        @media (max-width: 768px) {
-          .hurricane-map {
-            height: calc(100% - 44px);
-          }
-        }
-        .hurricane-map-empty-banner { display: none; }
-        :host aside.hurricane-status,
-        aside.hurricane-status {
-          background: var(--hw-surface, #1c1c1c);
-          background-color: var(--hw-surface, #1c1c1c);
-        }
-        .hurricane-status {
           position: absolute;
-          top: 0;
-          right: 0;
-          bottom: 0;
-          left: auto;
-          width: min(320px, 100%);
-          height: 100%;
-          max-height: 100%;
-          min-height: 0;
-          overflow: hidden;
-          overflow-x: hidden;
-          z-index: 1100;
-          pointer-events: auto;
-          --primary-text-color: var(--hw-text, #e1e1e1);
-          --secondary-text-color: var(--hw-muted, #9b9b9b);
-          --card-background-color: var(--hw-surface, #1c1c1c);
-          color: var(--hw-text, #e1e1e1);
-          background: var(--hw-surface, #1c1c1c);
-          background-color: var(--hw-surface, #1c1c1c);
-          border: none;
-          border-left: 1px solid var(--hw-border-strong, #333);
-          border-radius: 0;
-          padding: 0;
-          display: flex;
-          flex-direction: column;
-          gap: 0;
-          box-shadow: -4px 0 24px rgba(0, 0, 0, 0.45);
+          inset: 0;
+          background: var(--hz-bg);
           isolation: isolate;
+          z-index: 1;
         }
-        .hurricane-status,
-        .hurricane-status * {
-          -webkit-font-smoothing: antialiased;
+        .leaflet-container {
+          font-family: inherit;
+          background: var(--hz-bg);
         }
-        .hurricane-status span,
-        .hurricane-status summary,
-        .hurricane-status h3,
-        .hurricane-status p {
-          color: inherit;
-        }
-        .hurricane-status a {
-          color: #90caf9;
-        }
-        .hurricane-status a:visited {
-          color: #90caf9;
-        }
-        .hurricane-status-header {
-          flex-shrink: 0;
+
+        /* ---- loading / empty / error ------------------------------------ */
+        .hurricane-loading {
           display: flex;
           flex-direction: column;
-          gap: 10px;
-          padding: 12px 12px 12px;
-          margin-bottom: 0;
-          border-bottom: 1px solid var(--hw-border-strong, #333);
-          background: var(--hw-surface, #1c1c1c);
-          background-color: var(--hw-surface, #1c1c1c);
-        }
-        .hurricane-status-scroll {
-          flex: 1 1 auto;
-          min-height: 0;
-          overflow-y: auto;
-          overflow-x: hidden;
-          -webkit-overflow-scrolling: touch;
-          display: block;
-          padding: 12px 8px 12px 12px;
-          padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
-          background: var(--hw-surface, #1c1c1c);
-          background-color: var(--hw-surface, #1c1c1c);
-          scrollbar-width: thin;
-          scrollbar-color: #444 var(--hw-surface, #1c1c1c);
-          -ms-overflow-style: auto;
-        }
-        .hurricane-status-scroll > .hurricane-stat,
-        .hurricane-status-scroll > .hurricane-banner {
-          flex-shrink: 0;
-        }
-        .hurricane-status-scroll > .hurricane-stat + .hurricane-status-details,
-        .hurricane-status-scroll > .hurricane-banner + .hurricane-status-details {
-          margin-top: 8px;
-        }
-        .hurricane-status-scroll::-webkit-scrollbar {
-          width: 6px;
-        }
-        .hurricane-status-scroll::-webkit-scrollbar-thumb {
-          background: #444;
-          border-radius: 3px;
-        }
-        .hurricane-status-scroll::-webkit-scrollbar-track {
-          background: var(--hw-surface, #1c1c1c);
-        }
-        .hurricane-status.is-threat-high {
-          border-color: #f44336;
-          box-shadow: none;
-        }
-        .hurricane-status.is-threat-watch {
-          border-color: #ff9800;
-        }
-        .hurricane-status h3 {
-          margin: 0;
-          font-size: 16px;
-          font-weight: 600;
-          color: var(--hw-text, #e1e1e1) !important;
-        }
-        .hurricane-stat {
-          display: flex;
-          justify-content: space-between;
-          align-items: baseline;
-          gap: 12px;
+          align-items: center;
+          justify-content: center;
+          gap: 14px;
+          height: 100%;
+          color: var(--hw-muted, #9aa5b1);
+          text-align: center;
           font-size: 13px;
-          line-height: 1.45;
-          color: var(--hw-muted, #9b9b9b) !important;
-          flex-shrink: 0;
         }
-        .hurricane-stat > span {
-          flex: 1 1 auto;
-          min-width: 0;
+        .hz-spinner {
+          width: 26px;
+          height: 26px;
+          border-radius: 50%;
+          border: 3px solid var(--hw-border-strong, rgba(255,255,255,0.16));
+          border-top-color: var(--hw-accent, #03a9f4);
+          animation: hz-spin 0.9s linear infinite;
         }
-        .hurricane-stat strong {
-          color: var(--hw-text, #e1e1e1) !important;
-          font-weight: 600;
-          text-align: right;
-          flex: 0 1 auto;
-          min-width: 0;
-          overflow-wrap: anywhere;
-        }
-        .hurricane-stat.is-warning strong { color: #ff9800; }
-        .hurricane-stat.is-danger strong { color: #f44336; }
-        .hurricane-banner {
-          padding: 10px 12px;
-          border-radius: 8px;
-          font-size: 12px;
-          background: rgba(255,152,0,0.15);
-          color: #ffb74d;
-          border: 1px solid rgba(255,152,0,0.35);
-        }
+        @keyframes hz-spin { to { transform: rotate(360deg); } }
         .hurricane-empty {
           display: flex;
           flex-direction: column;
@@ -958,46 +726,526 @@
           justify-content: center;
           gap: 12px;
           padding: 48px 16px;
-          color: #9b9b9b;
+          color: var(--hz-muted);
           text-align: center;
         }
-        .hurricane-toggle {
-          display: flex;
-          align-items: center;
-          gap: 8px;
+        .hurricane-empty button,
+        .hurricane-loading button {
+          min-height: var(--hz-tap, 44px);
+          padding: 10px 22px;
+          border-radius: 10px;
+          border: 1px solid var(--hw-border-strong, rgba(255,255,255,0.16));
+          background: var(--hw-accent, #0288d1);
+          color: #fff;
           font-size: 13px;
-          color: #9b9b9b;
+          font-weight: 600;
+          font-family: inherit;
           cursor: pointer;
         }
-        .hurricane-toggle input { accent-color: #03a9f4; }
-        .hurricane-loading {
-          display: flex;
-          align-items: center;
-          justify-content: center;
+
+        /* ---- status panel: shared ---------------------------------------- */
+        .hurricane-status {
+          position: relative;
+          flex: 0 0 clamp(280px, 30%, 344px);
+          width: clamp(280px, 30%, 344px);
+          max-width: 344px;
           height: 100%;
-          color: #9b9b9b;
-          text-align: center;
+          min-height: 0;
+          display: flex;
+          flex-direction: column;
+          z-index: 20;
+          color: var(--hz-text);
+          background: var(--hz-surface);
+          border-left: 1px solid var(--hz-border-strong);
+          isolation: isolate;
+          --primary-text-color: var(--hz-text);
+          --secondary-text-color: var(--hz-muted);
+          --card-background-color: var(--hz-surface);
         }
-        .leaflet-container {
-          font-family: inherit;
-          background: #111111;
-        }
-        .leaflet-control-zoom a {
-          background: var(--hw-surface, #1c1c1c);
-          color: var(--hw-text, #e1e1e1);
-          border-color: var(--hw-border-strong, #333);
-        }
-        .leaflet-control-zoom a:hover {
-          background: var(--hw-elevated, #282828);
-          color: var(--hw-text, #fff);
-        }
-        /* Unified top-left map controls stack: toolbar row + legend */
-        .hw-map-controls-stack {
-          --hw-map-btn: 42px;
-          --hw-map-stack-width: 168px;
+        .hurricane-status.is-threat-high { box-shadow: inset 3px 0 0 var(--hz-danger); }
+        .hurricane-status.is-threat-watch { box-shadow: inset 3px 0 0 var(--hz-watch); }
+        .hurricane-status a { color: var(--hz-accent-hover); }
+        .hurricane-status a:visited { color: var(--hz-accent-hover); }
+
+        .hz-sheet-head {
+          flex-shrink: 0;
           display: flex;
           flex-direction: column;
           gap: 6px;
+          padding: 14px 16px 12px;
+          border-bottom: 1px solid var(--hz-border);
+          background: var(--hz-surface);
+        }
+        .hz-grabber {
+          display: none;
+          width: 40px;
+          height: 4px;
+          margin: 0 auto 4px;
+          border-radius: 999px;
+          background: var(--hz-border-strong);
+        }
+        .hz-head-row {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          min-width: 0;
+        }
+        .hz-head-title {
+          margin: 0;
+          font-size: 14px;
+          font-weight: 700;
+          letter-spacing: 0.02em;
+          color: var(--hz-text);
+          flex: 1 1 auto;
+          min-width: 0;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .hz-threat-pill {
+          flex-shrink: 0;
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          padding: 3px 10px;
+          border-radius: 999px;
+          font-size: 10px;
+          font-weight: 800;
+          letter-spacing: 0.09em;
+          text-transform: uppercase;
+          white-space: nowrap;
+        }
+        .hz-threat-pill::before {
+          content: "";
+          width: 7px;
+          height: 7px;
+          border-radius: 50%;
+          background: currentColor;
+        }
+        .hz-threat-pill.is-ok {
+          color: var(--hz-ok);
+          background: rgba(76, 175, 125, 0.14);
+          border: 1px solid rgba(76, 175, 125, 0.4);
+        }
+        .hz-threat-pill.is-watch {
+          color: var(--hz-watch);
+          background: rgba(255, 183, 77, 0.14);
+          border: 1px solid rgba(255, 183, 77, 0.45);
+        }
+        .hz-threat-pill.is-danger {
+          color: var(--hz-danger);
+          background: rgba(239, 83, 80, 0.14);
+          border: 1px solid rgba(239, 83, 80, 0.5);
+        }
+        .hz-headline {
+          margin: 0;
+          font-size: 13px;
+          font-weight: 600;
+          line-height: 1.45;
+          color: var(--hz-text);
+        }
+        .hz-headline.is-watch { color: var(--hz-watch); }
+        .hz-headline.is-danger { color: var(--hz-danger); }
+        .hz-updated {
+          margin: 0;
+          font-size: 11px;
+          color: var(--hz-muted);
+        }
+        .hz-sheet-toggle {
+          display: none;
+          flex-shrink: 0;
+          align-items: center;
+          justify-content: center;
+          width: 36px;
+          height: 36px;
+          margin: -4px -6px -4px 0;
+          padding: 0;
+          border: none;
+          border-radius: 10px;
+          background: transparent;
+          color: var(--hz-muted);
+          cursor: pointer;
+          line-height: 1;
+        }
+        .hz-sheet-toggle:hover { background: var(--hz-hover); color: var(--hz-text); }
+        .hz-sheet-toggle svg { transition: transform 0.18s ease; }
+        .hurricane-status:not(.is-collapsed) .hz-sheet-toggle svg { transform: rotate(180deg); }
+
+        .hurricane-status-scroll {
+          flex: 1 1 auto;
+          min-height: 0;
+          overflow-y: auto;
+          overflow-x: hidden;
+          -webkit-overflow-scrolling: touch;
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          padding: 12px 12px 14px;
+          padding-bottom: max(14px, env(safe-area-inset-bottom, 0px));
+          background: var(--hz-surface);
+          scrollbar-width: thin;
+          scrollbar-color: var(--hz-border-strong) transparent;
+        }
+        .hurricane-status-scroll::-webkit-scrollbar { width: 6px; }
+        .hurricane-status-scroll::-webkit-scrollbar-thumb {
+          background: var(--hz-border-strong);
+          border-radius: 3px;
+        }
+        .hurricane-status-scroll::-webkit-scrollbar-track { background: transparent; }
+
+        .hurricane-banner {
+          flex-shrink: 0;
+          padding: 10px 12px;
+          border-radius: 10px;
+          font-size: 12px;
+          line-height: 1.45;
+          background: rgba(255, 152, 0, 0.14);
+          color: var(--hz-watch);
+          border: 1px solid rgba(255, 152, 0, 0.4);
+        }
+
+        /* ---- hazard cards ------------------------------------------------ */
+        .hz-card {
+          flex-shrink: 0;
+          border: 1px solid var(--hz-border);
+          border-radius: 12px;
+          background: var(--hz-elevated);
+          overflow: hidden;
+        }
+        .hz-card summary {
+          list-style: none;
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          min-height: var(--hz-tap, 44px);
+          padding: 8px 12px;
+          cursor: pointer;
+          user-select: none;
+        }
+        .hz-card summary::-webkit-details-marker { display: none; }
+        .hz-card summary:hover { background: var(--hz-hover); }
+        .hz-card summary:focus-visible {
+          outline: 2px solid var(--hz-accent-hover);
+          outline-offset: -2px;
+          border-radius: 12px;
+        }
+        .hz-card-icon {
+          width: 22px;
+          height: 22px;
+          flex-shrink: 0;
+        }
+        .hz-card-titles {
+          display: flex;
+          flex-direction: column;
+          gap: 1px;
+          flex: 1 1 auto;
+          min-width: 0;
+        }
+        .hz-card-title {
+          font-size: 12px;
+          font-weight: 700;
+          letter-spacing: 0.02em;
+          color: var(--hz-text);
+        }
+        .hz-card-lead {
+          font-size: 11px;
+          line-height: 1.35;
+          color: var(--hz-muted);
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .hz-card-value {
+          flex-shrink: 0;
+          font-size: 15px;
+          font-weight: 700;
+          font-variant-numeric: tabular-nums;
+          color: var(--hz-text);
+          max-width: 40%;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .hz-card-value.is-warning { color: var(--hz-watch); }
+        .hz-card-value.is-danger { color: var(--hz-danger); }
+        .hz-card-value.is-quiet { color: var(--hz-muted); font-weight: 600; }
+        .hz-card-chevron {
+          flex-shrink: 0;
+          font-size: 11px;
+          color: var(--hz-muted);
+          transition: transform 0.15s ease;
+        }
+        .hz-card[open] .hz-card-chevron { transform: rotate(180deg); }
+        .hz-card-body {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+          padding: 10px 12px 12px;
+          border-top: 1px solid var(--hz-border);
+          background: var(--hz-surface);
+        }
+        .hz-row {
+          display: flex;
+          justify-content: space-between;
+          align-items: baseline;
+          gap: 12px;
+          font-size: 12px;
+          line-height: 1.45;
+          color: var(--hz-muted);
+        }
+        .hz-row > span { flex: 1 1 auto; min-width: 0; }
+        .hz-row strong {
+          color: var(--hz-text);
+          font-weight: 600;
+          text-align: right;
+          flex: 0 1 auto;
+          min-width: 0;
+          overflow-wrap: anywhere;
+        }
+        .hz-row.is-warning strong { color: var(--hz-watch); }
+        .hz-row.is-danger strong { color: var(--hz-danger); }
+        .hz-row strong.is-live { color: #ffc107; }
+        .hz-row strong.is-danger { color: var(--hz-danger); }
+
+        /* ---- compact layout: bottom sheet -------------------------------- */
+        .hurricane-layout.is-compact .hurricane-map-wrap {
+          position: absolute;
+          inset: 0;
+        }
+        .hurricane-layout.is-compact .hurricane-status {
+          position: absolute;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          top: auto;
+          flex: none;
+          width: auto;
+          max-width: none;
+          height: auto;
+          max-height: min(72%, 540px);
+          border: 1px solid var(--hz-border-strong);
+          border-bottom: none;
+          border-radius: 16px 16px 0 0;
+          box-shadow: 0 -10px 34px rgba(0, 0, 0, 0.45);
+          z-index: 1200;
+        }
+        [data-hw-theme="light"] .hurricane-layout.is-compact .hurricane-status {
+          box-shadow: 0 -10px 34px rgba(28, 40, 58, 0.22);
+        }
+        .hurricane-layout.is-compact .hurricane-status.is-threat-high { box-shadow: inset 0 3px 0 var(--hz-danger), 0 -10px 34px rgba(0,0,0,0.45); }
+        .hurricane-layout.is-compact .hurricane-status.is-threat-watch { box-shadow: inset 0 3px 0 var(--hz-watch), 0 -10px 34px rgba(0,0,0,0.45); }
+        .hurricane-layout.is-compact .hz-grabber { display: block; }
+        .hurricane-layout.is-compact .hz-sheet-toggle { display: inline-flex; }
+        .hurricane-layout.is-compact .hz-sheet-head {
+          cursor: pointer;
+          border-radius: 16px 16px 0 0;
+          padding: 8px 16px 10px;
+          padding-bottom: max(10px, env(safe-area-inset-bottom, 0px));
+        }
+        .hurricane-layout.is-compact .hurricane-status:not(.is-collapsed) .hz-sheet-head {
+          padding-bottom: 10px;
+        }
+        .hurricane-layout.is-compact .hurricane-status.is-collapsed .hurricane-status-scroll {
+          display: none;
+        }
+        .hurricane-layout.is-compact .hurricane-status.is-collapsed .hz-headline {
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .hurricane-layout.is-compact .hurricane-status.is-collapsed .hz-updated { display: none; }
+        /* Keep leaflet attribution visible above the collapsed sheet. */
+        .hurricane-layout.is-compact .leaflet-control-attribution {
+          bottom: calc(var(--hz-peek, 92px) + 2px) !important;
+        }
+
+        /* ---- layers control ----------------------------------------------- */
+        .hw-layers-ctl {
+          position: absolute;
+          left: 12px;
+          bottom: 12px;
+          z-index: 1080;
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 8px;
+        }
+        .hurricane-layout.is-compact .hw-layers-ctl {
+          bottom: calc(var(--hz-peek, 92px) + 12px);
+        }
+        .hw-layers-fab {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          min-height: var(--hz-tap, 44px);
+          padding: 0 14px;
+          border: 1px solid var(--hz-glass-border);
+          border-radius: 999px;
+          background: var(--hz-glass);
+          color: var(--hz-text);
+          font-size: 13px;
+          font-weight: 600;
+          font-family: inherit;
+          cursor: pointer;
+          box-shadow: var(--hz-shadow-soft);
+          backdrop-filter: blur(10px);
+          -webkit-backdrop-filter: blur(10px);
+        }
+        .hw-layers-fab:hover { background: var(--hz-hover); }
+        .hw-layers-fab:focus-visible {
+          outline: 2px solid var(--hz-accent-hover);
+          outline-offset: 2px;
+        }
+        .hw-layers-fab svg { flex-shrink: 0; }
+        .hw-layers-count {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          min-width: 20px;
+          height: 20px;
+          padding: 0 6px;
+          border-radius: 999px;
+          font-size: 11px;
+          font-weight: 700;
+          font-variant-numeric: tabular-nums;
+          color: #fff;
+          background: var(--hz-accent);
+        }
+        .hw-layers-menu {
+          width: 268px;
+          max-width: min(80vw, 300px);
+          max-height: min(400px, 52vh);
+          overflow-y: auto;
+          overscroll-behavior: contain;
+          padding: 6px;
+          border: 1px solid var(--hz-glass-border);
+          border-radius: 14px;
+          background: var(--hz-glass);
+          box-shadow: var(--hz-shadow);
+          backdrop-filter: blur(12px);
+          -webkit-backdrop-filter: blur(12px);
+          scrollbar-width: thin;
+        }
+        .hw-layers-menu[hidden] { display: none; }
+        .hw-layers-menu-head {
+          padding: 8px 10px 4px;
+          font-size: 11px;
+          font-weight: 800;
+          letter-spacing: 0.1em;
+          text-transform: uppercase;
+          color: var(--hz-muted);
+        }
+        .hw-layers-group-label {
+          padding: 8px 10px 2px;
+          font-size: 10px;
+          font-weight: 700;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: var(--hz-muted);
+          opacity: 0.85;
+        }
+        .hw-layer-row {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          width: 100%;
+          min-height: var(--hz-tap, 44px);
+          padding: 6px 10px;
+          border: none;
+          border-radius: 10px;
+          background: transparent;
+          color: var(--hz-text);
+          font-size: 13px;
+          font-family: inherit;
+          text-align: left;
+          cursor: pointer;
+        }
+        .hw-layer-row:hover { background: var(--hz-hover); }
+        .hw-layer-row:focus-visible {
+          outline: 2px solid var(--hz-accent-hover);
+          outline-offset: -2px;
+        }
+        .hw-layer-row img {
+          width: 22px;
+          height: 22px;
+          flex-shrink: 0;
+          opacity: 0.55;
+        }
+        .hw-layer-row.is-on img { opacity: 1; }
+        .hw-layer-label {
+          flex: 1 1 auto;
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .hw-layer-switch {
+          flex-shrink: 0;
+          position: relative;
+          width: 34px;
+          height: 20px;
+          border-radius: 999px;
+          background: var(--hz-border-strong);
+          transition: background 0.15s ease;
+        }
+        .hw-layer-switch::after {
+          content: "";
+          position: absolute;
+          top: 2px;
+          left: 2px;
+          width: 16px;
+          height: 16px;
+          border-radius: 50%;
+          background: #fff;
+          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+          transition: transform 0.15s ease;
+        }
+        .hw-layer-row.is-on .hw-layer-switch { background: var(--hz-accent); }
+        .hw-layer-row.is-on .hw-layer-switch::after { transform: translateX(14px); }
+
+        /* ---- coords / scale readout --------------------------------------- */
+        .hw-map-readout {
+          position: absolute;
+          right: 8px;
+          bottom: 20px;
+          z-index: 1060;
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          padding: 4px 10px;
+          border-radius: 8px;
+          border: 1px solid var(--hz-glass-border);
+          background: var(--hz-glass);
+          color: var(--hz-muted);
+          font-size: 11px;
+          font-variant-numeric: tabular-nums;
+          white-space: nowrap;
+          pointer-events: none;
+          backdrop-filter: blur(8px);
+          -webkit-backdrop-filter: blur(8px);
+        }
+        .hurricane-layout.is-compact .hw-map-readout { display: none; }
+        .hw-map-readout .hw-scale-wrap {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+        }
+        .hw-map-readout .hw-scale-line {
+          display: inline-block;
+          height: 5px;
+          border-left: 1px solid currentColor;
+          border-right: 1px solid currentColor;
+          border-bottom: 1px solid currentColor;
+          min-width: 40px;
+        }
+
+        /* ---- top-left toolbar stack + legend ------------------------------- */
+        .hw-map-controls-stack {
+          --hw-map-btn: var(--hz-tap, 44px);
+          --hw-map-stack-width: 178px;
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
           width: var(--hw-map-stack-width);
           background: transparent;
           border: none;
@@ -1007,11 +1255,13 @@
           display: grid;
           grid-template-columns: repeat(4, 1fr);
           width: 100%;
-          background: var(--hw-surface, #1c1c1c);
-          border: 1px solid var(--hw-border-strong, #333);
-          border-radius: 8px;
+          background: var(--hz-glass);
+          border: 1px solid var(--hz-glass-border);
+          border-radius: 12px;
           overflow: visible;
-          box-shadow: 0 4px 16px rgba(0,0,0,0.35);
+          box-shadow: var(--hz-shadow-soft);
+          backdrop-filter: blur(10px);
+          -webkit-backdrop-filter: blur(10px);
         }
         .hw-map-tool-cell {
           position: relative;
@@ -1021,8 +1271,10 @@
           min-height: var(--hw-map-btn);
         }
         .hw-map-tool-cell + .hw-map-tool-cell {
-          border-left: 1px solid var(--hw-border-strong, #333);
+          border-left: 1px solid var(--hz-glass-border);
         }
+        .hw-map-tool-cell:first-child .hw-map-tool-btn { border-radius: 11px 0 0 11px; }
+        .hw-map-tool-cell:last-child .hw-map-tool-btn { border-radius: 0 11px 11px 0; }
         .hw-map-tool-btn {
           display: flex;
           align-items: center;
@@ -1034,26 +1286,22 @@
           margin: 0;
           border: none;
           border-radius: 0;
-          background: var(--hw-surface, #1c1c1c);
-          color: var(--hw-text, #e1e1e1);
+          background: transparent;
+          color: var(--hz-text);
           font-size: 18px;
           font-weight: 600;
           line-height: 1;
           cursor: pointer;
-          box-sizing: border-box;
           font-family: inherit;
         }
-        .hw-map-tool-btn:hover {
-          background: var(--hw-elevated, #282828);
-          color: var(--hw-text, #fff);
-        }
+        .hw-map-tool-btn:hover { background: var(--hz-hover); }
         .hw-map-tool-btn:focus-visible {
-          outline: 2px solid var(--hw-accent-hover, #29b6f6);
+          outline: 2px solid var(--hz-accent-hover);
           outline-offset: -2px;
           z-index: 1;
         }
         .hw-map-tool-btn.active {
-          background: var(--hw-accent, #0288d1);
+          background: var(--hz-accent);
           color: #fff;
         }
         .hw-basemap-cell { z-index: 2; }
@@ -1062,13 +1310,14 @@
           top: calc(100% + 6px);
           left: 0;
           z-index: 30;
-          min-width: 148px;
+          min-width: 150px;
           padding: 4px;
-          background: var(--hw-surface, rgba(17, 20, 28, 0.96));
-          border: 1px solid var(--hw-border-strong, rgba(255,255,255,0.14));
-          border-radius: 8px;
-          box-shadow: 0 6px 22px rgba(0,0,0,0.45);
+          background: var(--hz-glass);
+          border: 1px solid var(--hz-glass-border);
+          border-radius: 10px;
+          box-shadow: var(--hz-shadow);
           backdrop-filter: blur(10px);
+          -webkit-backdrop-filter: blur(10px);
         }
         .hw-basemap-menu[hidden] { display: none; }
         .hw-basemap-option {
@@ -1076,49 +1325,147 @@
           align-items: center;
           gap: 8px;
           width: 100%;
+          min-height: 36px;
           padding: 8px 10px;
           border: none;
-          border-radius: 6px;
+          border-radius: 7px;
           background: transparent;
-          color: var(--hw-text, #cfd8dc);
+          color: var(--hz-text);
           font-size: 12px;
           font-family: inherit;
           text-align: left;
           cursor: pointer;
         }
-        .hw-basemap-option:hover {
-          background: var(--hw-hover, #222);
-          color: var(--hw-text, #fff);
+        .hw-basemap-option:hover { background: var(--hz-hover); }
+        .hw-basemap-option:focus-visible {
+          outline: 2px solid var(--hz-accent-hover);
+          outline-offset: -2px;
         }
         .hw-basemap-check {
           width: 14px;
           flex-shrink: 0;
-          color: var(--hw-accent-hover, #29b6f6);
+          color: var(--hz-accent-hover);
           font-size: 11px;
           font-weight: 700;
         }
         .hw-map-controls-stack .hw-measure-readout-row {
           display: none;
           width: 100%;
-          box-sizing: border-box;
-          padding: 4px 8px;
-          font-size: 10px;
+          padding: 5px 10px;
+          font-size: 11px;
           font-weight: 600;
-          color: var(--hw-text, #cfd8dc);
-          background: var(--hw-surface, #1c1c1c);
-          border: 1px solid var(--hw-border-strong, #333);
-          border-radius: 8px;
+          color: var(--hz-text);
+          background: var(--hz-glass);
+          border: 1px solid var(--hz-glass-border);
+          border-radius: 10px;
           white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
           font-variant-numeric: tabular-nums;
         }
-        .hw-map-controls-stack.measure-active .hw-measure-readout-row {
-          display: block;
+        .hw-map-controls-stack.measure-active .hw-measure-readout-row { display: block; }
+
+        .hw-legend {
+          background: var(--hz-glass);
+          border: 1px solid var(--hz-glass-border);
+          border-radius: 12px;
+          color: var(--hz-text);
+          overflow: hidden;
+          width: 100%;
+          backdrop-filter: blur(10px);
+          -webkit-backdrop-filter: blur(10px);
+          box-shadow: var(--hz-shadow-soft);
         }
+        .hw-legend-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+          min-height: 40px;
+          padding: 8px 12px;
+          cursor: pointer;
+          font-size: 11px;
+          font-weight: 800;
+          letter-spacing: 0.1em;
+          text-transform: uppercase;
+          color: var(--hz-muted);
+          user-select: none;
+        }
+        .hw-legend-header:hover { color: var(--hz-text); }
+        .hw-legend-header:focus-visible {
+          outline: 2px solid var(--hz-accent-hover);
+          outline-offset: -2px;
+          border-radius: 12px;
+        }
+        .hw-legend-caret { transition: transform 0.15s ease; }
+        .hw-legend.collapsed .hw-legend-caret { transform: rotate(-90deg); }
+        .hw-legend.collapsed .hw-legend-body { display: none; }
+        .hw-legend-body {
+          padding: 2px 12px 12px;
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+          max-height: min(340px, 44vh);
+          overflow-y: auto;
+          overscroll-behavior: contain;
+          scrollbar-width: thin;
+        }
+        .hw-legend-group { display: flex; flex-direction: column; gap: 5px; }
+        .hw-legend-group-title {
+          font-size: 9px;
+          font-weight: 800;
+          letter-spacing: 0.09em;
+          text-transform: uppercase;
+          color: var(--hz-muted);
+        }
+        .hw-legend-row {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          font-size: 11px;
+          line-height: 1.3;
+          color: var(--hz-text);
+        }
+        .hw-legend-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+        .hw-legend-badge {
+          width: 18px;
+          height: 18px;
+          flex-shrink: 0;
+          border-radius: 50%;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 9px;
+          font-weight: 800;
+          color: #10151c;
+          border: 1px solid rgba(255, 255, 255, 0.75);
+        }
+        .hw-legend-swatch {
+          width: 13px;
+          height: 13px;
+          border-radius: 3px;
+          flex-shrink: 0;
+          border: 1px solid rgba(128, 128, 128, 0.6);
+        }
+        .hw-legend-line {
+          width: 24px;
+          height: 0;
+          flex-shrink: 0;
+          border-top: 3px solid currentColor;
+        }
+        .hw-legend-line.is-past {
+          color: #94a3b1;
+          border-top-style: dotted;
+          border-top-width: 4px;
+        }
+        .hw-legend-line.is-fcst { color: #e53935; }
+        .hw-legend-line.is-watchline { color: #f44336; }
+        .hw-legend img { width: 15px; height: 15px; flex-shrink: 0; }
+
+        /* ---- leaflet chrome ------------------------------------------------ */
         .leaflet-bar {
-          border: 1px solid var(--hw-border-strong, #333);
-          box-shadow: 0 4px 16px rgba(0,0,0,0.35);
+          border: 1px solid var(--hz-border-strong);
+          box-shadow: var(--hz-shadow-soft);
         }
         .leaflet-control-attribution {
           position: absolute !important;
@@ -1126,50 +1473,199 @@
           right: 4px !important;
           left: auto !important;
           background: transparent !important;
-          color: rgba(158, 158, 158, 0.7) !important;
+          color: rgba(158, 158, 158, 0.75) !important;
           font-size: 10px !important;
           padding: 0 4px !important;
-          text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+          text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+          white-space: nowrap;
         }
-        .leaflet-control-attribution a { 
-          color: rgba(144, 202, 249, 0.8) !important;
+        [data-hw-theme="light"] .leaflet-control-attribution {
+          color: rgba(90, 100, 112, 0.9) !important;
+          text-shadow: 0 1px 2px rgba(255, 255, 255, 0.8);
         }
-        .leaflet-control-attribution a:hover {
-          color: #90caf9 !important;
+        .leaflet-control-attribution a { color: rgba(41, 182, 246, 0.85) !important; }
+        .leaflet-control-attribution a:hover { color: var(--hw-accent-hover, #29b6f6) !important; }
+        .leaflet-popup-content-wrapper {
+          background: var(--hw-surface, #171b22);
+          color: var(--hw-text, #e8ecf1);
+          border-radius: 12px;
+          box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+          border: 1px solid var(--hw-border-strong, rgba(255, 255, 255, 0.16));
         }
-        .hw-forecast-label {
-          background: #141820;
-          color: #fff;
-          border: 1px solid #333;
-          border-radius: 6px;
-          padding: 3px 8px;
+        .leaflet-popup-content {
+          margin: 12px 14px;
+          font-size: 13px;
+          line-height: 1.5;
+        }
+        .leaflet-popup-content a { color: var(--hw-accent-hover, #29b6f6); }
+        .leaflet-popup-tip {
+          background: var(--hw-surface, #171b22);
+          border: 1px solid var(--hw-border-strong, rgba(255, 255, 255, 0.16));
+          box-shadow: none;
+        }
+        .leaflet-popup-close-button {
+          color: var(--hw-muted, #9aa5b1) !important;
+          font-size: 20px !important;
+          padding: 6px 8px 0 0 !important;
+        }
+        .leaflet-popup-close-button:hover { color: var(--hw-text, #fff) !important; }
+        .leaflet-container .leaflet-popup-close-button {
+          width: 26px;
+          height: 26px;
+        }
+
+        /* ---- tooltips -------------------------------------------------------- */
+        .leaflet-tooltip.hw-tip {
+          background: var(--hw-surface, #171b22);
+          color: var(--hw-text, #e8ecf1);
+          border: 1px solid var(--hw-border-strong, rgba(255, 255, 255, 0.16));
+          border-radius: 8px;
+          padding: 6px 9px;
           font-size: 11px;
-          font-weight: 600;
-          box-shadow: 0 4px 12px rgba(0,0,0,0.35);
+          line-height: 1.45;
+          box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+          white-space: nowrap;
         }
+        .leaflet-tooltip.hw-tip::before { display: none; }
+        .hw-tip .hw-tip-line1 { font-weight: 700; }
+        .hw-tip .hw-tip-line2 { color: var(--hw-muted, #9aa5b1); }
+        .leaflet-tooltip.hw-fcst-hour {
+          background: rgba(16, 20, 27, 0.85);
+          color: #eef3f8;
+          border: 1px solid rgba(255, 255, 255, 0.22);
+          border-radius: 999px;
+          padding: 1px 7px;
+          font-size: 10px;
+          font-weight: 700;
+          font-variant-numeric: tabular-nums;
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+        }
+        [data-hw-theme="light"] .leaflet-tooltip.hw-fcst-hour {
+          background: rgba(255, 255, 255, 0.9);
+          color: #23303e;
+          border-color: rgba(20, 32, 48, 0.25);
+        }
+        .leaflet-tooltip.hw-fcst-hour::before { display: none; }
         .leaflet-tooltip.hw-name-label {
-          background: var(--hw-surface, #1c1c1c);
+          background: var(--hw-surface, #171b22);
           color: var(--hw-text, #ffffff);
-          border: 1px solid var(--hw-border-strong, #333);
-          border-radius: 7px;
+          border: 1px solid var(--hw-border-strong, rgba(255, 255, 255, 0.16));
+          border-radius: 8px;
           padding: 2px 9px;
           font-size: 11px;
           font-weight: 700;
-          letter-spacing: 0.2px;
+          letter-spacing: 0.02em;
           white-space: nowrap;
-          box-shadow: 0 4px 14px rgba(0,0,0,0.4);
+          box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
         }
         .leaflet-tooltip.hw-name-label::before { display: none; }
-        .hw-storm-label { border-left: 3px solid var(--hw-accent, #03a9f4); }
-        /* Single-line zone label that follows the curve of the zone circle. */
+        .hw-storm-label { border-left: 3px solid var(--storm-color, var(--hw-accent, #03a9f4)); }
+        .hw-volcano-label { border-left: 3px solid #fb8c00; }
+
+        /* ---- storm markers & popup card ---------------------------------- */
+        .hw-storm-badge {
+          position: relative;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 100%;
+          height: 100%;
+          border-radius: 50%;
+          background: var(--cat-color, #5ebaff);
+          border: 2px solid rgba(255, 255, 255, 0.92);
+          box-shadow: 0 2px 10px rgba(0, 0, 0, 0.55);
+          color: #10151c;
+          font-size: 15px;
+          font-weight: 800;
+          letter-spacing: -0.02em;
+        }
+        .hw-storm-badge .hw-storm-badge-core { position: relative; z-index: 1; }
+        .hw-storm-badge.is-primary::before {
+          content: "";
+          position: absolute;
+          inset: -6px;
+          border-radius: 50%;
+          border: 2px solid var(--cat-color, #5ebaff);
+          opacity: 0.8;
+          animation: hw-badge-pulse 1.8s ease-out infinite;
+          pointer-events: none;
+        }
+        @keyframes hw-badge-pulse {
+          0% { transform: scale(0.85); opacity: 0.85; }
+          70% { transform: scale(1.35); opacity: 0; }
+          100% { transform: scale(1.35); opacity: 0; }
+        }
+        .hw-storm-popup .leaflet-popup-content { margin: 0; }
+        .hw-storm-card { min-width: 224px; max-width: 280px; }
+        .hw-storm-card-head {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          padding: 12px 14px;
+          border-bottom: 1px solid var(--hw-border, rgba(255, 255, 255, 0.08));
+        }
+        .hw-storm-card-badge {
+          flex-shrink: 0;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 34px;
+          height: 34px;
+          border-radius: 50%;
+          border: 2px solid rgba(255, 255, 255, 0.85);
+          color: #10151c;
+          font-size: 14px;
+          font-weight: 800;
+        }
+        .hw-storm-card-names {
+          display: flex;
+          flex-direction: column;
+          gap: 1px;
+          min-width: 0;
+        }
+        .hw-storm-card-names strong {
+          font-size: 14px;
+          font-weight: 700;
+          color: var(--hw-text, #e8ecf1);
+          overflow-wrap: anywhere;
+        }
+        .hw-storm-card-names span {
+          font-size: 11px;
+          color: var(--hw-muted, #9aa5b1);
+        }
+        .hw-storm-card-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 8px 12px;
+          padding: 12px 14px;
+        }
+        .hw-storm-card-cell { min-width: 0; }
+        .hw-storm-card-cell .k {
+          display: block;
+          font-size: 10px;
+          font-weight: 700;
+          letter-spacing: 0.06em;
+          text-transform: uppercase;
+          color: var(--hw-muted, #9aa5b1);
+          margin-bottom: 1px;
+        }
+        .hw-storm-card-cell .v {
+          display: block;
+          font-size: 12px;
+          font-weight: 600;
+          color: var(--hw-text, #e8ecf1);
+          overflow-wrap: anywhere;
+        }
+
+        /* ---- misc map symbology (kept from baseline, restyled) ------------- */
         .hw-zone-arc-label {
-          fill: #e3f2fd;
+          fill: #eaf4ff;
           font-family: inherit;
           font-weight: 700;
-          letter-spacing: 0.4px;
+          letter-spacing: 0.14em;
           text-transform: uppercase;
           paint-order: stroke;
-          stroke: rgba(6, 10, 18, 0.9);
+          stroke: rgba(6, 10, 18, 0.88);
           stroke-width: 3.5px;
           stroke-linejoin: round;
           stroke-linecap: round;
@@ -1177,8 +1673,15 @@
           -webkit-user-select: none;
           user-select: none;
         }
-        .hw-zone-arc-label.is-bypassed { fill: #ffcc80; }
-        .hw-volcano-label { border-left: 3px solid #fb8c00; }
+        .hw-zone-arc-label.is-bypassed {
+          fill: #ffcc80;
+          opacity: 0.9;
+        }
+        [data-hw-theme="light"] .hw-zone-arc-label {
+          fill: #1c2c3d;
+          stroke: rgba(255, 255, 255, 0.92);
+        }
+        [data-hw-theme="light"] .hw-zone-arc-label.is-bypassed { fill: #a35b00; }
         .hw-tornado-polygon {
           stroke: #e040fb;
           fill: rgba(224, 64, 251, 0.18);
@@ -1200,59 +1703,26 @@
           border-radius: 999px;
           margin-bottom: 6px;
         }
-        .hw-wildfire-perimeter {
-          stroke-width: 2;
-        }
-        .hw-hazard-icon-marker {
-          background: transparent;
-          border: none;
-        }
+        .hw-wildfire-perimeter { stroke-width: 2; }
+        .hw-hazard-icon-marker { background: transparent; border: none; }
         .hw-hazard-icon-wrap {
           display: flex;
           align-items: center;
           justify-content: center;
-          filter: drop-shadow(0 2px 8px rgba(0,0,0,0.5));
+          filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.5));
         }
-        .hw-hazard-icon-wrap img {
-          display: block;
-          pointer-events: none;
-        }
+        .hw-hazard-icon-wrap img { display: block; pointer-events: none; }
         .hw-hazard-icon-wrap.is-primary {
-          filter: drop-shadow(0 0 8px rgba(255,255,255,0.55)) drop-shadow(0 2px 8px rgba(0,0,0,0.5));
+          filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.55)) drop-shadow(0 2px 8px rgba(0, 0, 0, 0.5));
         }
         .hw-hazard-icon-wrap.is-tsunami {
-          filter: drop-shadow(0 0 10px rgba(3,169,244,0.85)) drop-shadow(0 2px 8px rgba(0,0,0,0.5));
+          filter: drop-shadow(0 0 10px rgba(3, 169, 244, 0.85)) drop-shadow(0 2px 8px rgba(0, 0, 0, 0.5));
         }
         .hw-hazard-icon-wrap.is-nearby {
-          filter: drop-shadow(0 0 10px rgba(255,193,7,0.75)) drop-shadow(0 2px 8px rgba(0,0,0,0.5));
-        }
-        .hw-storm-icon-wrap {
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          filter: drop-shadow(0 2px 8px rgba(0,0,0,0.5));
-        }
-        .hw-storm-icon-wrap.is-primary {
-          filter: drop-shadow(0 0 10px var(--storm-color, #e53935)) drop-shadow(0 2px 8px rgba(0,0,0,0.5));
-        }
-        .hw-storm-icon {
-          filter: none;
-          position: relative;
-          z-index: 1;
-        }
-        .hw-cat-ring {
-          position: absolute;
-          top: 50%;
-          left: 50%;
-          transform: translate(-50%, -50%);
-          border-radius: 50%;
-          border: 2px solid #5ebaff;
-          box-sizing: border-box;
-          pointer-events: none;
-          opacity: 0.95;
+          filter: drop-shadow(0 0 10px rgba(255, 193, 7, 0.75)) drop-shadow(0 2px 8px rgba(0, 0, 0, 0.5));
         }
         .hw-hazard-icon-wrap.hw-lightning-marker.is-fresh {
-          filter: drop-shadow(0 0 12px rgba(255, 193, 7, 0.95)) drop-shadow(0 2px 8px rgba(0,0,0,0.5));
+          filter: drop-shadow(0 0 12px rgba(255, 193, 7, 0.95)) drop-shadow(0 2px 8px rgba(0, 0, 0, 0.5));
           animation: hw-lightning-pop 0.45s ease-out;
           opacity: 1;
           transform: scale(1);
@@ -1268,32 +1738,48 @@
           70% { transform: scale(1.15); opacity: 1; }
           100% { transform: scale(1); opacity: 1; }
         }
-        /* Volcano markers: catalog points blend into the basemap */
         .hw-hazard-icon-wrap.hw-volcano-catalog {
           opacity: 0.45;
-          filter: grayscale(0.55) drop-shadow(0 1px 3px rgba(0,0,0,0.45));
+          filter: grayscale(0.55) drop-shadow(0 1px 3px rgba(0, 0, 0, 0.45));
         }
         .hw-hazard-icon-wrap.hw-volcano-catalog:hover {
           opacity: 0.9;
-          filter: grayscale(0) drop-shadow(0 2px 6px rgba(0,0,0,0.5));
+          filter: grayscale(0) drop-shadow(0 2px 6px rgba(0, 0, 0, 0.5));
         }
-        /* Active volcanoes pulse with their alert color */
         .hw-hazard-icon-wrap.hw-volcano-active {
           animation: hw-volcano-pulse 1.6s ease-in-out infinite;
         }
         @keyframes hw-volcano-pulse {
           0%, 100% {
             transform: scale(1);
-            filter: drop-shadow(0 0 4px var(--volcano-color, #fb8c00)) drop-shadow(0 2px 8px rgba(0,0,0,0.5));
+            filter: drop-shadow(0 0 4px var(--volcano-color, #fb8c00)) drop-shadow(0 2px 8px rgba(0, 0, 0, 0.5));
           }
           50% {
             transform: scale(1.18);
-            filter: drop-shadow(0 0 14px var(--volcano-color, #fb8c00)) drop-shadow(0 2px 8px rgba(0,0,0,0.5));
+            filter: drop-shadow(0 0 14px var(--volcano-color, #fb8c00)) drop-shadow(0 2px 8px rgba(0, 0, 0, 0.5));
           }
+        }
+        .marker-cluster-hw {
+          background: rgba(255, 183, 77, 0.25);
+          border: 2px solid rgba(255, 255, 255, 0.85);
+          border-radius: 50%;
+          color: #fff;
+          font-weight: 700;
+          font-size: 12px;
+        }
+        .marker-cluster-hw div {
+          background: rgba(239, 83, 80, 0.88);
+          border-radius: 50%;
+          width: 30px;
+          height: 30px;
+          margin-left: 5px;
+          margin-top: 5px;
+          text-align: center;
+          line-height: 30px;
         }
         .marker-cluster-hw-volcano {
           background: rgba(120, 124, 134, 0.35);
-          border: 1px solid rgba(255,255,255,0.25);
+          border: 1px solid rgba(255, 255, 255, 0.25);
           border-radius: 50%;
           color: #e6e9ef;
           display: flex;
@@ -1301,7 +1787,7 @@
           justify-content: center;
           font-size: 11px;
           font-weight: 600;
-          box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
         }
         .marker-cluster-hw-volcano div {
           display: flex;
@@ -1310,83 +1796,11 @@
           width: 100%;
           height: 100%;
         }
-        .hurricane-stat strong.is-live { color: #ffc107; }
-        /* Leaflet popup styling for dark theme */
-        .leaflet-popup-content-wrapper {
-          background: #1a1f2a;
-          color: #e1e1e1;
-          border-radius: 10px;
-          box-shadow: 0 6px 24px rgba(0,0,0,0.5);
-          border: 1px solid rgba(255,255,255,0.1);
+        .hw-home-marker.in-cone {
+          filter: drop-shadow(0 0 6px rgba(244, 67, 54, 0.9));
+          animation: hw-pulse 1.5s ease-in-out infinite;
         }
-        .leaflet-popup-content {
-          margin: 12px 14px;
-          font-size: 13px;
-          line-height: 1.5;
-        }
-        .leaflet-popup-tip {
-          background: #1a1f2a;
-          border: 1px solid rgba(255,255,255,0.1);
-          box-shadow: 0 3px 10px rgba(0,0,0,0.3);
-        }
-        .leaflet-popup-close-button {
-          color: #9e9e9e !important;
-          font-size: 20px !important;
-          padding: 6px 8px 0 0 !important;
-        }
-        .leaflet-popup-close-button:hover {
-          color: #fff !important;
-        }
-        .hw-legend {
-          background: rgba(17, 20, 28, 0.92);
-          border: 1px solid rgba(255,255,255,0.14);
-          border-radius: 8px;
-          color: #cfd8dc;
-          overflow: hidden;
-          width: 100%;
-          max-width: none;
-          box-sizing: border-box;
-          backdrop-filter: blur(10px);
-          box-shadow: 0 4px 16px rgba(0,0,0,0.35);
-        }
-        .hw-map-controls-stack .hw-legend {
-          margin: 0;
-        }
-        .hw-legend-header {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 8px;
-          padding: 7px 10px;
-          cursor: pointer;
-          font-size: 11px;
-          font-weight: 700;
-          letter-spacing: 0.1em;
-          text-transform: uppercase;
-          color: #b0bec5;
-          user-select: none;
-        }
-        .hw-legend-caret { transition: transform 0.15s ease; }
-        .hw-legend.collapsed .hw-legend-caret { transform: rotate(-90deg); }
-        .hw-legend.collapsed .hw-legend-body { display: none; }
-        .hw-legend-body {
-          padding: 4px 10px 10px;
-          display: flex;
-          flex-direction: column;
-          gap: 10px;
-        }
-        .hw-legend-group { display: flex; flex-direction: column; gap: 4px; }
-        .hw-legend-group-title {
-          font-size: 9px;
-          font-weight: 700;
-          letter-spacing: 0.08em;
-          text-transform: uppercase;
-          color: #78909c;
-        }
-        .hw-legend-row { display: flex; align-items: center; gap: 6px; font-size: 10px; line-height: 1.25; }
-        .hw-legend-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
-        .hw-legend-swatch { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; border: 1px solid rgba(255,255,255,0.3); }
-        .hw-legend img { width: 14px; height: 14px; flex-shrink: 0; }
+        @keyframes hw-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.08); } }
         .leaflet-container.hw-measuring { cursor: crosshair; }
         .hw-measure-tip {
           background: rgba(2, 136, 209, 0.92);
@@ -1396,230 +1810,37 @@
           font-size: 11px;
           font-weight: 700;
           font-variant-numeric: tabular-nums;
-          box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
         }
         .hw-measure-tip::before { display: none; }
-        .leaflet-control-layers {
-          background: rgba(17, 20, 28, 0.92);
-          color: #cfd8dc;
-          border: 1px solid rgba(255,255,255,0.14);
-          border-radius: 8px;
-          backdrop-filter: blur(10px);
+
+        /* ---- compact tweaks -------------------------------------------------- */
+        .hurricane-layout.is-compact .hw-map-controls-stack {
+          --hw-map-stack-width: 178px;
         }
-        .leaflet-control-layers-toggle {
-          background-color: rgba(28, 28, 28, 0.92);
+        .hurricane-layout.is-compact .leaflet-top.leaflet-left {
+          top: 8px;
+          left: 8px;
         }
-        .leaflet-control-layers-expanded { padding: 8px 10px; }
-        .leaflet-control-layers label { font-size: 12px; margin: 2px 0; }
-        .hw-home-marker.in-cone {
-          filter: drop-shadow(0 0 6px rgba(244,67,54,0.9));
-          animation: hw-pulse 1.5s ease-in-out infinite;
+        .hurricane-layout.is-compact .hw-legend-body {
+          max-height: min(240px, 34vh);
         }
-        @keyframes hw-pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.08); } }
-        .hurricane-status-toggle {
-          display: none;
-          margin-left: auto;
-          width: 32px;
-          height: 32px;
-          padding: 0;
-          border: 1px solid var(--hw-border-strong, #333);
-          border-radius: 8px;
-          background: var(--hw-elevated, #282828);
-          color: #b0bec5;
-          cursor: pointer;
-          flex-shrink: 0;
-          line-height: 1;
-          font-size: 14px;
-        }
-        .hurricane-status-toggle:hover { background: var(--hw-hover, #222); color: #eceff1; }
-        .hurricane-status h3.hurricane-status-head {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-        }
-        /* Bottom toolbar */
-        .hw-bottom-bar {
-          position: absolute;
-          bottom: 0;
-          left: 0;
-          right: min(320px, 100%);
-          height: 48px;
-          background: var(--hw-surface, #1c1c1c);
-          border-top: 1px solid var(--hw-border-strong, #333);
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          padding: 0 16px;
-          z-index: 1050;
-          gap: 12px;
-        }
-        @media (min-width: 769px) {
-          .hw-bottom-bar {
-            right: clamp(248px, 28vw, 300px);
+
+        /* ---- accessibility: reduced motion ---------------------------------- */
+        @media (prefers-reduced-motion: reduce) {
+          .hz-spinner,
+          .hw-storm-badge.is-primary::before,
+          .hw-hazard-icon-wrap.hw-volcano-active,
+          .hw-hazard-icon-wrap.hw-lightning-marker.is-fresh,
+          .hw-home-marker.in-cone {
+            animation: none !important;
           }
-        }
-        .hw-bottom-layers {
-          display: flex;
-          align-items: center;
-          gap: 4px;
-        }
-        .hw-bottom-layer-btn {
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          width: 36px;
-          height: 36px;
-          border: none;
-          border-radius: 8px;
-          background: transparent;
-          cursor: pointer;
-          transition: background 0.15s, opacity 0.15s;
-          opacity: 0.45;
-          padding: 0;
-        }
-        .hw-bottom-layer-btn:hover {
-          background: var(--hw-hover, #222);
-          opacity: 0.75;
-        }
-        .hw-bottom-layer-btn.is-active {
-          background: var(--hw-elevated, #282828);
-          opacity: 1;
-        }
-        .hw-bottom-layer-btn img,
-        .hw-bottom-layer-btn svg {
-          width: 22px;
-          height: 22px;
-          display: block;
-        }
-        .hw-bottom-coords {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          font-size: 11px;
-          color: #b0b0b0;
-          font-variant-numeric: tabular-nums;
-          white-space: nowrap;
-          padding-left: 12px;
-          border-left: 1px solid rgba(255,255,255,0.1);
-          height: 28px;
-        }
-        .hw-bottom-coords .hw-scale-wrap {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          color: #8a8a8a;
-        }
-        .hw-bottom-coords .hw-scale-line {
-          display: inline-block;
-          height: 4px;
-          border-left: 1px solid #8a8a8a;
-          border-right: 1px solid #8a8a8a;
-          border-bottom: 1px solid #8a8a8a;
-          min-width: 40px;
-        }
-        @media (max-width: 768px) {
-          .hw-bottom-bar {
-            right: 0;
-            height: 44px;
-            padding: 0 10px;
-            gap: 8px;
-          }
-          .hw-bottom-layers {
-            gap: 2px;
-          }
-          .hw-bottom-layer-btn {
-            width: 32px;
-            height: 32px;
-          }
-          .hw-bottom-layer-btn img,
-          .hw-bottom-layer-btn svg {
-            width: 18px;
-            height: 18px;
-          }
-          .hw-bottom-coords {
-            font-size: 10px;
-            gap: 6px;
-          }
-          .hw-bottom-coords .hw-scale-wrap {
-            display: none;
-          }
-          .hurricane-status {
-            top: 0;
-            left: auto;
-            right: 0;
-            bottom: 0;
-            width: min(300px, 88%);
-            height: 100%;
-            max-height: 100%;
-            padding: 0;
-            border-radius: 0;
-            border-left: 1px solid var(--hw-border-strong, #333);
-            transition: width 0.2s ease;
-          }
-          .hurricane-status.is-collapsed {
-            height: auto;
-            bottom: auto;
-            max-height: none;
-            width: min(300px, 88%);
-            overflow: hidden;
-            border-bottom: 1px solid var(--hw-border-strong, #333);
-          }
-          .hurricane-status.is-collapsed .hurricane-status-header {
-            padding-bottom: 0;
-            margin-bottom: 0;
-            border-bottom: none;
-          }
-          .hurricane-status.is-collapsed .hurricane-status-scroll {
-            display: none;
-          }
-          .hurricane-status.is-collapsed .hurricane-banner,
-          .hurricane-status.is-collapsed .hurricane-stat,
-          .hurricane-status.is-collapsed .hurricane-status-details {
-            display: none;
-          }
-          .hurricane-status.is-collapsed .hurricane-status-headline {
-            margin: 0;
-            font-size: 13px;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-          }
-          .hurricane-status-toggle { display: inline-flex; align-items: center; justify-content: center; }
-          .hurricane-status.is-collapsed .hurricane-status-toggle { transform: rotate(-90deg); }
-          .hurricane-map-empty-banner {
-            top: 10px;
-            left: 12px;
-            right: 12px;
-          }
-          .hurricane-layout.is-embedded .hurricane-status {
-            top: 0;
-            left: auto;
-            right: 0;
-            bottom: 0;
-            width: min(300px, 88%);
-            height: 100%;
-            max-height: 100%;
-          }
-          .hurricane-layout.is-embedded .hurricane-status.is-collapsed {
-            height: auto;
-            bottom: auto;
-            max-height: none;
-          }
-          .hurricane-layout.is-embedded .hurricane-map-empty-banner {
-            top: 10px;
-            left: 10px;
-            right: 10px;
-          }
-          .hw-map-controls-stack {
-            --hw-map-btn: 36px;
-            --hw-map-stack-width: 144px;
-          }
-          .hw-legend {
-            max-width: none;
-          }
-          .leaflet-top.leaflet-left {
-            top: 8px;
-            left: 8px;
+          .hz-card-chevron,
+          .hz-sheet-toggle svg,
+          .hw-legend-caret,
+          .hw-layer-switch,
+          .hw-layer-switch::after {
+            transition: none !important;
           }
         }
       `;
@@ -1628,7 +1849,11 @@
 
     _renderShell() {
       if (!this._root) return;
-      this._root.innerHTML = `<div class="hurricane-loading">Loading hazard map…</div>`;
+      this._root.innerHTML = `
+        <div class="hurricane-loading" role="status">
+          <span class="hz-spinner" aria-hidden="true"></span>
+          <span>Loading hazard map…</span>
+        </div>`;
     }
 
     async _ensureDeps() {
@@ -1735,7 +1960,7 @@
     }
 
     _bindControls() {
-      /* Map controls live in weather-panel toolbar when embedded. */
+      /* Map controls live in this component's own overlays when embedded. */
     }
 
     _getDetailTier() {
@@ -1775,6 +2000,75 @@
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;");
+    }
+
+    /** Saffir-Simpson info for a storm/point given category and/or wind. */
+    _stormCatInfo(category, windMph) {
+      const w = Number(windMph);
+      let cat = Number(category);
+      if (!Number.isFinite(cat) || cat < 1) {
+        if (Number.isFinite(w)) {
+          if (w >= 157) cat = 5;
+          else if (w >= 130) cat = 4;
+          else if (w >= 111) cat = 3;
+          else if (w >= 96) cat = 2;
+          else if (w >= 74) cat = 1;
+          else cat = 0;
+        } else {
+          cat = 0;
+        }
+      }
+      cat = Math.max(0, Math.min(5, Math.round(cat)));
+      const isTs = cat === 0 && Number.isFinite(w) && w >= 39;
+      const label = cat >= 1 ? String(cat) : (isTs ? "TS" : "TD");
+      const longName = cat >= 1
+        ? `Category ${cat} hurricane`
+        : (isTs ? "Tropical storm" : "Tropical depression");
+      return { cat, label, longName, color: CATEGORY_COLORS[cat] || CATEGORY_COLORS[0] };
+    }
+
+    _categoryColor(category, windMph) {
+      return this._stormCatInfo(category, windMph).color;
+    }
+
+    /** Short human time for NHC valid-time strings; falls back to raw text. */
+    _fmtValidTime(raw) {
+      if (!raw) return "";
+      const d = new Date(raw);
+      if (!Number.isNaN(d.getTime())) {
+        try {
+          return d.toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" });
+        } catch (_) {
+          return String(raw);
+        }
+      }
+      return String(raw);
+    }
+
+    _fmtClockTime(raw) {
+      if (!raw) return null;
+      const d = new Date(raw);
+      if (Number.isNaN(d.getTime())) return null;
+      try {
+        return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+      } catch (_) {
+        return null;
+      }
+    }
+
+    /** Nearest forecast-point approach of a storm to home (miles + hour). */
+    _stormClosestApproach(storm) {
+      const home = this._data?.home;
+      if (home?.lat == null || home?.lon == null) return null;
+      let best = null;
+      (storm.forecastPoints || []).forEach((pt) => {
+        if (pt.lat == null || pt.lon == null) return;
+        const miles = this._haversineMiles(home.lat, home.lon, pt.lat, pt.lon);
+        if (!best || miles < best.miles) {
+          best = { miles, hour: pt.hour, validTime: pt.validTime };
+        }
+      });
+      return best;
     }
 
     _formatStormLabel(storm) {
@@ -1871,14 +2165,20 @@
     _renderError() {
       if (!this._root) return;
       this._root.innerHTML = `
-        <section class="hurricane-layout">
+        <section class="hurricane-layout${this._embedded ? " is-embedded" : ""}">
           <div class="hurricane-empty" style="width:100%;height:100%">
             <p>Failed to load hazard data.</p>
             <p>${this._esc(this._error)}</p>
-            <button class="btn btn-primary" data-hurricane-refresh>Retry</button>
+            <button type="button" data-hurricane-refresh>Retry</button>
           </div>
         </section>`;
+      this._root.querySelector("[data-hurricane-refresh]")
+        ?.addEventListener("click", () => this.loadData(true));
     }
+
+    /* ------------------------------------------------------------------ */
+    /* Status panel                                                        */
+    /* ------------------------------------------------------------------ */
 
     _buildStatusHeadline(summary, storms) {
       const tornado = this._tornadoData || {};
@@ -1917,7 +2217,30 @@
       return { text: "No active hurricanes or disturbances", className: "" };
     }
 
-    _buildStatusPanelHtml() {
+    _statRow(label, value, cls = "") {
+      return `<div class="hz-row${cls ? ` ${cls}` : ""}"><span>${label}</span><strong>${value}</strong></div>`;
+    }
+
+    /** One collapsible hazard card for the status panel. */
+    _hazardCard(cfg) {
+      const openAttr = cfg.open ? " open" : "";
+      const valueClass = cfg.valueClass ? ` ${cfg.valueClass}` : "";
+      return `
+        <details class="hz-card"${openAttr} data-card="${cfg.id}">
+          <summary>
+            <img class="hz-card-icon" src="/local/home_weather/icons/${cfg.icon}.svg" alt="" draggable="false"/>
+            <span class="hz-card-titles">
+              <span class="hz-card-title">${cfg.title}</span>
+              <span class="hz-card-lead">${cfg.lead}</span>
+            </span>
+            <span class="hz-card-value${valueClass}">${cfg.value}</span>
+            <span class="hz-card-chevron" aria-hidden="true">▾</span>
+          </summary>
+          <div class="hz-card-body">${cfg.body}</div>
+        </details>`;
+    }
+
+    _buildStatusPanelHtml(openState) {
       const summary = this._data.summary || {};
       const storms = this._data.storms || [];
       const threatClass =
@@ -1932,12 +2255,9 @@
         : "";
 
       const insideCone = summary.insideCone;
-      const insideClass = insideCone ? "is-danger" : "";
-      const insideText = insideCone ? "Yes" : "No";
 
       const tornado = this._tornadoData || {};
       const tornadoCount = tornado.active_count || 0;
-      const tornadoAffecting = tornado.affecting_home ? "Yes" : "No";
       const tornadoDistance = this._fmtMiles(tornado.nearest_distance_miles);
       const tornadoHeadline = tornado.primary_alert?.headline || "—";
 
@@ -1946,10 +2266,10 @@
       const eqCount = earthquake.active_count || 0;
       const eqMapCount = earthquake.map_count ?? eqCount;
       const eqDistance = this._fmtMiles(earthquake.nearest_distance_miles);
-      const eqMag = eqPrimary.magnitude != null ? `M${eqPrimary.magnitude}` : "—";
+      const eqMag = eqPrimary.magnitude != null ? `M${eqPrimary.magnitude}` : null;
       const eqDepth = eqPrimary.depth_km != null ? `${Math.round(eqPrimary.depth_km)} km` : "—";
       const eqPlace = eqPrimary.place || "—";
-      const eqTsunami = eqPrimary.tsunami === 1 ? "Yes" : "No";
+      const eqTsunami = eqPrimary.tsunami === 1;
 
       const volcano = this._volcanoData || {};
       const volcanoPrimary = volcano.primary_geofield || {};
@@ -1973,7 +2293,6 @@
       const wildfireDistance = this._fmtMiles(wildfire.nearest_distance_miles);
 
       const airQuality = this._airQualityData || {};
-      const aqiCounts = airQuality.level_counts || {};
       const aqiTotal = airQuality.area_count || 0;
       const aqiUnhealthy = airQuality.unhealthy_count || 0;
       const aqiWorst = airQuality.worst_area || {};
@@ -1981,136 +2300,288 @@
 
       const headline = this._buildStatusHeadline(summary, storms);
       const tropicalCount = (summary.disturbanceCount || 0) + storms.length;
-      const tornadoCountLabel = tornadoCount;
-      const eqCountLabel = eqMapCount;
       const lightningStats = this._getLightningStats();
       const compact = this._isCompactLayout();
-      const detailsOpen = compact ? "" : " open";
       const collapsedClass = compact && this._statusCollapsed ? " is-collapsed" : "";
-      const statusExpanded = compact && !this._statusCollapsed;
+      const sheetExpanded = compact && !this._statusCollapsed;
 
-      const tropicalBody = `
-            ${summary.hasOutlookActivity ? `
-            <div class="hurricane-stat"><span>Disturbances</span><strong>${summary.disturbanceCount || 0}</strong></div>
-            <div class="hurricane-stat"><span>Development areas</span><strong>${summary.developmentAreaCount || 0}</strong></div>
-            <div class="hurricane-stat ${summary.insideDevelopmentRegion ? "is-warning" : ""}"><span>Inside dev. region</span><strong>${summary.insideDevelopmentRegion ? "Yes" : "No"}</strong></div>
-            <div class="hurricane-stat"><span>Nearest disturbance</span><strong>${this._fmtMiles(summary.nearestDisturbanceMiles)}</strong></div>
-            <div class="hurricane-stat"><span>Formation probability</span><strong>${summary.highestFormationProbability != null ? summary.highestFormationProbability + "%" : "—"}</strong></div>` : ""}
-            ${storms.length > 0 ? `
-            <div class="hurricane-stat"><span>Active storms</span><strong>${storms.length}</strong></div>
-            <div class="hurricane-stat"><span>Closest storm</span><strong>${this._esc(summary.closestStormName || "—")}</strong></div>
-            <div class="hurricane-stat"><span>Distance to center</span><strong>${this._fmtMiles(summary.distanceToCenterMiles)}</strong></div>
-            <div class="hurricane-stat"><span>Nearest forecast point</span><strong>${this._fmtMiles(summary.distanceToNearestForecastMiles)}</strong></div>
-            <div class="hurricane-stat ${insideClass}"><span>Home inside cone</span><strong>${insideText}</strong></div>
-            <div class="hurricane-stat"><span>Closest approach</span><strong>${summary.estimatedClosestApproachHour != null ? summary.estimatedClosestApproachHour + "H" : "—"}</strong></div>` : ""}
-            ${!summary.hasOutlookActivity && storms.length === 0 ? `<div class="hurricane-stat"><span>Status</span><strong>No active storms</strong></div>` : ""}`;
+      const pill = headline.className === "is-danger"
+        ? { cls: "is-danger", text: "Active threat" }
+        : headline.className === "is-watch"
+          ? { cls: "is-watch", text: "Monitoring" }
+          : { cls: "is-ok", text: "All clear" };
+
+      const updatedTime = this._fmtClockTime(summary.fetchedAt);
+
+      // Cards default open on desktop when they carry an elevated state; user
+      // toggles (openState) always win across re-renders.
+      const isOpen = (id, fallback) => {
+        if (openState && Object.prototype.hasOwnProperty.call(openState, id)) return !!openState[id];
+        return !compact && fallback;
+      };
+
+      const cards = [];
+
+      /* Tropical -------------------------------------------------------- */
+      {
+        const danger = summary.threatLevel === "high" || insideCone;
+        const warn = storms.length > 0 || summary.hasOutlookActivity;
+        let lead;
+        if (storms.length > 0) {
+          const bits = [this._esc(summary.closestStormName || "Active storm")];
+          if (summary.distanceToCenterMiles != null) bits.push(this._fmtMiles(summary.distanceToCenterMiles));
+          lead = `Closest: ${bits.join(" · ")}`;
+        } else if (summary.hasOutlookActivity) {
+          lead = `${summary.disturbanceCount || 0} disturbance${(summary.disturbanceCount || 0) === 1 ? "" : "s"} tracked by NHC`;
+        } else {
+          lead = "No active systems";
+        }
+        const body = [
+          this._statRow("Overall threat", this._esc(summary.threatLevel || "none"), danger ? "is-danger" : warn ? "is-warning" : ""),
+          summary.hasOutlookActivity ? this._statRow("Disturbances", summary.disturbanceCount || 0) : "",
+          summary.hasOutlookActivity ? this._statRow("Development areas", summary.developmentAreaCount || 0) : "",
+          summary.hasOutlookActivity ? this._statRow("Inside dev. region", summary.insideDevelopmentRegion ? "Yes" : "No", summary.insideDevelopmentRegion ? "is-warning" : "") : "",
+          summary.hasOutlookActivity ? this._statRow("Nearest disturbance", this._fmtMiles(summary.nearestDisturbanceMiles)) : "",
+          summary.hasOutlookActivity ? this._statRow("Formation probability", summary.highestFormationProbability != null ? `${summary.highestFormationProbability}%` : "—") : "",
+          storms.length > 0 ? this._statRow("Active storms", storms.length) : "",
+          storms.length > 0 ? this._statRow("Closest storm", this._esc(summary.closestStormName || "—")) : "",
+          storms.length > 0 ? this._statRow("Distance to center", this._fmtMiles(summary.distanceToCenterMiles)) : "",
+          storms.length > 0 ? this._statRow("Nearest forecast point", this._fmtMiles(summary.distanceToNearestForecastMiles)) : "",
+          storms.length > 0 ? this._statRow("Home inside cone", insideCone ? "Yes" : "No", insideCone ? "is-danger" : "") : "",
+          storms.length > 0 ? this._statRow("Closest approach", summary.estimatedClosestApproachHour != null ? `+${summary.estimatedClosestApproachHour}h` : "—") : "",
+          !summary.hasOutlookActivity && storms.length === 0 ? this._statRow("Status", "No active storms") : "",
+        ].filter(Boolean).join("");
+        cards.push(this._hazardCard({
+          id: "tropical",
+          icon: "hurricane",
+          title: "Hurricanes",
+          lead,
+          value: String(tropicalCount),
+          valueClass: danger ? "is-danger" : (tropicalCount > 0 ? "is-warning" : "is-quiet"),
+          open: isOpen("tropical", danger || storms.length > 0),
+          body,
+        }));
+      }
+
+      /* Tornado ---------------------------------------------------------- */
+      {
+        const danger = !!tornado.affecting_home;
+        const lead = danger
+          ? "Affecting your area"
+          : tornadoCount > 0
+            ? `Nearest warning ${tornadoDistance}`
+            : "No active warnings";
+        const body = [
+          this._statRow("Active warnings", tornadoCount),
+          this._statRow("Affecting home", danger ? "Yes" : "No", danger ? "is-danger" : ""),
+          this._statRow("Nearest warning", tornadoDistance),
+          this._statRow("Primary alert", this._esc(tornadoHeadline)),
+        ].join("");
+        cards.push(this._hazardCard({
+          id: "tornado",
+          icon: "tornado",
+          title: "Tornado warnings",
+          lead,
+          value: String(tornadoCount),
+          valueClass: danger ? "is-danger" : (tornadoCount > 0 ? "is-warning" : "is-quiet"),
+          open: isOpen("tornado", danger),
+          body,
+        }));
+      }
+
+      /* Earthquakes ------------------------------------------------------- */
+      {
+        const warn = !!earthquake.nearby_active;
+        const lead = eqMag
+          ? `${this._esc(eqPlace)}${eqDistance !== "—" ? ` · ${eqDistance}` : ""}`
+          : "No significant events";
+        const body = [
+          this._statRow("Worldwide on map", eqMapCount),
+          this._statRow("Nearby (live feed)", eqCount),
+          this._statRow("Nearest", this._esc(eqPlace), warn ? "is-warning" : ""),
+          this._statRow("Magnitude", eqMag || "—"),
+          this._statRow("Distance", eqDistance),
+          this._statRow("Depth", eqDepth),
+          this._statRow("Tsunami flag", eqTsunami ? "Yes" : "No", eqTsunami ? "is-danger" : ""),
+        ].join("");
+        cards.push(this._hazardCard({
+          id: "earthquakes",
+          icon: "earthquake",
+          title: "Earthquakes",
+          lead,
+          value: eqMag || String(eqMapCount),
+          valueClass: eqTsunami ? "is-danger" : warn ? "is-warning" : "is-quiet",
+          open: isOpen("earthquakes", warn || eqTsunami),
+          body,
+        }));
+      }
+
+      /* Volcanoes ---------------------------------------------------------- */
+      {
+        const warn = !!volcano.in_geofield;
+        const lead = volcanoActiveCount > 0
+          ? `Nearest: ${this._esc(volcanoNearestName)}${volcanoNearestLevel !== "—" ? ` · ${this._esc(volcanoNearestLevel)}` : ""}`
+          : "No elevated activity";
+        const body = [
+          this._statRow("Active worldwide", volcanoActiveCount),
+          this._statRow("Active in your zone", volcanoZoneCount, warn ? "is-warning" : ""),
+          this._statRow("Nearest active", this._esc(volcanoNearestName)),
+          this._statRow("Alert level", this._esc(volcanoNearestLevel)),
+          this._statRow("Distance", volcanoDistance),
+        ].join("");
+        cards.push(this._hazardCard({
+          id: "volcanoes",
+          icon: "volcano",
+          title: "Volcanoes",
+          lead,
+          value: String(volcanoActiveCount),
+          valueClass: warn ? "is-warning" : "is-quiet",
+          open: isOpen("volcanoes", warn),
+          body,
+        }));
+      }
+
+      /* Lightning ----------------------------------------------------------- */
+      {
+        const statusCls = lightningStats.status === "live"
+          ? "is-live"
+          : (lightningStats.status === "error" || lightningStats.status === "disabled") ? "is-danger" : "";
+        const body = [
+          `<div class="hz-row"><span>Visible on map</span><strong id="hw-lightning-badge">${lightningStats.visibleCount}</strong></div>`,
+          `<div class="hz-row"><span>Nearest strike</span><strong id="hw-lightning-nearest">${lightningStats.nearestMiles != null ? this._fmtMiles(lightningStats.nearestMiles) : "—"}</strong></div>`,
+          `<div class="hz-row"><span>Feed status</span><strong id="hw-lightning-status" class="${statusCls}">${this._formatLightningStatus(lightningStats.status)}</strong></div>`,
+          this._statRow("Data source", `<a href="https://www.blitzortung.org" target="_blank" rel="noopener noreferrer">Blitzortung</a>`),
+        ].join("");
+        cards.push(this._hazardCard({
+          id: "lightning",
+          icon: "lightning-bolt",
+          title: "Lightning",
+          lead: lightningStats.status === "live" ? "Live feed connected" : `Feed: ${this._formatLightningStatus(lightningStats.status)}`,
+          value: `<span id="hw-lightning-count">${lightningStats.hourCount}</span>/hr`,
+          valueClass: lightningStats.hourCount > 0 ? "is-warning" : "is-quiet",
+          open: isOpen("lightning", false),
+          body,
+        }));
+      }
+
+      /* Travel advisories ----------------------------------------------------- */
+      {
+        const body = [
+          this._statRow("Countries tracked", travelTotal),
+          this._statRow("Level 3–4", travelHigh, travelHigh > 0 ? "is-warning" : ""),
+          this._statRow("Level 4 (Do not travel)", travelCounts[4] || 0),
+          this._statRow("Level 3 (Reconsider)", travelCounts[3] || 0),
+          this._statRow("On map", travel.map_count || 0),
+          this._statRow("Source", `<a href="https://travel.state.gov/content/travel/en/rss.html" target="_blank" rel="noopener noreferrer">State Dept</a>`),
+        ].join("");
+        cards.push(this._hazardCard({
+          id: "travel",
+          icon: "globe",
+          title: "Travel advisories",
+          lead: `${travelTotal} countries tracked`,
+          value: `${travelHigh} high`,
+          valueClass: travelHigh > 0 ? "is-warning" : "is-quiet",
+          open: isOpen("travel", false),
+          body,
+        }));
+      }
+
+      /* Wildfires --------------------------------------------------------------- */
+      {
+        const warn = wildfireActive > 0;
+        const lead = wildfireCount > 0
+          ? `Nearest: ${this._esc(wildfireNearest.name || "—")}${wildfireDistance !== "—" ? ` · ${wildfireDistance}` : ""}`
+          : "No active incidents";
+        const body = [
+          this._statRow("Active incidents", wildfireCount),
+          this._statRow("Uncontained", wildfireActive, warn ? "is-warning" : ""),
+          this._statRow("Perimeters on map", wildfire.perimeter_count || 0),
+          this._statRow("Nearest", this._esc(wildfireNearest.name || "—")),
+          this._statRow("Distance", wildfireDistance),
+          this._statRow("Source", `<a href="https://data-nifc.opendata.arcgis.com/" target="_blank" rel="noopener noreferrer">NIFC WFIGS</a>`),
+        ].join("");
+        cards.push(this._hazardCard({
+          id: "wildfire",
+          icon: "fire",
+          title: "Wildfires",
+          lead,
+          value: String(wildfireCount),
+          valueClass: warn ? "is-warning" : "is-quiet",
+          open: isOpen("wildfire", false),
+          body,
+        }));
+      }
+
+      /* Air quality ---------------------------------------------------------------- */
+      {
+        const warn = aqiUnhealthy > 0;
+        const lead = aqiWorst.aqi != null
+          ? `Worst: ${this._esc(aqiWorst.name ? `${aqiWorst.name}, ${aqiWorst.state || ""}` : "—")}`
+          : "No reporting areas";
+        const body = [
+          this._statRow("Reporting areas", aqiTotal),
+          this._statRow("Unhealthy+", aqiUnhealthy, warn ? "is-warning" : ""),
+          this._statRow("Worst AQI", aqiWorst.aqi != null ? aqiWorst.aqi : "—"),
+          this._statRow("Worst location", this._esc(aqiWorst.name ? `${aqiWorst.name}, ${aqiWorst.state || ""}` : "—")),
+          this._statRow("Nearest unhealthy", this._esc(aqiNearestBad.name ? `${aqiNearestBad.name}, ${aqiNearestBad.state || ""}` : "—")),
+          this._statRow("On map", airQuality.map_count || 0),
+          this._statRow("Source", `<a href="https://www.airnow.gov/" target="_blank" rel="noopener noreferrer">EPA AirNow</a>`),
+        ].join("");
+        cards.push(this._hazardCard({
+          id: "air_quality",
+          icon: "air-quality",
+          title: "Air quality",
+          lead,
+          value: aqiWorst.aqi != null ? `AQI ${aqiWorst.aqi}` : "—",
+          valueClass: warn ? "is-warning" : "is-quiet",
+          open: isOpen("air_quality", false),
+          body,
+        }));
+      }
 
       return `
-        <aside class="hurricane-status ${threatClass}${collapsedClass}" data-status-expanded="${statusExpanded ? "true" : "false"}">
-          <div class="hurricane-status-header">
-            <h3 class="hurricane-status-head">
-              Hazard Status
-              <button type="button" class="hurricane-status-toggle" aria-expanded="${statusExpanded ? "true" : "false"}" aria-label="${statusExpanded ? "Collapse hazard status" : "Expand hazard status"}">▾</button>
-            </h3>
-            <p class="hurricane-status-headline ${headline.className}">${this._esc(headline.text)}</p>
-          </div>
+        <aside class="hurricane-status ${threatClass}${collapsedClass}" role="region" aria-label="Hazard status">
+          <header class="hz-sheet-head">
+            <div class="hz-grabber" aria-hidden="true"></div>
+            <div class="hz-head-row">
+              <span class="hz-threat-pill ${pill.cls}">${pill.text}</span>
+              <h3 class="hz-head-title">Hazard status</h3>
+              <button type="button" class="hz-sheet-toggle" aria-expanded="${sheetExpanded ? "true" : "false"}" aria-label="${sheetExpanded ? "Collapse hazard status" : "Expand hazard status"}">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M11.29 8.71 6.7 13.3a1 1 0 1 0 1.42 1.4L12 10.83l3.88 3.88a1 1 0 0 0 1.42-1.41l-4.59-4.59a1 1 0 0 0-1.42 0z"/></svg>
+              </button>
+            </div>
+            <p class="hz-headline ${headline.className}" aria-live="polite">${this._esc(headline.text)}</p>
+            ${updatedTime ? `<p class="hz-updated">Updated ${this._esc(updatedTime)}</p>` : ""}
+          </header>
           <div class="hurricane-status-scroll">
             ${staleBanner}
-            <div class="hurricane-stat"><span>Overall hurricane threat</span><strong>${this._esc(summary.threatLevel || "none")}</strong></div>
-            <details class="hurricane-status-details"${detailsOpen}>
-              <summary><span>Hurricanes</span><span class="h-count">${tropicalCount}</span><span class="h-chevron">▸</span></summary>
-              <div class="hurricane-status-details-body">${tropicalBody}</div>
-            </details>
-            <details class="hurricane-status-details"${detailsOpen}>
-              <summary><span>Tornado Warnings</span><span class="h-count">${tornadoCountLabel}</span><span class="h-chevron">▸</span></summary>
-              <div class="hurricane-status-details-body">
-                <div class="hurricane-stat"><span>Active warnings</span><strong>${tornadoCount}</strong></div>
-                <div class="hurricane-stat ${tornado.affecting_home ? "is-danger" : ""}"><span>Affecting home</span><strong>${tornadoAffecting}</strong></div>
-                <div class="hurricane-stat"><span>Nearest warning</span><strong>${tornadoDistance}</strong></div>
-                <div class="hurricane-stat"><span>Primary alert</span><strong>${this._esc(tornadoHeadline)}</strong></div>
-              </div>
-            </details>
-            <details class="hurricane-status-details"${detailsOpen}>
-              <summary><span>Earthquakes</span><span class="h-count">${eqCountLabel}</span><span class="h-chevron">▸</span></summary>
-              <div class="hurricane-status-details-body">
-                <div class="hurricane-stat"><span>Worldwide on map</span><strong>${eqMapCount}</strong></div>
-                <div class="hurricane-stat"><span>Nearby (live feed)</span><strong>${eqCount}</strong></div>
-                <div class="hurricane-stat ${earthquake.nearby_active ? "is-warning" : ""}"><span>Nearest</span><strong>${this._esc(eqPlace)}</strong></div>
-                <div class="hurricane-stat"><span>Magnitude</span><strong>${eqMag}</strong></div>
-                <div class="hurricane-stat"><span>Distance</span><strong>${eqDistance}</strong></div>
-                <div class="hurricane-stat"><span>Depth</span><strong>${eqDepth}</strong></div>
-                <div class="hurricane-stat ${eqPrimary.tsunami === 1 ? "is-danger" : ""}"><span>Tsunami flag</span><strong>${eqTsunami}</strong></div>
-              </div>
-            </details>
-            <details class="hurricane-status-details"${detailsOpen}>
-              <summary><span>Volcanoes</span><span class="h-count">${volcanoActiveCount}</span><span class="h-chevron">▸</span></summary>
-              <div class="hurricane-status-details-body">
-                <div class="hurricane-stat"><span>Active worldwide</span><strong>${volcanoActiveCount}</strong></div>
-                <div class="hurricane-stat ${volcano.in_geofield ? "is-warning" : ""}"><span>Active in your zone</span><strong>${volcanoZoneCount}</strong></div>
-                <div class="hurricane-stat"><span>Nearest active</span><strong>${this._esc(volcanoNearestName)}</strong></div>
-                <div class="hurricane-stat"><span>Alert level</span><strong>${this._esc(volcanoNearestLevel)}</strong></div>
-                <div class="hurricane-stat"><span>Distance</span><strong>${volcanoDistance}</strong></div>
-              </div>
-            </details>
-            <details class="hurricane-status-details"${detailsOpen}>
-              <summary><span>Travel Advisories</span><span class="h-count">${travelTotal}</span><span class="h-chevron">▸</span></summary>
-              <div class="hurricane-status-details-body">
-                <div class="hurricane-stat"><span>Countries tracked</span><strong>${travelTotal}</strong></div>
-                <div class="hurricane-stat ${travelHigh > 0 ? "is-warning" : ""}"><span>Level 3–4</span><strong>${travelHigh}</strong></div>
-                <div class="hurricane-stat"><span>Level 4 (Do not travel)</span><strong>${travelCounts[4] || 0}</strong></div>
-                <div class="hurricane-stat"><span>Level 3 (Reconsider)</span><strong>${travelCounts[3] || 0}</strong></div>
-                <div class="hurricane-stat"><span>On map</span><strong>${travel.map_count || 0}</strong></div>
-                <div class="hurricane-stat"><span>Source</span><strong><a href="https://travel.state.gov/content/travel/en/rss.html" target="_blank" rel="noopener noreferrer" style="color:#90caf9">State Dept</a></strong></div>
-              </div>
-            </details>
-            <details class="hurricane-status-details"${detailsOpen}>
-              <summary><span>Wildfires</span><span class="h-count">${wildfireCount}</span><span class="h-chevron">▸</span></summary>
-              <div class="hurricane-status-details-body">
-                <div class="hurricane-stat"><span>Active incidents</span><strong>${wildfireCount}</strong></div>
-                <div class="hurricane-stat ${wildfireActive > 0 ? "is-warning" : ""}"><span>Uncontained</span><strong>${wildfireActive}</strong></div>
-                <div class="hurricane-stat"><span>Perimeters on map</span><strong>${wildfire.perimeter_count || 0}</strong></div>
-                <div class="hurricane-stat"><span>Nearest</span><strong>${this._esc(wildfireNearest.name || "—")}</strong></div>
-                <div class="hurricane-stat"><span>Distance</span><strong>${wildfireDistance}</strong></div>
-                <div class="hurricane-stat"><span>Source</span><strong><a href="https://data-nifc.opendata.arcgis.com/" target="_blank" rel="noopener noreferrer" style="color:#90caf9">NIFC WFIGS</a></strong></div>
-              </div>
-            </details>
-            <details class="hurricane-status-details"${detailsOpen}>
-              <summary><span>Air Quality</span><span class="h-count">${aqiTotal}</span><span class="h-chevron">▸</span></summary>
-              <div class="hurricane-status-details-body">
-                <div class="hurricane-stat"><span>Reporting areas</span><strong>${aqiTotal}</strong></div>
-                <div class="hurricane-stat ${aqiUnhealthy > 0 ? "is-warning" : ""}"><span>Unhealthy+</span><strong>${aqiUnhealthy}</strong></div>
-                <div class="hurricane-stat"><span>Worst AQI</span><strong>${aqiWorst.aqi != null ? aqiWorst.aqi : "—"}</strong></div>
-                <div class="hurricane-stat"><span>Worst location</span><strong>${this._esc(aqiWorst.name ? `${aqiWorst.name}, ${aqiWorst.state || ""}` : "—")}</strong></div>
-                <div class="hurricane-stat"><span>Nearest unhealthy</span><strong>${this._esc(aqiNearestBad.name ? `${aqiNearestBad.name}, ${aqiNearestBad.state || ""}` : "—")}</strong></div>
-                <div class="hurricane-stat"><span>On map</span><strong>${airQuality.map_count || 0}</strong></div>
-                <div class="hurricane-stat"><span>Source</span><strong><a href="https://www.airnow.gov/" target="_blank" rel="noopener noreferrer" style="color:#90caf9">EPA AirNow</a></strong></div>
-              </div>
-            </details>
-            <details class="hurricane-status-details"${detailsOpen}>
-              <summary><span>Lightning</span><span class="h-count" id="hw-lightning-badge">${lightningStats.visibleCount}</span><span class="h-chevron">▸</span></summary>
-              <div class="hurricane-status-details-body">
-                <div class="hurricane-stat"><span>Strikes (last hour)</span><strong id="hw-lightning-count">${lightningStats.hourCount}</strong></div>
-                <div class="hurricane-stat"><span>Nearest strike</span><strong id="hw-lightning-nearest">${lightningStats.nearestMiles != null ? this._fmtMiles(lightningStats.nearestMiles) : "—"}</strong></div>
-                <div class="hurricane-stat"><span>Feed status</span><strong id="hw-lightning-status" class="${lightningStats.status === "live" ? "is-live" : lightningStats.status === "error" ? "is-danger" : ""}">${this._formatLightningStatus(lightningStats.status)}</strong></div>
-                <div class="hurricane-stat"><span>Data source</span><strong><a href="https://www.blitzortung.org" target="_blank" rel="noopener noreferrer" style="color:#90caf9">Blitzortung</a></strong></div>
-              </div>
-            </details>
+            ${cards.join("")}
           </div>
         </aside>`;
     }
 
     _syncStatusPanelLayout() {
-      const wrap = this._root?.querySelector(".hurricane-map-wrap");
+      const layout = this._root?.querySelector(".hurricane-layout");
       const aside = this._root?.querySelector(".hurricane-status");
-      if (!wrap || !aside) return;
-      const expanded = this._isCompactLayout() && !this._statusCollapsed;
-      wrap.classList.toggle("status-expanded", expanded);
-      aside.classList.toggle("is-collapsed", this._isCompactLayout() && this._statusCollapsed);
-      aside.dataset.statusExpanded = expanded ? "true" : "false";
-      const toggle = aside.querySelector(".hurricane-status-toggle");
+      if (!layout || !aside) return;
+      const compact = this._isCompactLayout();
+      layout.classList.toggle("is-compact", compact);
+      const collapsed = compact && this._statusCollapsed;
+      aside.classList.toggle("is-collapsed", collapsed);
+      const expanded = compact && !this._statusCollapsed;
+      const toggle = aside.querySelector(".hz-sheet-toggle");
       if (toggle) {
         toggle.setAttribute("aria-expanded", expanded ? "true" : "false");
         toggle.setAttribute("aria-label", expanded ? "Collapse hazard status" : "Expand hazard status");
+      }
+      if (compact) {
+        const head = aside.querySelector(".hz-sheet-head");
+        if (head) {
+          // Drive floating-control offsets from the real peek height so the
+          // Layers button and attribution stay reachable above the sheet.
+          const peek = collapsed ? head.offsetHeight : head.offsetHeight;
+          layout.style.setProperty("--hz-peek", `${Math.max(56, peek)}px`);
+        }
       }
     }
 
@@ -2124,13 +2595,13 @@
         this._syncStatusPanelLayout();
         this._map?.invalidateSize?.();
       };
-      aside.querySelector(".hurricane-status-toggle")?.addEventListener("click", (e) => {
+      aside.querySelector(".hz-sheet-toggle")?.addEventListener("click", (e) => {
         e.stopPropagation();
         toggle();
       });
-      aside.querySelector(".hurricane-status-head")?.addEventListener("click", (e) => {
+      aside.querySelector(".hz-sheet-head")?.addEventListener("click", (e) => {
         if (!this._isCompactLayout()) return;
-        if (e.target.closest(".hurricane-status-toggle")) return;
+        if (e.target.closest(".hz-sheet-toggle")) return;
         toggle();
       });
     }
@@ -2142,7 +2613,12 @@
       if (mapReady) {
         const aside = this._root.querySelector(".hurricane-status");
         if (aside) {
-          aside.outerHTML = this._buildStatusPanelHtml();
+          // Preserve the user's expand/collapse choices across data refreshes.
+          const openState = {};
+          aside.querySelectorAll(".hz-card").forEach((d) => {
+            if (d.dataset.card) openState[d.dataset.card] = d.open;
+          });
+          aside.outerHTML = this._buildStatusPanelHtml(openState);
           this._bindStatusPanelToggle();
           this._syncStatusPanelLayout();
         }
@@ -2151,19 +2627,25 @@
         return;
       }
 
-      const layoutClass = this._embedded ? "hurricane-layout is-embedded" : "hurricane-layout";
+      const compact = this._isCompactLayout();
+      const layoutClass = [
+        "hurricane-layout",
+        this._embedded ? "is-embedded" : "",
+        compact ? "is-compact" : "",
+      ].filter(Boolean).join(" ");
       this._root.innerHTML = `
         <section class="${layoutClass}">
           <div class="hurricane-map-wrap">
-            <div id="hurricane-map" class="hurricane-map"></div>
-            ${this._buildBottomBarHtml()}
+            <div id="hurricane-map" class="hurricane-map" role="application" aria-label="Hazard map"></div>
+            ${this._buildLayersControlHtml()}
+            ${this._buildMapReadoutHtml()}
           </div>
           ${this._buildStatusPanelHtml()}
         </section>`;
       this._renderMap(true);
       this._syncLightningLayer();
       this._bindStatusPanelToggle();
-      this._bindBottomBarToggles();
+      this._bindLayersControl();
       this._syncStatusPanelLayout();
       requestAnimationFrame(() => {
         requestAnimationFrame(() => this._map?.invalidateSize?.());
@@ -2175,88 +2657,158 @@
       return `${Math.round(Number(value))} mi`;
     }
 
-    _buildBottomBarHtml() {
-      const layers = [
-        { key: "hurricane", label: "Hurricanes", icon: "/local/home_weather/icons/hurricane.svg", type: "layer" },
-        { key: "tornado", label: "Tornadoes", icon: "/local/home_weather/icons/tornado.svg", type: "layer" },
-        { key: "earthquakes", label: "Earthquakes", icon: "/local/home_weather/icons/earthquake.svg", type: "layer" },
-        { key: "volcanoes", label: "Volcanoes", icon: "/local/home_weather/icons/volcano.svg", type: "layer" },
-        { key: "lightning", label: "Lightning", icon: "/local/home_weather/icons/lightning-bolt.svg", type: "layer" },
-        { key: "travel", label: "Travel Advisories", icon: "/local/home_weather/icons/globe.svg", type: "layer" },
-        { key: "wildfire", label: "Wildfires", icon: "/local/home_weather/icons/fire.svg", type: "layer" },
-        { key: "air_quality", label: "Air Quality", icon: "/local/home_weather/icons/air-quality.svg", type: "layer" },
-        { key: "wind_radii", label: "Wind Radii", icon: "/local/home_weather/icons/wind-radii.svg", type: "overlay" },
-        { key: "alert_zones", label: "Alert Zones", icon: "/local/home_weather/icons/alert-zones.svg", type: "overlay" },
-      ];
-      const btns = layers.map((l) => {
-        let active = "";
-        if (l.type === "layer") {
-          active = this._mapLayers[l.key] ? "is-active" : "";
-        } else if (l.key === "wind_radii") {
-          active = this._showWindRadii ? "is-active" : "";
-        } else if (l.key === "alert_zones") {
-          active = this._showZones ? "is-active" : "";
-        }
-        const pressed = active ? "true" : "false";
-        const iconHtml = `<img src="${l.icon}" alt="" draggable="false"/>`;
-        return `<button type="button" class="hw-bottom-layer-btn ${active}" data-layer="${l.key}" data-type="${l.type}" title="${l.label}" aria-label="${l.label}" aria-pressed="${pressed}">${iconHtml}</button>`;
+    /* ------------------------------------------------------------------ */
+    /* Layers menu + coords readout                                        */
+    /* ------------------------------------------------------------------ */
+
+    _isToggleActive(def) {
+      if (def.type === "overlay") {
+        if (def.key === "wind_radii") return this._showWindRadii;
+        if (def.key === "alert_zones") return this._showZones;
+        return false;
+      }
+      return !!this._mapLayers[def.key];
+    }
+
+    _activeToggleCount() {
+      return LAYER_DEFS.reduce((n, def) => n + (this._isToggleActive(def) ? 1 : 0), 0);
+    }
+
+    _buildLayersControlHtml() {
+      const rows = (defs) => defs.map((def) => {
+        const on = this._isToggleActive(def);
+        return `
+          <button type="button" class="hw-layer-row${on ? " is-on" : ""}" role="switch"
+            aria-checked="${on ? "true" : "false"}" data-layer="${def.key}" data-type="${def.type}">
+            <img src="/local/home_weather/icons/${def.icon}.svg" alt="" draggable="false"/>
+            <span class="hw-layer-label">${def.label}</span>
+            <span class="hw-layer-switch" aria-hidden="true"></span>
+          </button>`;
       }).join("");
+      const hazardRows = rows(LAYER_DEFS.filter((d) => d.type === "layer"));
+      const overlayRows = rows(LAYER_DEFS.filter((d) => d.type === "overlay"));
       return `
-        <div class="hw-bottom-bar">
-          <div class="hw-bottom-layers">${btns}</div>
-          <div class="hw-bottom-coords">
-            <span class="hw-coords-text">—</span>
-            <span class="hw-scale-wrap"><span class="hw-scale-line" style="width:50px"></span><span class="hw-scale-label">—</span></span>
+        <div class="hw-layers-ctl">
+          <div class="hw-layers-menu" id="hw-layers-menu" role="group" aria-label="Map layers" hidden>
+            <div class="hw-layers-menu-head">Map layers</div>
+            <div class="hw-layers-group-label">Hazards</div>
+            ${hazardRows}
+            <div class="hw-layers-group-label">Overlays</div>
+            ${overlayRows}
           </div>
+          <button type="button" class="hw-layers-fab" aria-haspopup="true" aria-expanded="false" aria-controls="hw-layers-menu">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M12 2 2 7.5l10 5.5 10-5.5L12 2zm-7.7 8.4L2 11.7l10 5.5 10-5.5-2.3-1.3-7.7 4.2-7.7-4.2zm0 4.2L2 15.9l10 5.5 10-5.5-2.3-1.3-7.7 4.2-7.7-4.2z"/></svg>
+            <span class="hw-layers-fab-label">Layers</span>
+            <span class="hw-layers-count">${this._activeToggleCount()}</span>
+          </button>
         </div>`;
     }
 
-    _bindBottomBarToggles() {
-      const bar = this._root?.querySelector(".hw-bottom-bar");
-      if (!bar || bar.dataset.bound === "true") return;
-      bar.dataset.bound = "true";
-      bar.addEventListener("click", (e) => {
-        const btn = e.target.closest(".hw-bottom-layer-btn");
+    _buildMapReadoutHtml() {
+      return `
+        <div class="hw-map-readout" aria-hidden="true">
+          <span class="hw-coords-text">—</span>
+          <span class="hw-scale-wrap"><span class="hw-scale-line" style="width:60px"></span><span class="hw-scale-label">—</span></span>
+        </div>`;
+    }
+
+    _bindLayersControl() {
+      const ctl = this._root?.querySelector(".hw-layers-ctl");
+      if (!ctl || ctl.dataset.bound === "true") return;
+      ctl.dataset.bound = "true";
+      const fab = ctl.querySelector(".hw-layers-fab");
+      const menu = ctl.querySelector(".hw-layers-menu");
+      this._layersCtl = ctl;
+      this._layersFab = fab;
+      this._layersMenu = menu;
+
+      fab?.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (this._layersMenuOpen) this._closeLayersMenu();
+        else this._openLayersMenu();
+      });
+
+      menu?.addEventListener("click", (e) => {
+        const btn = e.target.closest(".hw-layer-row");
         if (!btn) return;
+        e.stopPropagation();
         const key = btn.dataset.layer;
         const type = btn.dataset.type;
         if (!key) return;
-        
+
         if (type === "overlay") {
           if (key === "wind_radii") {
             this._showWindRadii = !this._showWindRadii;
-            btn.classList.toggle("is-active", this._showWindRadii);
-            btn.setAttribute("aria-pressed", this._showWindRadii ? "true" : "false");
             if (this._onOverlayToggle) this._onOverlayToggle("wind_radii", this._showWindRadii);
           } else if (key === "alert_zones") {
             this._showZones = !this._showZones;
-            btn.classList.toggle("is-active", this._showZones);
-            btn.setAttribute("aria-pressed", this._showZones ? "true" : "false");
             if (this._onOverlayToggle) this._onOverlayToggle("alert_zones", this._showZones);
           }
         } else {
           this._mapLayers[key] = !this._mapLayers[key];
-          btn.classList.toggle("is-active", this._mapLayers[key]);
-          btn.setAttribute("aria-pressed", this._mapLayers[key] ? "true" : "false");
+          if (key === "lightning") this._syncLightningLayer();
           if (this._onLayerToggle) this._onLayerToggle(key, this._mapLayers[key]);
         }
+        this._syncLayerControls();
         this._renderMap();
       });
     }
 
-    _updateBottomBarCoords(lat, lon, zoom) {
-      const el = this._root?.querySelector(".hw-bottom-bar .hw-coords-text");
-      if (el) el.textContent = `${lat.toFixed(3)}°, ${lon.toFixed(3)}° · z${zoom ?? "?"}`;
+    _openLayersMenu() {
+      if (!this._layersMenu || !this._layersFab) return;
+      this._layersMenu.hidden = false;
+      this._layersFab.setAttribute("aria-expanded", "true");
+      this._layersMenuOpen = true;
     }
 
-    _updateBottomBarScale(meters, label) {
-      const line = this._root?.querySelector(".hw-bottom-bar .hw-scale-line");
-      const lbl = this._root?.querySelector(".hw-bottom-bar .hw-scale-label");
-      if (line && meters) {
-        const px = Math.min(100, Math.max(40, meters / 10));
-        line.style.width = `${px}px`;
-      }
-      if (lbl) lbl.textContent = label || "—";
+    _closeLayersMenu(refocus) {
+      if (!this._layersMenu || !this._layersFab) return;
+      this._layersMenu.hidden = true;
+      this._layersFab.setAttribute("aria-expanded", "false");
+      this._layersMenuOpen = false;
+      if (refocus) this._layersFab.focus?.();
+    }
+
+    /** Reflect current layer/overlay state into the Layers menu UI. */
+    _syncLayerControls() {
+      const ctl = this._root?.querySelector(".hw-layers-ctl");
+      if (!ctl) return;
+      ctl.querySelectorAll(".hw-layer-row").forEach((btn) => {
+        const def = LAYER_DEFS.find((d) => d.key === btn.dataset.layer && d.type === btn.dataset.type);
+        if (!def) return;
+        const on = this._isToggleActive(def);
+        btn.classList.toggle("is-on", on);
+        btn.setAttribute("aria-checked", on ? "true" : "false");
+      });
+      const count = ctl.querySelector(".hw-layers-count");
+      if (count) count.textContent = String(this._activeToggleCount());
+    }
+
+    /** Shared document-level dismissal for the layers + basemap menus. */
+    _bindGlobalDismiss() {
+      if (this._docDismissHandler) return;
+      this._docDismissHandler = (ev) => {
+        const path = typeof ev.composedPath === "function" ? ev.composedPath() : [];
+        if (this._layersMenuOpen && this._layersCtl && !path.includes(this._layersCtl)) {
+          this._closeLayersMenu();
+        }
+        if (this._basemapMenu && !this._basemapMenu.hidden) {
+          const cell = this._basemapMenu.closest(".hw-basemap-cell");
+          if (!cell || !path.includes(cell)) this._closeBasemapMenu();
+        }
+      };
+      this._docKeyHandler = (ev) => {
+        if (ev.key !== "Escape") return;
+        if (this._layersMenuOpen) this._closeLayersMenu(true);
+        this._closeBasemapMenu();
+      };
+      document.addEventListener("click", this._docDismissHandler);
+      document.addEventListener("keydown", this._docKeyHandler);
+    }
+
+    _updateBottomBarCoords(lat, lon, zoom) {
+      const el = this._root?.querySelector(".hw-map-readout .hw-coords-text");
+      if (el) el.textContent = `${lat.toFixed(3)}°, ${lon.toFixed(3)}° · z${zoom ?? "?"}`;
     }
 
     _getUsaBounds() {
@@ -2264,6 +2816,10 @@
       if (!L) return null;
       return L.latLngBounds(USA_BOUNDS);
     }
+
+    /* ------------------------------------------------------------------ */
+    /* Map init + controls                                                 */
+    /* ------------------------------------------------------------------ */
 
     _ensureMap() {
       const mapEl = this._root?.querySelector("#hurricane-map");
@@ -2277,6 +2833,10 @@
         worldCopyJump: true,
         minZoom: 3,
         maxZoom: 18,
+        // Smoother wheel + pinch zoom behaviour.
+        zoomSnap: 0.5,
+        zoomDelta: 0.5,
+        wheelPxPerZoomLevel: 90,
       });
 
       // Establish a valid initial view immediately. Without a center/zoom the
@@ -2291,9 +2851,10 @@
         Ocean: L.tileLayer(OCEAN_TILE_URL, { maxZoom: 13, attribution: ESRI_ATTR }),
       };
       this._baseLayers = baseLayers;
-      baseLayers.Dark.addTo(this._map);
+      this._activeBasemap = this._theme === "light" ? "Light" : "Dark";
+      baseLayers[this._activeBasemap].addTo(this._map);
 
-      /* Custom toolbar stack at top-left; coords/scale in bottom bar */
+      /* Custom toolbar stack at top-left; coords/scale in floating readout */
       this._safe(() => this._buildMapControlsStack());
       this._safe(() => this._addCoordinateControl());
 
@@ -2347,25 +2908,6 @@
       }
     }
 
-    _categoryColor(category, windMph) {
-      let cat = Number(category);
-      if (!Number.isFinite(cat) || cat <= 0) {
-        const w = Number(windMph);
-        if (Number.isFinite(w)) {
-          if (w >= 157) cat = 5;
-          else if (w >= 130) cat = 4;
-          else if (w >= 111) cat = 3;
-          else if (w >= 96) cat = 2;
-          else if (w >= 74) cat = 1;
-          else cat = 0;
-        } else {
-          cat = 0;
-        }
-      }
-      cat = Math.max(0, Math.min(5, Math.round(cat)));
-      return CATEGORY_COLORS[cat] || CATEGORY_COLORS[0];
-    }
-
     _addCoordinateControl() {
       const L = global.L;
       if (!L || !this._map) return;
@@ -2404,8 +2946,8 @@
       } else {
         label += ` / ${Math.round(meters * 3.281)} ft`;
       }
-      const line = this._root?.querySelector(".hw-bottom-bar .hw-scale-line");
-      const lbl = this._root?.querySelector(".hw-bottom-bar .hw-scale-label");
+      const line = this._root?.querySelector(".hw-map-readout .hw-scale-line");
+      const lbl = this._root?.querySelector(".hw-map-readout .hw-scale-label");
       if (line) line.style.width = `${barWidth}px`;
       if (lbl) lbl.textContent = label;
     }
@@ -2414,21 +2956,30 @@
       const L = global.L;
       const div = L.DomUtil.create("div", `hw-legend${collapsed ? " collapsed" : ""}`);
       const catRows = [
-        { c: CATEGORY_COLORS[0], t: "TD / Storm" },
-        { c: CATEGORY_COLORS[1], t: "Category 1" },
-        { c: CATEGORY_COLORS[2], t: "Category 2" },
-        { c: CATEGORY_COLORS[3], t: "Category 3" },
-        { c: CATEGORY_COLORS[4], t: "Category 4" },
-        { c: CATEGORY_COLORS[5], t: "Category 5" },
+        { c: CATEGORY_COLORS[0], t: "TD / TS", b: "TS" },
+        { c: CATEGORY_COLORS[1], t: "Category 1", b: "1" },
+        { c: CATEGORY_COLORS[2], t: "Category 2", b: "2" },
+        { c: CATEGORY_COLORS[3], t: "Category 3", b: "3" },
+        { c: CATEGORY_COLORS[4], t: "Category 4", b: "4" },
+        { c: CATEGORY_COLORS[5], t: "Category 5", b: "5" },
       ];
       div.innerHTML = `
         <div class="hw-legend-header" role="button" tabindex="0" aria-expanded="${!collapsed}">
-          <span>Legend</span><span class="hw-legend-caret">▾</span>
+          <span>Legend</span><span class="hw-legend-caret" aria-hidden="true">▾</span>
         </div>
         <div class="hw-legend-body">
           <div class="hw-legend-group">
-            <div class="hw-legend-group-title">Hurricane category</div>
-            ${catRows.map((r) => `<div class="hw-legend-row"><span class="hw-legend-dot" style="background:${r.c}"></span>${r.t}</div>`).join("")}
+            <div class="hw-legend-group-title">Storm intensity</div>
+            ${catRows.map((r) => `<div class="hw-legend-row"><span class="hw-legend-badge" style="background:${r.c}">${r.b}</span>${r.t}</div>`).join("")}
+          </div>
+          <div class="hw-legend-group">
+            <div class="hw-legend-group-title">Storm tracks</div>
+            <div class="hw-legend-row"><span class="hw-legend-line is-past"></span>Past track</div>
+            <div class="hw-legend-row"><span class="hw-legend-line is-fcst"></span>Forecast track</div>
+            <div class="hw-legend-row"><span class="hw-legend-swatch" style="background:rgba(229,57,53,0.18);border-color:rgba(229,57,53,0.8)"></span>Forecast cone (uncertainty)</div>
+            <div class="hw-legend-row"><span class="hw-legend-line is-watchline"></span>Coastal watch / warning</div>
+            <div class="hw-legend-row"><img src="/local/home_weather/icons/disturbance.svg" alt=""/>NHC disturbance</div>
+            <div class="hw-legend-row"><span class="hw-legend-swatch" style="background:rgba(255,167,38,0.25);border-color:#ffa726;border-style:dashed"></span>Development area</div>
           </div>
           <div class="hw-legend-group">
             <div class="hw-legend-group-title">Earthquake magnitude</div>
@@ -2437,17 +2988,15 @@
           <div class="hw-legend-group">
             <div class="hw-legend-group-title">Other layers</div>
             <div class="hw-legend-row"><img src="/local/home_weather/icons/tornado.svg" alt=""/>Tornado warning</div>
-            <div class="hw-legend-row"><img src="/local/home_weather/icons/disturbance.svg" alt=""/>NHC disturbance</div>
-            <div class="hw-legend-row"><span class="hw-legend-swatch" style="background:rgba(255,167,38,0.25);border-color:#ffa726;border-style:dashed"></span>Development area</div>
             <div class="hw-legend-row"><img src="/local/home_weather/icons/lightning-bolt.svg" alt=""/>Live strike (Blitzortung)</div>
             <div class="hw-legend-row"><img src="/local/home_weather/icons/volcano.svg" alt="" style="opacity:0.55"/>Volcano (catalog)</div>
             <div class="hw-legend-row"><img src="/local/home_weather/icons/volcano.svg" alt=""/>Active volcano + affected area</div>
+            <div class="hw-legend-row"><img src="/local/home_weather/icons/fire.svg" alt=""/>Active wildfire</div>
+            <div class="hw-legend-row"><span class="hw-legend-swatch" style="background:rgba(229,57,53,0.35);border-color:#e53935"></span>Fire perimeter</div>
             <div class="hw-legend-row"><span class="hw-legend-swatch" style="background:rgba(76,175,80,0.45);border-color:#4caf50"></span>Travel L1 — Normal</div>
             <div class="hw-legend-row"><span class="hw-legend-swatch" style="background:rgba(255,241,118,0.5);border-color:#fff176"></span>Travel L2 — Caution</div>
             <div class="hw-legend-row"><span class="hw-legend-swatch" style="background:rgba(255,152,0,0.5);border-color:#ff9800"></span>Travel L3 — Reconsider</div>
             <div class="hw-legend-row"><span class="hw-legend-swatch" style="background:rgba(244,67,54,0.55);border-color:#f44336"></span>Travel L4 — Do not travel</div>
-            <div class="hw-legend-row"><img src="/local/home_weather/icons/fire.svg" alt=""/>Active wildfire</div>
-            <div class="hw-legend-row"><span class="hw-legend-swatch" style="background:rgba(229,57,53,0.35);border-color:#e53935"></span>Fire perimeter</div>
             <div class="hw-legend-row"><span class="hw-legend-swatch" style="background:rgba(0,228,0,0.25);border-color:#00e400"></span>AQI Good</div>
             <div class="hw-legend-row"><span class="hw-legend-swatch" style="background:rgba(255,255,0,0.3);border-color:#ffff00"></span>AQI Moderate</div>
             <div class="hw-legend-row"><span class="hw-legend-swatch" style="background:rgba(255,126,0,0.35);border-color:#ff7e00"></span>AQI USG</div>
@@ -2479,7 +3028,7 @@
         el.closest(".leaflet-control")?.remove();
       });
 
-      this._activeBasemap = this._activeBasemap || "Dark";
+      this._activeBasemap = this._activeBasemap || (this._theme === "light" ? "Light" : "Dark");
 
       const stack = L.DomUtil.create("div", "hw-map-controls-stack leaflet-control");
       const toolbar = L.DomUtil.create("div", "hw-map-toolbar");
@@ -2545,6 +3094,7 @@
       measureBtn.type = "button";
       measureBtn.title = "Measure distance";
       measureBtn.setAttribute("aria-label", "Measure distance");
+      measureBtn.setAttribute("aria-pressed", "false");
       measureBtn.innerHTML = `<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M21 6H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h18a1 1 0 0 0 1-1V7a1 1 0 0 0-1-1zm-1 6h-2V9h-1.5v3h-1.5v-2h-1.5v2h-1.5V9H10v3H8.5v-2H7v2H5.5V9H4v3H3V8h17v4z"/></svg>`;
       this._measureBtn = measureBtn;
       L.DomEvent.on(measureBtn, "click", (e) => { L.DomEvent.stop(e); this._toggleMeasure(); });
@@ -2556,8 +3106,6 @@
       stack.appendChild(readoutRow);
       stack.appendChild(legend);
       corner.insertBefore(stack, corner.firstChild);
-
-      this._bindBasemapMenuDismiss();
     }
 
     _updateBasemapMenuChecks() {
@@ -2568,7 +3116,14 @@
       });
     }
 
+    /** User-driven basemap change (records the explicit choice). */
     _setBasemap(name) {
+      this._userChoseBasemap = true;
+      this._applyBasemap(name);
+    }
+
+    /** Apply a basemap without treating it as a user preference. */
+    _applyBasemap(name) {
       const layers = this._baseLayers;
       if (!layers?.[name] || !this._map) return;
       Object.entries(layers).forEach(([key, layer]) => {
@@ -2596,22 +3151,6 @@
       this._basemapBtn.classList.remove("active");
     }
 
-    _bindBasemapMenuDismiss() {
-      if (this._basemapDismissBound) return;
-      this._basemapDismissBound = true;
-      const onDocClick = (ev) => {
-        if (!this._basemapMenu || this._basemapMenu.hidden) return;
-        const cell = this._basemapMenu.closest(".hw-basemap-cell");
-        if (cell?.contains(ev.target)) return;
-        this._closeBasemapMenu();
-      };
-      const onKeyDown = (ev) => {
-        if (ev.key === "Escape") this._closeBasemapMenu();
-      };
-      document.addEventListener("click", onDocClick);
-      document.addEventListener("keydown", onKeyDown);
-    }
-
     _setMeasureReadout(text) {
       const value = text || "";
       if (this._measureReadoutRow) this._measureReadoutRow.textContent = value;
@@ -2624,6 +3163,7 @@
       const L = global.L;
       if (!L || !this._map) return;
       this._measureActive = !this._measureActive;
+      this._measureBtn?.setAttribute("aria-pressed", this._measureActive ? "true" : "false");
       if (this._measureActive) {
         this._measurePoints = [];
         if (!this._measureLayer) this._measureLayer = L.layerGroup().addTo(this._map);
@@ -2677,6 +3217,10 @@
           .openTooltip();
       }
     }
+
+    /* ------------------------------------------------------------------ */
+    /* Map rendering                                                       */
+    /* ------------------------------------------------------------------ */
 
     _renderMap(fitView = false) {
       const storms = this._data?.storms || [];
@@ -2801,7 +3345,10 @@
 
         // The SVG renderer draws the circle as a <path>; a <textPath> that
         // references that path lets a single line of text follow the curve and
-        // reproject automatically on pan/zoom. (Canvas renderer has no _path.)
+        // reproject automatically on pan/zoom. Leaflet's circle path starts due
+        // west and runs along the bottom of the ring first, so a 25% offset
+        // centers the label due south of home where it reads upright.
+        // (Canvas renderer has no _path.)
         const path = circle._path;
         if (!path || !path.parentNode || typeof document === "undefined") return;
 
@@ -2816,12 +3363,10 @@
         const textEl = document.createElementNS(SVGNS, "text");
         textEl.setAttribute("class", `hw-zone-arc-label${bypassed ? " is-bypassed" : ""}`);
         // Lift the baseline just off the stroke so text sits above the border.
-        textEl.setAttribute("dy", "-5");
+        textEl.setAttribute("dy", "-6");
         const textPath = document.createElementNS(SVGNS, "textPath");
         textPath.setAttributeNS(XLINKNS, "xlink:href", `#${pathId}`);
         textPath.setAttribute("href", `#${pathId}`);
-        // The circle path starts due west and runs along the bottom, so 25%
-        // centers the text at the bottom (due south of home) reading upright.
         textPath.setAttribute("startOffset", "25%");
         textPath.setAttribute("text-anchor", "middle");
         textPath.textContent = lineText;
@@ -2834,9 +3379,9 @@
         const updateFont = () => {
           const rPx = circle._radius;
           if (!rPx) return;
-          const fontSize = Math.max(8, Math.min(22, rPx * 0.1));
+          const fontSize = Math.max(10, Math.min(19, rPx * 0.09));
           textEl.setAttribute("font-size", `${fontSize}px`);
-          textEl.style.display = rPx < 34 ? "none" : "";
+          textEl.style.display = rPx < 42 ? "none" : "";
         };
         updateFont();
         this._zoneLabelUpdaters.push(updateFont);
@@ -3006,35 +3551,67 @@
       });
     }
 
+    /** Rich detail card shown when a storm marker is clicked/tapped. */
+    _buildStormCardHtml(storm) {
+      const cat = this._stormCatInfo(storm.category, storm.maxWindMph);
+      const pos = storm.currentPosition;
+      const distNow = pos ? this._distanceFromHomeMiles(pos.lat, pos.lon) : null;
+      const approach = this._stormClosestApproach(storm);
+      const cell = (k, v) => `<div class="hw-storm-card-cell"><span class="k">${k}</span><span class="v">${v}</span></div>`;
+      let approachText = "—";
+      if (approach) {
+        const bits = [this._fmtMiles(approach.miles)];
+        if (approach.hour != null) bits.push(`+${approach.hour}h`);
+        approachText = bits.join(" · ");
+      }
+      return `
+        <div class="hw-storm-card">
+          <div class="hw-storm-card-head">
+            <span class="hw-storm-card-badge" style="background:${cat.color}">${cat.label}</span>
+            <span class="hw-storm-card-names">
+              <strong>${this._esc(storm.name || "Unnamed storm")}</strong>
+              <span>${cat.longName}</span>
+            </span>
+          </div>
+          <div class="hw-storm-card-grid">
+            ${cell("Max winds", storm.maxWindMph != null ? `${Math.round(Number(storm.maxWindMph))} mph` : "—")}
+            ${cell("Pressure", storm.pressureMb != null ? `${storm.pressureMb} mb` : "—")}
+            ${cell("Movement", this._esc(storm.movement || "—"))}
+            ${cell("From home", distNow != null ? this._fmtMiles(distNow) : "—")}
+            ${cell("Closest approach", approachText)}
+            ${cell("Advisory", this._esc(storm.advisoryTime || "—"))}
+          </div>
+        </div>`;
+    }
+
+    /**
+     * Storm rendering, redesigned for readability:
+     *  - past track: dotted muted line + small hollow dots (hover for details)
+     *  - forecast track: solid storm-colored line over a theme casing line
+     *  - forecast points: intensity-colored dots with time/cat/wind info
+     *  - cone: restrained fill + neutral outline (uncertainty area)
+     *  - current position: circular Saffir-Simpson badge (TD/TS/1–5)
+     */
     _drawStorm(storm, color, bounds) {
       const L = global.L;
       const tier = this._getDetailTier();
+      const compact = this._isCompactLayout();
       const isPrimary = storm.id && storm.id === this._data?.summary?.closestStormId;
-      const iconSize = isPrimary && tier >= 1 ? 36 : 32;
-      const catColor = this._categoryColor(storm.category, storm.maxWindMph);
-      const stormPopup = `
-        <strong>${this._esc(storm.name)}</strong><br/>
-        Advisory: ${this._esc(storm.advisoryTime || "—")}<br/>
-        Max wind: ${storm.maxWindMph != null ? storm.maxWindMph + " mph" : "—"}<br/>
-        Pressure: ${storm.pressureMb != null ? storm.pressureMb + " mb" : "—"}<br/>
-        Movement: ${this._esc(storm.movement || "—")}<br/>
-        Category: ${storm.category != null ? storm.category : "—"}
-      `;
-      const stormIcon = L.divIcon({
-        className: "hw-hazard-icon-marker",
-        html: `<div class="hw-storm-icon-wrap${isPrimary ? " is-primary" : ""}" style="--storm-color:${color}"><span class="hw-cat-ring" style="border-color:${catColor};box-shadow:0 0 8px ${catColor}cc;width:${iconSize}px;height:${iconSize}px;"></span><img class="hw-storm-icon" src="/local/home_weather/icons/hurricane.svg" width="${iconSize}" height="${iconSize}" alt="" draggable="false"/></div>`,
-        iconSize: [iconSize, iconSize],
-        iconAnchor: [iconSize / 2, iconSize / 2],
-      });
+      const light = this._theme === "light";
+      const casingColor = light ? "rgba(20, 28, 40, 0.8)" : "rgba(255, 255, 255, 0.85)";
+      const pastColor = light ? "#5b6672" : "#94a3b1";
+      const cat = this._stormCatInfo(storm.category, storm.maxWindMph);
+      const stormCard = this._buildStormCardHtml(storm);
 
+      /* Forecast uncertainty cone (area, under everything else). */
       if (storm.cone?.coordinates) {
         const coneLayer = L.geoJSON(storm.cone, {
           style: {
-            color,
-            weight: 1,
+            color: casingColor,
+            weight: 1.5,
+            opacity: 0.7,
             fillColor: color,
-            fillOpacity: 0.15,
-            opacity: 0.6,
+            fillOpacity: light ? 0.14 : 0.11,
           },
         }).addTo(this._layerGroup);
         coneLayer.eachLayer((layer) => {
@@ -3046,31 +3623,54 @@
         L.geoJSON(storm.windRadii, {
           style: {
             color,
-            weight: 1,
+            weight: 1.2,
             dashArray: "4 4",
             fillOpacity: 0.05,
-            opacity: 0.5,
+            opacity: 0.55,
           },
         }).addTo(this._layerGroup);
       }
 
-      if (storm.track?.coordinates?.length) {
-        const latlngs = storm.track.coordinates.map((c) => [c[1], c[0]]);
-        L.polyline(latlngs, { color, weight: 4, opacity: 0.9 }).addTo(this._layerGroup);
-        latlngs.forEach((ll) => bounds.push(ll));
-      }
-
+      /* Past track: dotted, muted — clearly historical. */
       if (storm.pastTrack?.coordinates?.length) {
         const pastLatLngs = storm.pastTrack.coordinates.map((c) => [c[1], c[0]]);
         L.polyline(pastLatLngs, {
-          color: "#90a4ae",
+          color: pastColor,
           weight: 3,
-          opacity: 0.75,
-          dashArray: "5 6",
+          opacity: 0.85,
+          dashArray: "1 8",
+          lineCap: "round",
         }).addTo(this._layerGroup);
         pastLatLngs.forEach((ll) => bounds.push(ll));
       }
 
+      /* Forecast track: solid storm color over a contrast casing. */
+      let fcstLatLngs = null;
+      if (storm.track?.coordinates?.length) {
+        fcstLatLngs = storm.track.coordinates.map((c) => [c[1], c[0]]);
+      } else {
+        const pts = (storm.forecastPoints || []).filter((p) => p.lat != null && p.lon != null);
+        if (pts.length >= 2) fcstLatLngs = pts.map((p) => [p.lat, p.lon]);
+      }
+      if (fcstLatLngs?.length) {
+        L.polyline(fcstLatLngs, {
+          color: casingColor,
+          weight: 7,
+          opacity: 0.55,
+          lineCap: "round",
+          lineJoin: "round",
+        }).addTo(this._layerGroup);
+        L.polyline(fcstLatLngs, {
+          color,
+          weight: 3.5,
+          opacity: 0.95,
+          lineCap: "round",
+          lineJoin: "round",
+        }).addTo(this._layerGroup);
+        fcstLatLngs.forEach((ll) => bounds.push(ll));
+      }
+
+      /* Coastal watch/warning segments. */
       if (storm.watchWarning?.coordinates?.length) {
         const watchLatLngs = storm.watchWarning.coordinates.map((c) => [c[1], c[0]]);
         L.polyline(watchLatLngs, {
@@ -3081,52 +3681,101 @@
         watchLatLngs.forEach((ll) => bounds.push(ll));
       }
 
+      /* Past positions: small hollow dots with hover detail. */
       (storm.pastPoints || []).forEach((pt) => {
         if (pt.lat == null || pt.lon == null) return;
-        L.circleMarker([pt.lat, pt.lon], {
-          radius: 4,
-          color: "#cfd8dc",
-          weight: 1,
-          fillColor: "#78909c",
-          fillOpacity: 0.85,
+        const marker = L.circleMarker([pt.lat, pt.lon], {
+          radius: 3.5,
+          color: pastColor,
+          weight: 1.5,
+          fillColor: light ? "#fff" : "#1c222c",
+          fillOpacity: 0.9,
         }).addTo(this._layerGroup);
+        const time = this._fmtValidTime(pt.validTime);
+        const info = [
+          time ? this._esc(time) : "",
+          pt.maxWindMph != null ? `${Math.round(Number(pt.maxWindMph))} mph` : "",
+        ].filter(Boolean).join(" · ");
+        marker.bindTooltip(
+          `<div class="hw-tip-line1">Past position</div>${info ? `<div class="hw-tip-line2">${info}</div>` : ""}`,
+          { direction: "top", className: "hw-tip", offset: [0, -6], sticky: false },
+        );
         bounds.push([pt.lat, pt.lon]);
       });
 
+      /* Forecast positions: intensity-colored dots + time/cat/wind info. */
       (storm.forecastPoints || []).forEach((pt) => {
         if (pt.lat == null || pt.lon == null) return;
-        const hourLabel = pt.hour != null ? `${pt.hour}H` : "";
+        const ptCat = this._stormCatInfo(null, pt.maxWindMph);
         const marker = L.circleMarker([pt.lat, pt.lon], {
-          radius: 5,
-          color: "#fff",
-          weight: 1,
-          fillColor: color,
-          fillOpacity: 0.95,
+          radius: compact ? 7 : 6,
+          color: casingColor,
+          weight: 2,
+          fillColor: pt.maxWindMph != null ? ptCat.color : color,
+          fillOpacity: 1,
+          bubblingMouseEvents: false,
         }).addTo(this._layerGroup);
-        if (hourLabel && tier >= 2) {
-          marker.bindTooltip(hourLabel, {
-            permanent: true,
-            direction: "right",
-            className: "hw-forecast-label",
-            offset: [6, 0],
-          });
+
+        const line1 = [
+          pt.hour != null ? `+${pt.hour}h` : "",
+          this._fmtValidTime(pt.validTime),
+        ].filter(Boolean).join(" · ");
+        const line2 = [
+          pt.maxWindMph != null ? ptCat.longName : "",
+          pt.maxWindMph != null ? `${Math.round(Number(pt.maxWindMph))} mph` : "",
+          pt.pressureMb != null ? `${pt.pressureMb} mb` : "",
+        ].filter(Boolean).join(" · ");
+        const tipHtml = `
+          <div class="hw-tip-line1">${this._esc(line1 || "Forecast position")}</div>
+          ${line2 ? `<div class="hw-tip-line2">${this._esc(line2)}</div>` : ""}`;
+        marker.bindTooltip(tipHtml, { direction: "top", className: "hw-tip", offset: [0, -8] });
+        // Tap-friendly: same info as a popup for touch devices.
+        marker.bindPopup(`<strong>${this._esc(storm.name || "Storm")} forecast</strong><br/>${this._esc(line1)}${line2 ? `<br/>${this._esc(line2)}` : ""}`);
+
+        // Permanent "+48h" pills live on a separate invisible anchor so they
+        // can coexist with the hover tooltip (Leaflet allows one per layer).
+        if (pt.hour != null && tier >= 2) {
+          L.marker([pt.lat, pt.lon], { opacity: 0, interactive: false, keyboard: false })
+            .bindTooltip(`+${pt.hour}h`, {
+              permanent: true,
+              direction: "right",
+              className: "hw-fcst-hour",
+              offset: [10, 0],
+            })
+            .addTo(this._layerGroup)
+            .openTooltip();
         }
         bounds.push([pt.lat, pt.lon]);
       });
 
+      /* Current position: Saffir-Simpson badge marker. */
+      const badgeSize = compact ? 42 : 38;
+      const stormIcon = L.divIcon({
+        className: "hw-hazard-icon-marker",
+        html: `<div class="hw-storm-badge${isPrimary ? " is-primary" : ""}" style="--cat-color:${cat.color}"><span class="hw-storm-badge-core">${cat.label}</span></div>`,
+        iconSize: [badgeSize, badgeSize],
+        iconAnchor: [badgeSize / 2, badgeSize / 2],
+      });
+
       const stormLabel = this._formatStormLabel(storm);
       const addStormMarker = (latlng) => {
-        const marker = L.marker(latlng, { icon: stormIcon, zIndexOffset: 500 })
-          .bindPopup(stormPopup);
+        const marker = L.marker(latlng, {
+          icon: stormIcon,
+          zIndexOffset: 500,
+          alt: `${stormLabel.name} — ${cat.longName}`,
+        }).bindPopup(stormCard, { className: "hw-storm-popup", maxWidth: 300 });
         if (stormLabel.name) {
           marker.bindTooltip(this._esc(stormLabel.name), {
             permanent: true,
             direction: "top",
             className: "hw-name-label hw-storm-label",
-            offset: [0, -(iconSize / 2) - 2],
+            offset: [0, -(badgeSize / 2) - 3],
           });
         }
         marker.addTo(this._layerGroup);
+        // Color the name label's accent bar to match the storm identity.
+        const tipEl = marker.getTooltip()?.getElement?.();
+        if (tipEl) tipEl.style.setProperty("--storm-color", color);
         bounds.push(latlng);
       };
 
