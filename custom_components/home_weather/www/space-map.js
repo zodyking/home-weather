@@ -1499,18 +1499,23 @@
         const arcLen = Math.max(8, spanDeg * DEG * radiusPx);
         const scale = totalWidth > arcLen * 0.9 ? (arcLen * 0.9) / totalWidth : 1;
         const r = radiusPx - (lineList.length - 1 - lineIdx) * size * lineGap;
-        let angle = lonMidDeg * DEG - (totalWidth * scale) / (2 * r);
+        const midAngle = lonMidDeg * DEG;
+        const flip = midAngle > Math.PI / 2 && midAngle < Math.PI * 1.5;
+        let angle = flip
+          ? midAngle + (totalWidth * scale) / (2 * r)
+          : midAngle - (totalWidth * scale) / (2 * r);
         for (let i = 0; i < chars.length; i += 1) {
-          const w = charWidths[i] * scale;
-          const a = angle + w / (2 * r);
+          const idx = flip ? chars.length - 1 - i : i;
+          const w = charWidths[idx] * scale;
+          const a = flip ? angle - w / (2 * r) : angle + w / (2 * r);
           const x = cx + Math.cos(a) * r;
           const y = cy - Math.sin(a) * r;
           ctx.save();
           ctx.translate(x, y);
-          ctx.rotate(Math.PI / 2 - a);
-          ctx.fillText(chars[i], 0, 0);
+          ctx.rotate(flip ? (Math.PI * 1.5 - a) : (Math.PI / 2 - a));
+          ctx.fillText(chars[idx], 0, 0);
           ctx.restore();
-          angle += w / r;
+          angle += flip ? -w / r : w / r;
         }
         ctx.restore();
       });
@@ -1585,24 +1590,24 @@
         ctx.stroke();
       }
 
-      const glyphSize = Math.max(9, Math.min(14, bandPx * 0.42));
-      const nameSize = Math.max(7, Math.min(10, bandPx * 0.28));
+      const glyphSize = Math.max(12, Math.min(16, bandPx * 0.45));
+      const nameSize = Math.max(10, Math.min(13, bandPx * 0.32));
       for (let i = 0; i < 12; i += 1) {
         const midLon = i * 30 + 15;
         const hi = i === highlightIdx;
-        this._drawArcText(ctx, cx, cy, midPx - nameSize * 0.35, midLon, 24,
+        this._drawArcText(ctx, cx, cy, midPx - nameSize * 0.4, midLon, 24,
           [ZODIAC[i].glyph + TS], {
             font: ZODIAC_FONT,
             size: hi ? glyphSize + 1 : glyphSize,
             color: hi ? pal.gold : pal.glyph,
-            weight: 600,
+            weight: 700,
           });
-        this._drawArcText(ctx, cx, cy, midPx + nameSize * 0.55, midLon, 26,
+        this._drawArcText(ctx, cx, cy, midPx + nameSize * 0.6, midLon, 26,
           this._wrapArcLabel(ZODIAC[i].name, bandPx >= 22 ? 9 : 7), {
             font: ZODIAC_FONT,
             size: nameSize,
-            color: hi ? pal.gold : pal.muted,
-            weight: 500,
+            color: hi ? pal.gold : pal.glyph,
+            weight: 600,
           });
       }
 
@@ -1635,7 +1640,7 @@
         ctx.stroke();
       }
 
-      const chineseNameSize = Math.max(7, Math.min(10, chineseBandWidth * 0.24));
+      const chineseNameSize = Math.max(10, Math.min(12, chineseBandWidth * 0.30));
       for (let i = 0; i < 12; i += 1) {
         const midLon = i * 30 + 15;
         this._drawArcText(ctx, cx, cy, chineseMid, midLon, 24,
@@ -1643,7 +1648,7 @@
             font: CHINESE_FONT,
             size: chineseNameSize,
             color: pal.chineseGlyph || "#c9956a",
-            weight: 600,
+            weight: 700,
           });
       }
     }

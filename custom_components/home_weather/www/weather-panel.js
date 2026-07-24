@@ -13,8 +13,8 @@ class HomeWeatherPanel extends HTMLElement {
     this._forecastView = "7day";
     this._mapsMode = "storms";
     this._mapsWindRadii = false;
-    this._mapsShowZones = true;
-    this._mapsLayers = this._normalizeMapLayers({ hurricane: true, tornado: true, earthquakes: true, lightning: true, volcanoes: true, travel: false, wildfire: false, air_quality: false });
+    this._mapsShowZones = false;
+    this._mapsLayers = this._normalizeMapLayers({ hurricane: true, tornado: false, earthquakes: false, lightning: false, volcanoes: false, travel: false, wildfire: false, air_quality: false });
     this._mapsSort = "newest";
     this._settingsPane = "general";
     this._settingsReturnView = "forecast";
@@ -307,8 +307,6 @@ class HomeWeatherPanel extends HTMLElement {
         this._settings.announcement_players = {};
       }
       this._mapsLayers = this._normalizeMapLayers(this._mapsLayers);
-      const lightningMon = this._settings?.lightning_monitoring || this._settings?.lightning || {};
-      this._mapsLayers.lightning = lightningMon.show_on_map !== false;
       if (!this._config.weather_entity) {
         this._currentView = "settings";
       } else {
@@ -6498,11 +6496,11 @@ class HomeWeatherPanel extends HTMLElement {
       await this._loadHurricaneTrackerScript();
       if (this._currentView !== "hurricanes") return;
       this._destroyHurricaneTracker();
-      this._mapsLayers.lightning = (this._settings?.lightning_monitoring || this._settings?.lightning || {}).show_on_map !== false;
       this._hurricaneTracker = new window.HurricaneTracker({
         hass: this._hass,
         shadowRoot: s,
         embedded: true,
+        home: this._getHomeCoordinates(),
         lightningSettings: this._settings.lightning_monitoring || this._settings.lightning || { enabled: true, show_on_map: true, max_age_minutes: 60, max_strikes: 500 },
       });
       await this._hurricaneTracker.init(root);

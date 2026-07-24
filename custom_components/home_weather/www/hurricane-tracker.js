@@ -72,7 +72,9 @@
       this._root = null;
       this._map = null;
       this._layerGroup = null;
+      this._homeLayerGroup = null;
       this._homeMarker = null;
+      this._homeCoords = options.home || null;
       this._data = null;
       this._tornadoData = null;
       this._earthquakeData = null;
@@ -96,7 +98,7 @@
       this._hasInitialFit = false;
       this._lastFitBounds = null;
       this._userViewLocked = false;
-      this._mapLayers = { hurricane: true, tornado: true, earthquakes: true, lightning: true, volcanoes: true, travel: false, wildfire: false, air_quality: false };
+      this._mapLayers = { hurricane: true, tornado: false, earthquakes: false, lightning: false, volcanoes: false, travel: false, wildfire: false, air_quality: false };
       this._mapSort = "newest";
       this._lightningSettings = {
         enabled: true,
@@ -118,7 +120,7 @@
       this._coordsEl = null;
       this._baseLayers = null;
       this._statusCollapsed = true;
-      this._showZones = true;
+      this._showZones = false;
       this._zoneConfig = [];
       this._theme = "dark";
       this._userChoseBasemap = false;
@@ -194,6 +196,11 @@
       if (Array.isArray(zones)) this._zoneConfig = zones;
       this._syncLayerControls();
       if (this._map && this._layerGroup) this._renderMap();
+    }
+
+    setHomeCoords(home) {
+      this._homeCoords = home || null;
+      if (this._map) this._renderHomeMarker();
     }
 
     /** Theme hook called by weather-panel when the user switches themes. */
@@ -324,6 +331,9 @@
         this._map = null;
         this._mapInitialized = false;
         this._earthquakeClusterGroup = null;
+        this._volcanoClusterGroup = null;
+        this._homeLayerGroup = null;
+        this._homeMarker = null;
         this._zoomHandlerBound = false;
         this._viewLockHandlerBound = false;
         this._lastDetailTier = null;
@@ -1759,42 +1769,98 @@
             filter: drop-shadow(0 0 14px var(--volcano-color, #fb8c00)) drop-shadow(0 2px 8px rgba(0, 0, 0, 0.5));
           }
         }
-        .marker-cluster-hw {
-          background: rgba(255, 183, 77, 0.25);
-          border: 2px solid rgba(255, 255, 255, 0.85);
-          border-radius: 50%;
-          color: #fff;
-          font-weight: 700;
-          font-size: 12px;
-        }
-        .marker-cluster-hw div {
-          background: rgba(239, 83, 80, 0.88);
-          border-radius: 50%;
-          width: 30px;
-          height: 30px;
-          margin-left: 5px;
-          margin-top: 5px;
-          text-align: center;
-          line-height: 30px;
-        }
+        .marker-cluster-hw,
         .marker-cluster-hw-volcano {
-          background: rgba(120, 124, 134, 0.35);
-          border: 1px solid rgba(255, 255, 255, 0.25);
-          border-radius: 50%;
-          color: #e6e9ef;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 11px;
-          font-weight: 600;
-          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+          background: transparent;
+          border: none;
         }
+        .marker-cluster-hw div,
         .marker-cluster-hw-volcano div {
+          background: transparent;
+          margin: 0;
+          width: auto;
+          height: auto;
+          line-height: normal;
+        }
+        .hw-cluster-icon-wrap {
+          position: relative;
           display: flex;
           align-items: center;
           justify-content: center;
-          width: 100%;
-          height: 100%;
+          width: 42px;
+          height: 42px;
+          filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.45));
+        }
+        .hw-cluster-count {
+          position: absolute;
+          top: -1px;
+          right: -1px;
+          min-width: 17px;
+          height: 17px;
+          padding: 0 4px;
+          border-radius: 999px;
+          background: rgba(16, 21, 28, 0.94);
+          border: 1.5px solid rgba(255, 255, 255, 0.88);
+          color: #fff;
+          font-size: 10px;
+          font-weight: 800;
+          line-height: 14px;
+          text-align: center;
+          box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+        }
+        .hw-cluster-icon-wrap.hw-earthquake-cluster .hw-cluster-count {
+          background: rgba(239, 83, 80, 0.95);
+          color: #fff;
+        }
+        .hw-cluster-icon-wrap.hw-volcano-cluster .hw-cluster-count {
+          background: rgba(251, 140, 0, 0.95);
+          color: #10151c;
+        }
+        .hw-hurricane-marker {
+          position: relative;
+          width: 44px;
+          height: 44px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .hw-hurricane-marker .hw-hurricane-disc {
+          width: 38px;
+          height: 38px;
+          border-radius: 50%;
+          background: var(--cat-color, #5ebaff);
+          border: 2px solid rgba(255, 255, 255, 0.92);
+          box-shadow: 0 2px 10px rgba(0, 0, 0, 0.55);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .hw-hurricane-marker img {
+          width: 26px;
+          height: 26px;
+          filter: brightness(0) invert(1);
+        }
+        .hw-hurricane-marker .hw-hurricane-cat {
+          position: absolute;
+          bottom: 0;
+          right: 0;
+          min-width: 15px;
+          height: 15px;
+          padding: 0 3px;
+          border-radius: 999px;
+          background: rgba(16, 21, 28, 0.92);
+          border: 1px solid rgba(255, 255, 255, 0.85);
+          color: #fff;
+          font-size: 9px;
+          font-weight: 800;
+          line-height: 13px;
+          text-align: center;
+        }
+        .hw-hurricane-marker.is-primary .hw-hurricane-disc {
+          box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.25), 0 2px 12px rgba(0, 0, 0, 0.55);
+        }
+        .hw-home-marker {
+          filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.55));
         }
         .hw-home-marker.in-cone {
           filter: drop-shadow(0 0 6px rgba(244, 67, 54, 0.9));
@@ -1874,10 +1940,12 @@
       await this._loadStylesheet(
         "https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"
       );
-      await this._loadScript(
-        "https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js",
-        "L"
-      );
+      if (!global.L?.markerClusterGroup) {
+        await this._loadScript(
+          "https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js",
+          null
+        );
+      }
     }
 
     _loadStylesheet(href) {
@@ -1897,6 +1965,9 @@
 
     _loadScript(src, globalKey) {
       if (globalKey && global[globalKey]) return Promise.resolve();
+      if (!globalKey && src.includes("markercluster") && global.L?.markerClusterGroup) {
+        return Promise.resolve();
+      }
       const existing = document.querySelector(`script[src="${src}"]`);
       if (existing) {
         return new Promise((resolve) => {
@@ -2141,6 +2212,63 @@
         iconSize: [size, size],
         iconAnchor: [size / 2, size / 2],
       });
+    }
+
+    _createClusterIcon(iconName, count, options = {}) {
+      const L = global.L;
+      if (!L) return null;
+      const size = options.size ?? 42;
+      const iconSize = Math.max(18, size - 14);
+      const extraClass = options.className ? ` ${options.className}` : "";
+      return L.divIcon({
+        className: "hw-hazard-icon-marker hw-cluster-marker",
+        html: `<div class="hw-cluster-icon-wrap${extraClass}"><img src="/local/home_weather/icons/${iconName}.svg" width="${iconSize}" height="${iconSize}" alt="" draggable="false"/><span class="hw-cluster-count">${count}</span></div>`,
+        iconSize: [size, size],
+        iconAnchor: [size / 2, size / 2],
+      });
+    }
+
+    _isValidHomeCoords(home) {
+      if (!home || home.lat == null || home.lon == null) return false;
+      const lat = Number(home.lat);
+      const lon = Number(home.lon);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return false;
+      if (Math.abs(lat) < 0.001 && Math.abs(lon) < 0.001) return false;
+      return true;
+    }
+
+    _resolveHome() {
+      const fromData = this._data?.home;
+      if (this._isValidHomeCoords(fromData)) return fromData;
+      if (this._isValidHomeCoords(this._homeCoords)) {
+        return {
+          lat: Number(this._homeCoords.lat),
+          lon: Number(this._homeCoords.lon),
+          label: this._homeCoords.label || "Home",
+        };
+      }
+      return null;
+    }
+
+    _renderHomeMarker() {
+      const L = global.L;
+      if (!L || !this._map || !this._homeLayerGroup) return;
+      this._homeLayerGroup.clearLayers();
+      this._homeMarker = null;
+      const home = this._resolveHome();
+      if (!home) return;
+      const insideCone = this._data?.summary?.insideCone;
+      const insideTornado = this._tornadoData?.affecting_home;
+      const eqNearby = this._earthquakeData?.nearby_active;
+      const homeIcon = L.divIcon({
+        className: `hw-home-marker${insideCone || insideTornado || eqNearby ? " in-cone" : ""}`,
+        html: `<img src="/local/home_weather/icons/home.svg" width="28" height="28" alt="Home" />`,
+        iconSize: [28, 28],
+        iconAnchor: [14, 28],
+      });
+      this._homeMarker = L.marker([home.lat, home.lon], { icon: homeIcon, zIndexOffset: 2000 })
+        .bindPopup(`<strong>${this._esc(home.label || "Home")}</strong>`)
+        .addTo(this._homeLayerGroup);
     }
 
     _addHazardMarker(lat, lon, iconName, options = {}) {
@@ -2859,17 +2987,18 @@
       this._safe(() => this._addCoordinateControl());
 
       this._layerGroup = L.layerGroup().addTo(this._map);
+      this._homeLayerGroup = L.layerGroup().addTo(this._map);
       if (global.L.markerClusterGroup) {
         this._earthquakeClusterGroup = global.L.markerClusterGroup({
           maxClusterRadius: 56,
           disableClusteringAtZoom: 8,
           spiderfyOnMaxZoom: true,
           showCoverageOnHover: false,
-          iconCreateFunction: (cluster) => global.L.divIcon({
-            html: `<div>${cluster.getChildCount()}</div>`,
-            className: "marker-cluster-hw",
-            iconSize: global.L.point(40, 40),
-          }),
+          iconCreateFunction: (cluster) => this._createClusterIcon(
+            "earthquake",
+            cluster.getChildCount(),
+            { className: "hw-earthquake-cluster" },
+          ),
         });
         this._map.addLayer(this._earthquakeClusterGroup);
         this._volcanoClusterGroup = global.L.markerClusterGroup({
@@ -2877,11 +3006,11 @@
           disableClusteringAtZoom: 7,
           spiderfyOnMaxZoom: true,
           showCoverageOnHover: false,
-          iconCreateFunction: (cluster) => global.L.divIcon({
-            html: `<div>${cluster.getChildCount()}</div>`,
-            className: "marker-cluster-hw-volcano",
-            iconSize: global.L.point(34, 34),
-          }),
+          iconCreateFunction: (cluster) => this._createClusterIcon(
+            "volcano",
+            cluster.getChildCount(),
+            { className: "hw-volcano-cluster" },
+          ),
         });
         this._map.addLayer(this._volcanoClusterGroup);
       }
@@ -3224,13 +3353,13 @@
     _renderMap(fitView = false) {
       const storms = this._data?.storms || [];
       const outlook = this._data?.outlook || {};
-      const home = this._data?.home;
+      const home = this._resolveHome();
       if (!this._ensureMap() || !this._map || !this._layerGroup) return;
 
       this._layerGroup.clearLayers();
       if (this._earthquakeClusterGroup) this._earthquakeClusterGroup.clearLayers();
       if (this._volcanoClusterGroup) this._volcanoClusterGroup.clearLayers();
-      this._homeMarker = null;
+      this._renderHomeMarker();
 
       const bounds = [];
       const layers = this._mapLayers || { hurricane: true, tornado: true, earthquakes: true };
@@ -3268,18 +3397,6 @@
       }
 
       if (home?.lat != null && home?.lon != null) {
-        const insideCone = this._data?.summary?.insideCone;
-        const insideTornado = this._tornadoData?.affecting_home;
-        const eqNearby = this._earthquakeData?.nearby_active;
-        const homeIcon = global.L.divIcon({
-          className: `hw-home-marker${insideCone || insideTornado || eqNearby ? " in-cone" : ""}`,
-          html: `<img src="/local/home_weather/icons/home.svg" width="28" height="28" alt="Home" />`,
-          iconSize: [28, 28],
-          iconAnchor: [14, 28],
-        });
-        this._homeMarker = global.L.marker([home.lat, home.lon], { icon: homeIcon, zIndexOffset: 1000 })
-          .bindPopup(`<strong>${this._esc(home.label || "Home")}</strong>`)
-          .addTo(this._layerGroup);
         bounds.push([home.lat, home.lon]);
       }
 
@@ -3734,11 +3851,11 @@
         bounds.push([pt.lat, pt.lon]);
       });
 
-      /* Current position: Saffir-Simpson badge marker. */
-      const badgeSize = compact ? 42 : 38;
+      /* Current position: category-colored hurricane icon. */
+      const badgeSize = compact ? 44 : 40;
       const stormIcon = L.divIcon({
         className: "hw-hazard-icon-marker",
-        html: `<div class="hw-storm-badge${isPrimary ? " is-primary" : ""}" style="--cat-color:${cat.color}"><span class="hw-storm-badge-core">${cat.label}</span></div>`,
+        html: `<div class="hw-hurricane-marker${isPrimary ? " is-primary" : ""}" style="--cat-color:${cat.color}"><div class="hw-hurricane-disc"><img src="/local/home_weather/icons/hurricane.svg" alt="" draggable="false"/></div><span class="hw-hurricane-cat">${cat.label}</span></div>`,
         iconSize: [badgeSize, badgeSize],
         iconAnchor: [badgeSize / 2, badgeSize / 2],
       });
@@ -3953,7 +4070,7 @@
       const L = global.L;
       const features = this._volcanoData?.geojson?.features;
       if (!L || !features?.length) return;
-      const catalogGroup = this._volcanoClusterGroup || this._layerGroup;
+      const targetGroup = this._volcanoClusterGroup || this._layerGroup;
 
       features.forEach((feature) => {
         const props = feature.properties || {};
@@ -3984,7 +4101,7 @@
               offset: [0, -16],
             });
           }
-          marker.addTo(this._layerGroup);
+          targetGroup.addLayer(marker);
 
           const ringMiles = Number(props.ring_radius_miles);
           if (Number.isFinite(ringMiles) && ringMiles > 0) {
@@ -4010,7 +4127,7 @@
           zIndexOffset: 120,
         });
         marker.bindPopup(popup);
-        catalogGroup.addLayer(marker);
+        targetGroup.addLayer(marker);
       });
     }
 
