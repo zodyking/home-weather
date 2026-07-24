@@ -33,6 +33,9 @@ DEFAULT_CONFIG: Final = {
         "precip_threshold": 30,
         "wind_speed_threshold": 15,
         "wind_gust_threshold": 20,
+        # Optional zodiac add-ons for scheduled forecasts
+        "include_western_zodiac": False,
+        "include_chinese_zodiac": False,
         # AI rewrite
         "use_ai_rewrite": False,
         "ai_task_entity": "",
@@ -222,6 +225,8 @@ DEFAULT_CONFIG: Final = {
         "show_comets": True,
         "small_body_min_diameter_km": 0,
         "log_scale_orbits": True,
+        "pass_lookahead_hours": 48,
+        "pass_lookback_hours": 2,
     },
     "solar_weather_monitoring": {
         "enabled": True,
@@ -234,7 +239,7 @@ DEFAULT_CONFIG: Final = {
         "sound_volume": 0.8,
         "tts_volume": 0.9,
         "min_elevation_deg": 10,
-        "craft_ids": ["-255544"],
+        "craft_ids": ["-125544"],
         "announce_pass_start": True,
         "announce_pass_peak": False,
     },

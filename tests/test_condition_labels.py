@@ -2,14 +2,42 @@
 from __future__ import annotations
 
 from custom_components.home_weather.condition_labels import (
+    CANONICAL_CONDITIONS,
     condition_label_for_display,
     condition_label_for_tts,
+    condition_outlook_phrase,
     enrich_condition,
     find_upcoming_precip_alert,
     is_precipitation_active,
     is_significant_condition_change,
     normalize_weather_condition,
 )
+
+
+def test_outlook_phrase_is_grammatical_for_key_conditions():
+    assert condition_outlook_phrase("clear-night") == "clear skies"
+    assert condition_outlook_phrase("sunny") == "sunshine"
+    assert condition_outlook_phrase("rainy") == "rain"
+    assert condition_outlook_phrase("partlycloudy") == "partly cloudy skies"
+    # Reads correctly in the actual sentence templates.
+    assert f"Today expect {condition_outlook_phrase('clear-night')}." == (
+        "Today expect clear skies."
+    )
+    assert f"Tomorrow looks like {condition_outlook_phrase('sunny')}." == (
+        "Tomorrow looks like sunshine."
+    )
+
+
+def test_outlook_phrase_covers_every_canonical_condition():
+    """Every canonical condition maps to a non-empty, de-slugged phrase."""
+    for slug in CANONICAL_CONDITIONS:
+        phrase = condition_outlook_phrase(slug)
+        assert phrase and "-" not in phrase and "_" not in phrase
+
+
+def test_outlook_phrase_handles_empty():
+    assert condition_outlook_phrase("") == "changing conditions"
+    assert condition_outlook_phrase(None) == "changing conditions"
 
 
 def test_ha_slugs_pass_through():

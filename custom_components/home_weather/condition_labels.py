@@ -250,6 +250,44 @@ def condition_label_for_tts(slug: str | None) -> str:
     return label.lower()
 
 
+# Natural spoken noun phrases for forecast sentences. Chosen so they read
+# grammatically in every template we use: "with ___", "expect ___", and
+# "looks like ___" (e.g. "expect clear skies", "with sunshine", not the bare
+# UI label "clear night" which produced "expect clear night").
+CONDITION_OUTLOOK_PHRASES: dict[str, str] = {
+    "sunny": "sunshine",
+    "clear-night": "clear skies",
+    "partlycloudy": "partly cloudy skies",
+    "cloudy": "cloudy skies",
+    "rainy": "rain",
+    "pouring": "heavy rain",
+    "snowy": "snow",
+    "snowy-rainy": "a wintry mix of rain and snow",
+    "thunderstorm": "thunderstorms",
+    "fog": "fog",
+    "hail": "hail",
+    "windy": "strong winds",
+    "windy-variant": "wind and clouds",
+    "hurricane": "hurricane conditions",
+    "tropical-storm": "tropical storm conditions",
+    "tornado": "tornado conditions",
+    "exceptional": "extreme conditions",
+}
+
+
+def condition_outlook_phrase(slug: str | None) -> str:
+    """Return a natural noun phrase describing a condition for spoken forecasts.
+
+    Reads correctly after "with", "expect", and "looks like". Falls back to a
+    de-slugged label for any unmapped value and to "changing conditions" when
+    nothing usable is provided.
+    """
+    if not slug or not str(slug).strip():
+        return "changing conditions"
+    canonical = normalize_weather_condition(slug)
+    return CONDITION_OUTLOOK_PHRASES.get(canonical, canonical.replace("-", " "))
+
+
 def enrich_condition(raw: str | None, *, is_night: bool = False) -> tuple[str, str]:
     """Return canonical slug and display label for a raw provider condition."""
     slug = normalize_weather_condition(raw, is_night=is_night)

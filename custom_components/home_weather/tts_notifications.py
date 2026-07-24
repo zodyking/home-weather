@@ -28,7 +28,7 @@ except Exception:  # pragma: no cover - defensive fallback
 from homeassistant.util import dt as dt_util
 
 from .condition_labels import (
-    condition_label_for_tts,
+    condition_outlook_phrase,
     is_precipitation_active,
     normalize_weather_condition,
     precip_already_matches_upcoming,
@@ -39,6 +39,7 @@ from .sounds_setup import (
     normalize_nws_sound_filename,
     resolve_nws_playable_sound,
 )
+from .zodiac_data import build_zodiac_forecast_section
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -165,9 +166,13 @@ def _get_greeting() -> str:
 # ============================================================================
 
 def _normalize_condition(condition: str) -> str:
-    """Normalize weather condition for TTS pronunciation."""
-    slug = normalize_weather_condition(condition)
-    return condition_label_for_tts(slug)
+    """Return a natural spoken noun phrase for a weather condition.
+
+    Produces grammatical forecast sentences for every condition type, e.g.
+    "expect clear skies", "with sunshine", "looks like a wintry mix of rain
+    and snow" — rather than the bare UI label ("clear night", "sunny").
+    """
+    return condition_outlook_phrase(condition)
 
 
 def _spoken(text: str | None) -> str:
@@ -413,6 +418,10 @@ def build_scheduled_forecast(
         tom_cond = _normalize_condition(tomorrow.get("condition", ""))
         if tom_hi is not None:
             parts.append(f"Tomorrow looks like {tom_cond} with a high near {_format_temperature(tom_hi)}.")
+
+    zodiac_section = build_zodiac_forecast_section(tts_config)
+    if zodiac_section:
+        parts.append(zodiac_section)
     
     # Fallback when no weather content was added (e.g. empty/missing data)
     if len(parts) <= 1:
@@ -460,7 +469,7 @@ def build_webhook_message(
     temp = current.get("temperature")
     
     if temp is not None:
-        parts.append(f"Currently {_format_temperature(temp)} and {condition}.")
+        parts.append(f"Currently {_format_temperature(temp)} with {condition}.")
     
     # Today's high/low
     today = _get_today_forecast(daily)
@@ -839,7 +848,13 @@ async def send_tts(
         # Per-player settings
         volume = volume_override if volume_override is not None else mp.get("volume", 0.6)
         preroll_ms = mp.get("preroll_ms", 150)
-        cache = mp.get("cache", False)
+        # Cache defaults to True: AirPlay/Apple TV/HomePod players (pyatv) fetch
+        # the /api/tts_proxy/ URL with a hardcoded 10s timeout and make repeated
+        # requests. With cache disabled the audio is generated lazily during that
+        # fetch, so anything but a very short message times out ("Connection to
+        # <ha-ip>:8123 timed out"). Caching pre-generates the file so the fetch
+        # is a fast static serve.
+        cache = mp.get("cache", True)
         language = mp.get("language", "")
         options = mp.get("options", {})
         

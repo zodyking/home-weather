@@ -28,6 +28,7 @@ SCOUT_API = "https://ssd-api.jpl.nasa.gov/scout.api"
 SENTRY_API = "https://ssd-api.jpl.nasa.gov/sentry.api"
 CAD_API = "https://ssd-api.jpl.nasa.gov/cad.api"
 SWPC_JSON_BASE = "https://services.swpc.noaa.gov/json"
+SWPC_PRODUCTS_BASE = "https://services.swpc.noaa.gov/products"
 
 # Horizons major-body IDs (planet centers + Sun + Pluto)
 PLANET_BODIES: list[tuple[str, str, str]] = [
@@ -70,8 +71,10 @@ PLANET_PHASE: dict[str, float] = {
     "999": 3.8,
 }
 
-# Default ISS Horizons ID
-DEFAULT_ISS_ID = "-255544"
+# Default ISS Horizons ID (spacecraft ID for the International Space Station).
+# Horizons uses -125544; the older -255544 value returns "No such record" so no
+# ephemeris (and therefore no overhead passes) is ever returned.
+DEFAULT_ISS_ID = "-125544"
 
 # Module-level catalog cache (refreshed periodically)
 _catalog_cache: dict[str, list[dict[str, str]]] = {}
@@ -126,6 +129,8 @@ def get_space_config(config: dict[str, Any] | None) -> dict[str, Any]:
         "show_comets": True,
         "small_body_min_diameter_km": 0,
         "log_scale_orbits": True,
+        "pass_lookahead_hours": 48,
+        "pass_lookback_hours": 2,
     }
     monitoring = (config or {}).get("space_monitoring") or {}
     merged = {**defaults, **monitoring}
@@ -217,6 +222,7 @@ def empty_payload() -> dict[str, Any]:
         "alert_events": [],
         "updated": None,
         "spacecraft_catalog": [],
+        "pass_meta": {},
     }
 
 
@@ -279,7 +285,11 @@ def _parse_horizons_vectors(text: str) -> dict[str, float] | None:
 
 
 def _parse_observer_alt_az(text: str) -> list[dict[str, Any]]:
-    """Parse observer ephemeris alt/az samples from Horizons text output."""
+    """Parse observer ephemeris alt/az samples from Horizons text output.
+
+    Expects QUANTITIES='4' (apparent azimuth and elevation only) so each data
+    line is: Date Time AZ EL.
+    """
     if "$$SOE" not in text or "$$EOE" not in text:
         return []
     block = text.split("$$SOE", 1)[1].split("$$EOE", 1)[0]
@@ -289,12 +299,12 @@ def _parse_observer_alt_az(text: str) -> list[dict[str, Any]]:
         if not line or line.startswith("*"):
             continue
         parts = line.split()
-        if len(parts) < 5:
+        if len(parts) < 4:
             continue
         try:
             time_str = " ".join(parts[0:2])
-            alt = _to_float(parts[-2])
-            az = _to_float(parts[-1])
+            az = _to_float(parts[2])
+            alt = _to_float(parts[3])
             if alt is None:
                 continue
             samples.append({"time": time_str, "altitude_deg": alt, "azimuth_deg": az})
@@ -342,6 +352,122 @@ def _k_index_to_g_scale(k: float) -> int:
     if k >= 5:
         return 1
     return 0
+
+
+def _parse_swpc_product(rows: list[list[Any]]) -> dict[str, Any] | None:
+    """Parse SWPC products JSON (array-of-arrays with header row).
+
+    Returns the latest data row as a dict keyed by header names, or None.
+    """
+    if not isinstance(rows, list) or len(rows) < 2:
+        return None
+    header = rows[0]
+    if not isinstance(header, list):
+        return None
+    for row in reversed(rows[1:]):
+        if isinstance(row, list) and len(row) == len(header):
+            record = dict(zip(header, row))
+            has_data = any(
+                v is not None and v != "" and v != -99999.0 and v != "-99999.0"
+                for k, v in record.items() if k != "time_tag"
+            )
+            if has_data:
+                return record
+    return None
+
+
+def _g_scale_to_aurora_activity(g: int) -> str | None:
+    """Map G-scale to aurora activity description."""
+    if g >= 5:
+        return "Extreme"
+    if g >= 4:
+        return "Severe"
+    if g >= 3:
+        return "Strong"
+    if g >= 2:
+        return "Moderate"
+    if g >= 1:
+        return "Minor"
+    return None
+
+
+def _parse_heliographic_location(location: str) -> tuple[float | None, float | None]:
+    """Parse heliographic location string like 'S07W67' or 'N16E20'.
+
+    Returns (latitude, longitude) in degrees where:
+    - Latitude: N positive, S negative
+    - Longitude: W positive (toward west limb), E negative (toward east limb)
+    """
+    if not location or not isinstance(location, str):
+        return None, None
+    location = location.strip().upper()
+    match = re.match(r"([NS])(\d+)([EW])(\d+)", location)
+    if not match:
+        return None, None
+    lat_sign = 1 if match.group(1) == "N" else -1
+    lat = lat_sign * int(match.group(2))
+    lon_sign = 1 if match.group(3) == "W" else -1
+    lon = lon_sign * int(match.group(4))
+    return float(lat), float(lon)
+
+
+def _normalize_region(raw: dict[str, Any]) -> dict[str, Any] | None:
+    """Normalize a SWPC solar region record to a compact structure.
+
+    Input fields vary by SWPC product; we handle multiple possible field names.
+    """
+    if not isinstance(raw, dict):
+        return None
+
+    region_num = raw.get("Region") or raw.get("region") or raw.get("Nmbr")
+    if not region_num:
+        return None
+
+    try:
+        region_num = int(region_num)
+    except (TypeError, ValueError):
+        region_num = str(region_num)
+
+    location = raw.get("Location") or raw.get("location") or ""
+    lat, lon = _parse_heliographic_location(location)
+
+    if lat is None:
+        lat = _to_float(raw.get("Latitude") or raw.get("latitude"))
+    if lon is None:
+        lon = _to_float(raw.get("Longitude") or raw.get("longitude"))
+
+    carrington = _to_float(raw.get("Lo") or raw.get("Carrington") or raw.get("carrington_longitude"))
+    area = _to_float(raw.get("Area") or raw.get("area"))
+    spot_class = raw.get("Z") or raw.get("Spot_Class") or raw.get("spot_class") or raw.get("SpotClass") or ""
+    mag_class = raw.get("Mag_Type") or raw.get("mag_class") or raw.get("MagClass") or raw.get("Mag") or ""
+    number_spots = _to_float(raw.get("NN") or raw.get("Spot_Count") or raw.get("number_spots") or raw.get("NumSpots"))
+    status = raw.get("Status") or raw.get("status") or ""
+
+    c_prob = _to_float(raw.get("c_flare_probability") or raw.get("C_Flare_Prob"))
+    m_prob = _to_float(raw.get("m_flare_probability") or raw.get("M_Flare_Prob"))
+    x_prob = _to_float(raw.get("x_flare_probability") or raw.get("X_Flare_Prob"))
+
+    is_complex = any(
+        c in str(mag_class).upper()
+        for c in ("BGD", "BG", "G", "D", "DELTA", "GAMMA")
+    )
+
+    return {
+        "region": region_num,
+        "latitude": lat,
+        "longitude": lon,
+        "location": str(location).strip() or None,
+        "carrington_longitude": carrington,
+        "area": area,
+        "spot_class": str(spot_class).strip() or None,
+        "mag_class": str(mag_class).strip() or None,
+        "number_spots": int(number_spots) if number_spots is not None else None,
+        "status": str(status).strip() or None,
+        "c_flare_probability": c_prob,
+        "m_flare_probability": m_prob,
+        "x_flare_probability": x_prob,
+        "is_complex": is_complex,
+    }
 
 
 async def _fetch_json(session: Any, url: str, timeout: int = 30) -> Any:
@@ -392,11 +518,16 @@ async def _fetch_horizons_observer(
     body_id: str,
     lat: float,
     lon: float,
-    hours: int = 2,
+    *,
+    lookback_hours: int = 2,
+    lookahead_hours: int = 48,
 ) -> list[dict[str, Any]]:
     """Fetch topocentric alt/az samples for overhead pass detection."""
-    start = dt_util.utcnow()
-    stop = start + timedelta(hours=hours)
+    now = dt_util.utcnow()
+    start = now - timedelta(hours=max(0, lookback_hours))
+    stop = now + timedelta(hours=max(1, lookahead_hours))
+    total_hours = lookback_hours + lookahead_hours
+    step = "5 m" if total_hours > 12 else "2 m"
     params = {
         "format": "text",
         "COMMAND": f"'{body_id}'",
@@ -406,16 +537,19 @@ async def _fetch_horizons_observer(
         "CENTER": "'coord@399'",
         "COORD_TYPE": "GEODETIC",
         "SITE_COORD": f"'{lat},{lon},0'",
-        "START_TIME": f"'{start.strftime('%Y-%m-%d %H:%M')}'",
-        "STOP_TIME": f"'{stop.strftime('%Y-%m-%d %H:%M')}'",
-        "STEP_SIZE": "'2 m'",
-        "QUANTITIES": "'2,4,20'",
+        "START_TIME": f"'{_horizons_time(start)}'",
+        "STOP_TIME": f"'{_horizons_time(stop)}'",
+        "STEP_SIZE": f"'{step}'",
+        "QUANTITIES": "'4'",
     }
     try:
-        text = await _fetch_text(session, HORIZONS_API, params, timeout=90)
-        return _parse_observer_alt_az(text)
+        text = await _fetch_text(session, HORIZONS_API, params, timeout=120)
+        samples = _parse_observer_alt_az(text)
+        if not samples and "No ephemeris" in text:
+            _LOGGER.debug("Horizons returned no ephemeris for craft %s", body_id)
+        return samples
     except Exception as err:
-        _LOGGER.debug("Horizons observer fetch failed for %s: %s", body_id, err)
+        _LOGGER.warning("Horizons observer fetch failed for %s: %s", body_id, err)
         return []
 
 
@@ -538,6 +672,8 @@ async def _fetch_swpc_solar_weather(session: Any) -> dict[str, Any]:
         "f107_cm_flux": f"{SWPC_JSON_BASE}/f107_cm_flux.json",
         "xray_latest": f"{SWPC_JSON_BASE}/goes/primary/xray-flares-latest.json",
         "edited_events": f"{SWPC_JSON_BASE}/edited_events.json",
+        "solar_wind_plasma": f"{SWPC_PRODUCTS_BASE}/solar-wind/plasma-5-minute.json",
+        "solar_wind_mag": f"{SWPC_PRODUCTS_BASE}/solar-wind/mag-5-minute.json",
     }
     result: dict[str, Any] = {
         "sunspot_number": None,
@@ -547,7 +683,17 @@ async def _fetch_swpc_solar_weather(session: Any) -> dict[str, Any]:
         "xray_class": None,
         "flare_active": False,
         "geomagnetic_storm_active": False,
+        "solar_wind_speed": None,
+        "solar_wind_density": None,
+        "bz": None,
+        "bt": None,
+        "aurora_activity": None,
+        "cme_watch": False,
         "regions": [],
+        "active_regions_count": 0,
+        "flares": [],
+        "flare_direction": None,
+        "earth_directed": False,
         "events": [],
         "probabilities": {},
         "images": {
@@ -598,7 +744,23 @@ async def _fetch_swpc_solar_weather(session: Any) -> dict[str, Any]:
 
     regions = loaded.get("solar_regions")
     if isinstance(regions, list):
-        result["regions"] = regions[-20:]
+        normalized_regions = []
+        for raw in regions[-30:]:
+            norm = _normalize_region(raw)
+            if norm:
+                normalized_regions.append(norm)
+        result["regions"] = normalized_regions
+        result["active_regions_count"] = len(normalized_regions)
+
+    # Build flares list and find the strongest/most relevant flare
+    flares: list[dict[str, Any]] = []
+    strongest_flare_region: dict[str, Any] | None = None
+    strongest_flare_rank = -1
+
+    # Build a lookup of regions by number for matching flare sources
+    region_by_num: dict[int | str, dict[str, Any]] = {}
+    for reg in result["regions"]:
+        region_by_num[reg["region"]] = reg
 
     xray_latest = loaded.get("xray_latest")
     if isinstance(xray_latest, list) and xray_latest:
@@ -612,20 +774,143 @@ async def _fetch_swpc_solar_weather(session: Any) -> dict[str, Any]:
             elif current_class and _xray_class_rank(current_class) >= _xray_class_rank("C"):
                 result["flare_active"] = True
 
+            # Build flare record from xray-flares-latest
+            if max_class or current_class:
+                flare_class = str(latest.get("max_class") or latest.get("current_class") or "")
+                source_region = latest.get("active_region") or latest.get("region")
+                flare_entry: dict[str, Any] = {
+                    "class": flare_class,
+                    "xray_class": max_class or current_class,
+                    "begin_time": latest.get("begin_time"),
+                    "max_time": latest.get("max_time"),
+                    "end_time": latest.get("end_time"),
+                    "source_region": source_region,
+                    "latitude": None,
+                    "longitude": None,
+                    "earth_directed": False,
+                }
+                if source_region:
+                    try:
+                        reg_num = int(source_region)
+                        if reg_num in region_by_num:
+                            reg = region_by_num[reg_num]
+                            flare_entry["latitude"] = reg.get("latitude")
+                            flare_entry["longitude"] = reg.get("longitude")
+                            lon = reg.get("longitude")
+                            if lon is not None and abs(lon) <= 45:
+                                flare_entry["earth_directed"] = True
+                    except (TypeError, ValueError):
+                        pass
+                flares.append(flare_entry)
+
+                rank = _xray_class_rank(max_class or current_class or "")
+                if rank > strongest_flare_rank and flare_entry.get("longitude") is not None:
+                    strongest_flare_rank = rank
+                    strongest_flare_region = flare_entry
+
     events = loaded.get("edited_events")
     if isinstance(events, list):
         result["events"] = events[-10:]
-        if not result["flare_active"]:
-            for ev in reversed(events):
-                if not isinstance(ev, dict):
-                    continue
-                cls = str(ev.get("type") or ev.get("event_type") or "")
-                if "FLA" in cls.upper() or "flare" in cls.lower():
+        for ev in reversed(events[-20:]):
+            if not isinstance(ev, dict):
+                continue
+            cls = str(ev.get("type") or ev.get("event_type") or "")
+            if "FLA" in cls.upper() or "XRA" in cls.upper() or "flare" in cls.lower():
+                if not result["flare_active"]:
                     result["flare_active"] = True
                     parsed = _parse_xray_class(cls.split()[-1] if cls.split() else cls)
                     if parsed:
                         result["xray_class"] = parsed
-                    break
+
+                # Extract flare details from event
+                flare_class_str = ev.get("classtype") or ev.get("class") or cls
+                parsed_class = _parse_xray_class(flare_class_str)
+                source_region = ev.get("active_region") or ev.get("region")
+                flare_entry = {
+                    "class": str(flare_class_str).strip(),
+                    "xray_class": parsed_class,
+                    "begin_time": ev.get("begin_time") or ev.get("begin"),
+                    "max_time": ev.get("max_time") or ev.get("max"),
+                    "end_time": ev.get("end_time") or ev.get("end"),
+                    "source_region": source_region,
+                    "latitude": None,
+                    "longitude": None,
+                    "earth_directed": False,
+                }
+
+                # Try to get location from event or match to region
+                loc = ev.get("location") or ""
+                if loc:
+                    lat, lon = _parse_heliographic_location(loc)
+                    flare_entry["latitude"] = lat
+                    flare_entry["longitude"] = lon
+                    if lon is not None and abs(lon) <= 45:
+                        flare_entry["earth_directed"] = True
+
+                if source_region and flare_entry["longitude"] is None:
+                    try:
+                        reg_num = int(source_region)
+                        if reg_num in region_by_num:
+                            reg = region_by_num[reg_num]
+                            flare_entry["latitude"] = reg.get("latitude")
+                            flare_entry["longitude"] = reg.get("longitude")
+                            lon = reg.get("longitude")
+                            if lon is not None and abs(lon) <= 45:
+                                flare_entry["earth_directed"] = True
+                    except (TypeError, ValueError):
+                        pass
+
+                flares.append(flare_entry)
+
+                rank = _xray_class_rank(parsed_class or "")
+                if rank > strongest_flare_rank and flare_entry.get("longitude") is not None:
+                    strongest_flare_rank = rank
+                    strongest_flare_region = flare_entry
+
+    # Deduplicate flares and keep most recent 10
+    seen_flares: set[str] = set()
+    unique_flares: list[dict[str, Any]] = []
+    for f in flares:
+        key = f"{f.get('class')}_{f.get('begin_time')}_{f.get('source_region')}"
+        if key not in seen_flares:
+            seen_flares.add(key)
+            unique_flares.append(f)
+    result["flares"] = unique_flares[:10]
+
+    # Set flare direction hint from strongest Earth-directed flare or complex region
+    if strongest_flare_region and strongest_flare_region.get("earth_directed"):
+        result["flare_direction"] = {
+            "longitude": strongest_flare_region.get("longitude"),
+            "latitude": strongest_flare_region.get("latitude"),
+            "source_region": strongest_flare_region.get("source_region"),
+            "class": strongest_flare_region.get("class"),
+        }
+        result["earth_directed"] = True
+    else:
+        # Check for high-probability Earth-directed regions even without current flare
+        for reg in result["regions"]:
+            lon = reg.get("longitude")
+            m_prob = reg.get("m_flare_probability") or 0
+            x_prob = reg.get("x_flare_probability") or 0
+            if lon is not None and abs(lon) <= 45 and (m_prob >= 30 or x_prob >= 5 or reg.get("is_complex")):
+                result["flare_direction"] = {
+                    "longitude": lon,
+                    "latitude": reg.get("latitude"),
+                    "source_region": reg.get("region"),
+                    "class": None,
+                }
+                result["earth_directed"] = True
+                break
+
+    # Set CME watch if there's an Earth-directed M+ flare or high-probability complex region
+    if result["earth_directed"] and (
+        strongest_flare_rank >= _xray_class_rank("M")
+        or any(
+            reg.get("is_complex") and reg.get("longitude") is not None and abs(reg["longitude"]) <= 45
+            for reg in result["regions"]
+        )
+    ):
+        result["cme_watch"] = True
 
     probs = loaded.get("solar_probabilities")
     if isinstance(probs, list) and probs:
@@ -633,6 +918,26 @@ async def _fetch_swpc_solar_weather(session: Any) -> dict[str, Any]:
 
     if result["k_index"] is not None and result["k_index"] >= 5:
         result["geomagnetic_storm_active"] = True
+
+    # Parse solar wind plasma (speed, density)
+    plasma = loaded.get("solar_wind_plasma")
+    if isinstance(plasma, list):
+        plasma_rec = _parse_swpc_product(plasma)
+        if plasma_rec:
+            result["solar_wind_speed"] = _to_float(plasma_rec.get("speed"))
+            result["solar_wind_density"] = _to_float(plasma_rec.get("density"))
+
+    # Parse solar wind magnetic field (Bz, Bt)
+    mag = loaded.get("solar_wind_mag")
+    if isinstance(mag, list):
+        mag_rec = _parse_swpc_product(mag)
+        if mag_rec:
+            result["bz"] = _to_float(mag_rec.get("bz_gsm"))
+            result["bt"] = _to_float(mag_rec.get("bt"))
+
+    # Derive aurora activity from G-scale
+    if result["g_scale"] > 0:
+        result["aurora_activity"] = _g_scale_to_aurora_activity(result["g_scale"])
 
     return result
 
@@ -747,6 +1052,7 @@ def build_coordinator_payload(
     spacecraft_catalog: list[dict[str, str]],
     neo_alerts_cfg: dict[str, Any],
     spacecraft_alerts_cfg: dict[str, Any],
+    pass_meta: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build unified coordinator payload."""
     counts = {
@@ -820,6 +1126,7 @@ def build_coordinator_payload(
         "neo_close_approach_soon": neo_close,
         "solar_weather": solar_weather,
         "spacecraft_catalog": spacecraft_catalog,
+        "pass_meta": pass_meta or {},
         "alert_events": alert_events,
         "updated": dt_util.utcnow().isoformat(),
     }
@@ -880,6 +1187,7 @@ async def async_fetch_space(hass: HomeAssistant, config: dict[str, Any]) -> dict
     small_bodies: list[dict[str, Any]] = []
     overhead_passes: list[dict[str, Any]] = []
     spacecraft_catalog: list[dict[str, str]] = []
+    pass_meta: dict[str, Any] = {}
     primary_close_approach: dict[str, Any] | None = None
     solar_weather: dict[str, Any] = {}
 
@@ -995,23 +1303,54 @@ async def async_fetch_space(hass: HomeAssistant, config: dict[str, Any]) -> dict
                 }
 
         async def _load_passes() -> None:
+            nonlocal pass_meta
             home = get_home_coordinates(hass, config)
-            if not home or home.get("lat") is None or home.get("lon") is None:
-                return
-            lat = float(home["lat"])
-            lon = float(home["lon"])
+            lat = home.get("lat")
+            lon = home.get("lon")
+            lookback = int(space_cfg.get("pass_lookback_hours") or 2)
+            lookahead = int(space_cfg.get("pass_lookahead_hours") or 48)
             min_elev = float(spacecraft_alerts_cfg.get("min_elevation_deg") or 10)
             craft_ids = spacecraft_alerts_cfg.get("craft_ids") or [DEFAULT_ISS_ID]
+            pass_meta = {
+                "home_configured": lat is not None and lon is not None
+                and not (abs(float(lat)) < 0.001 and abs(float(lon)) < 0.001),
+                "craft_ids": [str(c) for c in craft_ids[:5]],
+                "lookahead_hours": lookahead,
+                "lookback_hours": lookback,
+                "min_elevation_deg": min_elev,
+                "samples_total": 0,
+                "error": None,
+            }
+            if not pass_meta["home_configured"]:
+                pass_meta["error"] = "no_home"
+                _LOGGER.warning(
+                    "Spacecraft pass lookup skipped: configure home latitude/longitude "
+                    "in Home Assistant (Settings → Home or zone.home)."
+                )
+                return
+            lat_f = float(lat)
+            lon_f = float(lon)
             catalog = await _fetch_horizons_catalog(session, "sct")
             name_by_id = {c["id"]: c["name"] for c in catalog}
             name_by_id[DEFAULT_ISS_ID] = "ISS"
 
             for craft_id in craft_ids[:5]:
-                samples = await _fetch_horizons_observer(session, str(craft_id), lat, lon)
+                samples = await _fetch_horizons_observer(
+                    session,
+                    str(craft_id),
+                    lat_f,
+                    lon_f,
+                    lookback_hours=lookback,
+                    lookahead_hours=lookahead,
+                )
+                pass_meta["samples_total"] += len(samples)
                 craft_name = name_by_id.get(str(craft_id), str(craft_id))
                 overhead_passes.extend(
                     _detect_overhead_passes(str(craft_id), craft_name, samples, min_elev)
                 )
+            if pass_meta["samples_total"] == 0 and not pass_meta["error"]:
+                pass_meta["error"] = "horizons_empty"
+            pass_meta["pass_count"] = len(overhead_passes)
 
         fetch_tasks.extend([_load_moons(), _load_spacecraft(), _load_small_bodies(), _load_passes()])
 
@@ -1037,4 +1376,5 @@ async def async_fetch_space(hass: HomeAssistant, config: dict[str, Any]) -> dict
         spacecraft_catalog,
         neo_alerts_cfg,
         spacecraft_alerts_cfg,
+        pass_meta,
     )

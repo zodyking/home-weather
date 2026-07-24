@@ -204,6 +204,15 @@
   };
 
   const SERIF = '"Palatino Linotype", "Book Antiqua", Palatino, Georgia, serif';
+  const ZODIAC_FONT = '"Cinzel", "Trajan Pro", "Palatino Linotype", Georgia, serif';
+  const CHINESE_FONT = '"Noto Serif SC", "Songti SC", "STSong", SimSun, serif';
+  const SANS = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+
+  const ZODIAC_DATE_RANGES = [
+    "Mar 21 – Apr 19", "Apr 20 – May 20", "May 21 – Jun 20", "Jun 21 – Jul 22",
+    "Jul 23 – Aug 22", "Aug 23 – Sep 22", "Sep 23 – Oct 22", "Oct 23 – Nov 21",
+    "Nov 22 – Dec 21", "Dec 22 – Jan 19", "Jan 20 – Feb 18", "Feb 19 – Mar 20",
+  ];
 
   /* ============================ Astronomy math ============================= */
 
@@ -281,6 +290,63 @@
     const d = wrapDeg(lon);
     const idx = Math.floor(d / 30) % 12;
     return { ...ZODIAC[idx], index: idx, degree: d - idx * 30 };
+  }
+
+  function chineseSignFromIndex(idx) {
+    const i = ((idx % 12) + 12) % 12;
+    return { ...CHINESE_ZODIAC[i], index: i };
+  }
+
+  function chineseSignFromLon(lon) {
+    return chineseSignFromIndex(Math.floor(wrapDeg(lon) / 30) % 12);
+  }
+
+  function chineseSignLabel(sign) {
+    if (!sign) return "\u2014";
+    const yinYang = sign.yin ? "Yin" : "Yang";
+    return `${sign.name} \u00B7 ${sign.element} \u00B7 ${yinYang}`;
+  }
+
+  // Gregorian Lunar New Year start (month, day) per year, for lunar-year lookups.
+  const LUNAR_NEW_YEAR = {
+    2018: [2, 16], 2019: [2, 5], 2020: [1, 25], 2021: [2, 12], 2022: [2, 1],
+    2023: [1, 22], 2024: [2, 10], 2025: [1, 29], 2026: [2, 17], 2027: [2, 6],
+    2028: [1, 26], 2029: [2, 13], 2030: [2, 3],
+  };
+  const SEXAGENARY_ELEMENTS = ["Wood", "Fire", "Earth", "Metal", "Water"];
+
+  /** Tropical western sun sign for a calendar date (matches the TTS add-on). */
+  function westernSunSignByDate(date) {
+    const md = (date.getMonth() + 1) * 100 + date.getDate();
+    const ranges = [
+      [321, 419, 0], [420, 520, 1], [521, 620, 2], [621, 722, 3],
+      [723, 822, 4], [823, 922, 5], [923, 1022, 6], [1023, 1121, 7],
+      [1122, 1221, 8], [1222, 1231, 9], [101, 119, 9], [120, 218, 10],
+      [219, 320, 11],
+    ];
+    for (const [s, e, idx] of ranges) {
+      if (md >= s && md <= e) return { ...ZODIAC[idx], index: idx };
+    }
+    return { ...ZODIAC[11], index: 11 };
+  }
+
+  /** Chinese sexagenary combination (element + animal + polarity) for the
+   *  lunar year containing *date*. */
+  function chineseYearByDate(date) {
+    let year = date.getFullYear();
+    const lny = LUNAR_NEW_YEAR[year] || [2, 4];
+    if ((date.getMonth() + 1) * 100 + date.getDate() < lny[0] * 100 + lny[1]) {
+      year -= 1;
+    }
+    const stem = (((year - 4) % 10) + 10) % 10;
+    const branch = (((year - 4) % 12) + 12) % 12;
+    return {
+      element: SEXAGENARY_ELEMENTS[Math.floor(stem / 2)],
+      animal: CHINESE_ZODIAC[branch].name,
+      polarity: stem % 2 === 0 ? "Yang" : "Yin",
+      index: branch,
+      year,
+    };
   }
 
   /** True geocentric sign of a body as seen from Earth (Earth => Sun's sign). */
@@ -427,6 +493,7 @@
       --sm-accent: var(--hw-accent, #d4af37);
       --sm-border: var(--hw-border, rgba(212, 175, 55, 0.24));
       --sm-gold: #d4af37;
+      --sm-chinese: #c9956a;
       --sm-panel: rgba(12, 15, 25, 0.88);
       --sm-panel-soft: rgba(12, 15, 25, 0.72);
       --sm-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
@@ -444,6 +511,7 @@
     }
     .hw-space[data-theme="light"] {
       --sm-gold: #8a6d1f;
+      --sm-chinese: #8b5a2b;
       --sm-panel: rgba(252, 248, 238, 0.92);
       --sm-panel-soft: rgba(252, 248, 238, 0.8);
       --sm-shadow: 0 8px 24px rgba(80, 64, 30, 0.18);
@@ -490,6 +558,9 @@
       backdrop-filter: blur(8px);
       box-shadow: var(--sm-shadow);
     }
+    .sm-seg button + button {
+      border-left: 1px solid var(--sm-border);
+    }
     .sm-seg button {
       appearance: none;
       border: 0;
@@ -531,6 +602,37 @@
       background: color-mix(in srgb, var(--sm-gold) 18%, var(--sm-panel-soft));
     }
     .sm-chip[hidden] { display: none !important; }
+
+    /* Zodiac chip: western + Chinese year with themed fonts */
+    .sm-chip-zodiac { gap: 9px; padding: 0 16px; }
+    .sm-chip-z-title {
+      font-family: ${ZODIAC_FONT};
+      font-size: 9.5px;
+      font-weight: 600;
+      letter-spacing: 0.24em;
+      text-transform: uppercase;
+      color: var(--sm-gold);
+      opacity: 0.9;
+      padding-right: 2px;
+      border-right: 1px solid var(--sm-border);
+    }
+    .sm-chip-z-west {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-family: ${ZODIAC_FONT};
+      font-weight: 500;
+      letter-spacing: 0.05em;
+      color: var(--sm-text);
+    }
+    .sm-chip-z-west .sm-chip-z-glyph { color: var(--sm-gold); font-size: 15px; }
+    .sm-chip-z-dot { color: var(--sm-muted); opacity: 0.6; }
+    .sm-chip-z-cn {
+      font-family: ${CHINESE_FONT};
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      color: var(--sm-chinese);
+    }
 
     /* ---- drawer (lists) ---- */
     .sm-drawer {
@@ -672,6 +774,22 @@
       border-radius: 10px;
     }
     .sm-card .sm-close:hover { color: var(--sm-text); }
+    .sm-card--western {
+      border-color: color-mix(in srgb, var(--sm-gold) 55%, transparent);
+      box-shadow: 0 10px 32px rgba(0, 0, 0, 0.42), inset 0 1px 0 rgba(212, 175, 55, 0.12);
+    }
+    .sm-card--western .sm-card-head h4 {
+      font-family: ${ZODIAC_FONT};
+      letter-spacing: 0.08em;
+    }
+    .sm-card--chinese {
+      border-color: color-mix(in srgb, #c9956a 55%, transparent);
+      box-shadow: 0 10px 32px rgba(0, 0, 0, 0.42), inset 0 1px 0 rgba(201, 149, 106, 0.12);
+    }
+    .sm-card--chinese .sm-card-head h4 {
+      font-family: ${CHINESE_FONT};
+      letter-spacing: 0.12em;
+    }
 
     /* ---- zoom controls ---- */
     .sm-zoom {
@@ -1082,7 +1200,11 @@
         this._dirty = true;
       });
       this._el('[data-sm="solar-chip"]').addEventListener("click", () => {
-        this._select({ id: "sun", kind: "sun" });
+        const w = westernSunSignByDate(this._date());
+        this._select({
+          id: `zodiac:western:${w.index}`, kind: "western_zodiac", index: w.index,
+          sx: -1e4, sy: -1e4, hit: 0, label: w.name,
+        });
       });
 
       const range = this._el('[data-sm="time-range"]');
@@ -1126,6 +1248,7 @@
         if (range) range.value = String(this._offsetDays);
       }
       this._updateTimeReadout();
+      this._renderChip();
       if (this._selectedData) this._refreshCard();
       this._dirty = true;
     }
@@ -1224,6 +1347,7 @@
       ctx.clearRect(0, 0, w, h);
       this._drawSky(ctx, w, h);
       this._pickables = [];
+      this._zodiacRing = null;
       if (this._mode === "earth") this._drawEarthMode(ctx, w, h);
       else if (this._mode === "sun") this._drawSunMode(ctx, w, h);
       else this._drawSolarMode(ctx, w, h);
@@ -1305,21 +1429,98 @@
       ctx.closePath();
     }
 
+    /** Split a label into short arc-friendly lines. */
+    _wrapArcLabel(text, maxChars = 8) {
+      const words = String(text || "").trim().split(/\s+/).filter(Boolean);
+      if (!words.length) return [""];
+      if (words.length > 1) return words;
+      const word = words[0];
+      if (word.length <= maxChars) return [word];
+      const mid = Math.ceil(word.length / 2);
+      return [word.slice(0, mid), word.slice(mid)];
+    }
+
+    /** Draw one or more lines of text along a circular arc (ecliptic longitude mid-point). */
+    _drawArcText(ctx, cx, cy, radiusPx, lonMidDeg, spanDeg, lines, opts = {}) {
+      const pal = this._palette();
+      const font = opts.font || SERIF;
+      const size = opts.size || 10;
+      const color = opts.color || pal.glyph;
+      const weight = opts.weight || 500;
+      const lineGap = opts.lineGap || 1.2;
+      const lineList = Array.isArray(lines) ? lines.filter(Boolean) : [String(lines || "")];
+
+      lineList.forEach((line, lineIdx) => {
+        const chars = String(line).split("");
+        if (!chars.length) return;
+        ctx.save();
+        ctx.font = `${weight} ${size}px ${font}`;
+        ctx.fillStyle = color;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        const charWidths = chars.map((ch) => ctx.measureText(ch).width);
+        const totalWidth = charWidths.reduce((sum, w) => sum + w, 0);
+        const arcLen = Math.max(8, spanDeg * DEG * radiusPx);
+        const scale = totalWidth > arcLen * 0.9 ? (arcLen * 0.9) / totalWidth : 1;
+        const r = radiusPx - (lineList.length - 1 - lineIdx) * size * lineGap;
+        let angle = lonMidDeg * DEG - (totalWidth * scale) / (2 * r);
+        for (let i = 0; i < chars.length; i += 1) {
+          const w = charWidths[i] * scale;
+          const a = angle + w / (2 * r);
+          const x = cx + Math.cos(a) * r;
+          const y = cy - Math.sin(a) * r;
+          ctx.save();
+          ctx.translate(x, y);
+          ctx.rotate(Math.PI / 2 - a);
+          ctx.fillText(chars[i], 0, 0);
+          ctx.restore();
+          angle += w / r;
+        }
+        ctx.restore();
+      });
+    }
+
+    _pickZodiacAt(sx, sy) {
+      const z = this._zodiacRing;
+      if (!z) return null;
+      const dx = sx - z.cx;
+      const dy = sy - z.cy;
+      const dist = Math.hypot(dx, dy);
+      if (dist < z.innerPx || dist > z.chineseOuter) return null;
+      let lon = wrapDeg(Math.atan2(-dy, dx) * RAD);
+      const idx = Math.floor(lon / 30) % 12;
+      const midLon = idx * 30 + 15;
+      const midRad = midLon * DEG;
+      const isChinese = dist >= z.chineseInner;
+      const midPx = isChinese ? z.chineseMid : z.midPx;
+      const sxHit = z.cx + Math.cos(midRad) * midPx;
+      const syHit = z.cy - Math.sin(midRad) * midPx;
+      return {
+        id: isChinese ? `zodiac:chinese:${idx}` : `zodiac:western:${idx}`,
+        kind: isChinese ? "chinese_zodiac" : "western_zodiac",
+        index: idx,
+        sx: sxHit,
+        sy: syHit,
+        hit: Math.max(22, (isChinese ? z.chineseOuter - z.chineseInner : z.outerPx - z.innerPx) * 0.45),
+        label: isChinese ? CHINESE_ZODIAC[idx].name : ZODIAC[idx].name,
+      };
+    }
+
     /** The zodiac band — the signature ornament of both modes. */
     _drawZodiacBand(ctx, cx, cy, innerPx, outerPx, highlightIdx) {
       const pal = this._palette();
       const midPx = (innerPx + outerPx) / 2;
       const bandPx = outerPx - innerPx;
 
-      // Chinese zodiac outer band dimensions
       const chineseBandWidth = Math.max(18, bandPx * 0.55);
       const chineseInner = outerPx + 2;
       const chineseOuter = chineseInner + chineseBandWidth;
       const chineseMid = (chineseInner + chineseOuter) / 2;
 
-      // ── Western Zodiac Band ──
+      this._zodiacRing = {
+        cx, cy, innerPx, outerPx, midPx, chineseInner, chineseOuter, chineseMid,
+      };
 
-      // Sector fills (alternating vellum wash + highlighted sign)
       for (let i = 0; i < 12; i += 1) {
         const lon0 = i * 30;
         const lon1 = lon0 + 30;
@@ -1330,18 +1531,16 @@
         if (i === highlightIdx || i % 2 === 0) ctx.fill();
       }
 
-      // Ring pair (outer heavier, inner hairline)
       ctx.lineWidth = 1.4;
       ctx.strokeStyle = pal.goldSoft;
       ctx.beginPath(); ctx.arc(cx, cy, outerPx, 0, TWO_PI); ctx.stroke();
       ctx.lineWidth = 0.8;
       ctx.beginPath(); ctx.arc(cx, cy, innerPx, 0, TWO_PI); ctx.stroke();
 
-      // 30° spokes + 10° ticks
       for (let d = 0; d < 360; d += 10) {
         const a = d * DEG;
         const isSpoke = d % 30 === 0;
-        const rIn = isSpoke ? innerPx : outerPx - Math.max(4, (outerPx - innerPx) * 0.22);
+        const rIn = isSpoke ? innerPx : outerPx - Math.max(4, bandPx * 0.22);
         ctx.strokeStyle = isSpoke ? pal.spoke : pal.tick;
         ctx.lineWidth = isSpoke ? 1 : 0.7;
         ctx.beginPath();
@@ -1350,27 +1549,31 @@
         ctx.stroke();
       }
 
-      // Upright glyphs at sector midpoints
-      const glyphSize = Math.max(10, Math.min(17, bandPx * 0.52));
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
+      const glyphSize = Math.max(9, Math.min(14, bandPx * 0.42));
+      const nameSize = Math.max(7, Math.min(10, bandPx * 0.28));
       for (let i = 0; i < 12; i += 1) {
-        const mid = (i * 30 + 15) * DEG;
-        const gx = cx + Math.cos(mid) * midPx;
-        const gy = cy - Math.sin(mid) * midPx;
-        ctx.fillStyle = i === highlightIdx ? pal.gold : pal.glyph;
-        ctx.font = `${i === highlightIdx ? glyphSize + 2 : glyphSize}px ${SERIF}`;
-        ctx.fillText(ZODIAC[i].glyph + TS, gx, gy);
+        const midLon = i * 30 + 15;
+        const hi = i === highlightIdx;
+        this._drawArcText(ctx, cx, cy, midPx - nameSize * 0.35, midLon, 24,
+          [ZODIAC[i].glyph + TS], {
+            font: ZODIAC_FONT,
+            size: hi ? glyphSize + 1 : glyphSize,
+            color: hi ? pal.gold : pal.glyph,
+            weight: 600,
+          });
+        this._drawArcText(ctx, cx, cy, midPx + nameSize * 0.55, midLon, 26,
+          this._wrapArcLabel(ZODIAC[i].name, bandPx >= 22 ? 9 : 7), {
+            font: ZODIAC_FONT,
+            size: nameSize,
+            color: hi ? pal.gold : pal.muted,
+            weight: 500,
+          });
       }
 
-      // ── Chinese Zodiac Outer Band ──
-
-      // Subtle sector fills (alternating with Yin/Yang pattern)
       for (let i = 0; i < 12; i += 1) {
         const lon0 = i * 30;
         const lon1 = lon0 + 30;
         this._annulusSector(ctx, cx, cy, chineseInner, chineseOuter, lon0, lon1);
-        // Yin signs (odd indices) get a subtle wash, Yang (even) transparent
         if (CHINESE_ZODIAC[i].yin) {
           ctx.fillStyle = pal.band;
           ctx.globalAlpha = 0.5;
@@ -1379,17 +1582,13 @@
         }
       }
 
-      // Outer ring of Chinese band
       ctx.lineWidth = 1.2;
       ctx.strokeStyle = pal.goldSoft;
       ctx.beginPath(); ctx.arc(cx, cy, chineseOuter, 0, TWO_PI); ctx.stroke();
-
-      // Inner ring (already drawn as outer of Western band, but add subtle separator)
       ctx.lineWidth = 0.6;
       ctx.strokeStyle = pal.tick;
       ctx.beginPath(); ctx.arc(cx, cy, chineseInner, 0, TWO_PI); ctx.stroke();
 
-      // 30° spokes extending through Chinese band
       for (let d = 0; d < 360; d += 30) {
         const a = d * DEG;
         ctx.strokeStyle = pal.tick;
@@ -1400,31 +1599,16 @@
         ctx.stroke();
       }
 
-      // Chinese hanzi characters at sector midpoints
-      const chineseGlyphSize = Math.max(11, Math.min(16, chineseBandWidth * 0.6));
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
+      const chineseNameSize = Math.max(7, Math.min(10, chineseBandWidth * 0.24));
       for (let i = 0; i < 12; i += 1) {
-        const mid = (i * 30 + 15) * DEG;
-        const gx = cx + Math.cos(mid) * chineseMid;
-        const gy = cy - Math.sin(mid) * chineseMid;
-        // Use a warm red-gold for Chinese characters
-        ctx.fillStyle = pal.chineseGlyph || "rgba(200, 160, 100, 0.9)";
-        ctx.font = `${chineseGlyphSize}px ${SERIF}`;
-        ctx.fillText(CHINESE_ZODIAC[i].hanzi, gx, gy);
-      }
-
-      // Animal names appear when there is room (zoomed in / large screens)
-      if (chineseBandWidth >= 28) {
-        const nameSize = Math.min(8, chineseBandWidth * 0.22);
-        ctx.font = `500 ${nameSize}px ${SERIF}`;
-        for (let i = 0; i < 12; i += 1) {
-          const mid = (i * 30 + 15) * DEG;
-          const nx = cx + Math.cos(mid) * (chineseMid + chineseGlyphSize * 0.8);
-          const ny = cy - Math.sin(mid) * (chineseMid + chineseGlyphSize * 0.8);
-          ctx.fillStyle = pal.muted;
-          ctx.fillText(CHINESE_ZODIAC[i].name.toUpperCase(), nx, ny);
-        }
+        const midLon = i * 30 + 15;
+        this._drawArcText(ctx, cx, cy, chineseMid, midLon, 24,
+          this._wrapArcLabel(CHINESE_ZODIAC[i].name.toUpperCase(), chineseBandWidth >= 28 ? 8 : 6), {
+            font: CHINESE_FONT,
+            size: chineseNameSize,
+            color: pal.chineseGlyph || "#c9956a",
+            weight: 600,
+          });
       }
     }
 
@@ -1537,6 +1721,75 @@
         id: "sun", kind: "sun", sx: cx, sy: cy, hit: 22, label: "Sun",
       });
 
+      // Flare/CME direction cone (if active and Earth-directed)
+      const sw = this._solarData;
+      if (sw && sw.flare_direction && sw.flare_direction.longitude != null) {
+        const flareHelioLon = sw.flare_direction.longitude;
+        const earthLon = earth.lon;
+        const sunToEarthLon = wrapDeg(earthLon + 180);
+        const flareLon = wrapDeg(sunToEarthLon - flareHelioLon);
+        const flareRad = flareLon * DEG;
+
+        const coneHalfAngle = 25 * DEG;
+        const coneInnerR = 25;
+        const coneOuterR = this._orbitRadiusUnits(2.5) * k;
+
+        ctx.save();
+        const isEarthDir = sw.earth_directed;
+        const coneAlpha = isEarthDir ? 0.25 : 0.12;
+        const coneColor = isEarthDir ? "rgba(255, 100, 50," : "rgba(255, 180, 80,";
+
+        const coneGrad = ctx.createRadialGradient(cx, cy, coneInnerR, cx, cy, coneOuterR);
+        coneGrad.addColorStop(0, `${coneColor}${coneAlpha * 1.5})`);
+        coneGrad.addColorStop(0.5, `${coneColor}${coneAlpha})`);
+        coneGrad.addColorStop(1, `${coneColor}0)`);
+        ctx.fillStyle = coneGrad;
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.arc(cx, cy, coneOuterR, -flareRad - coneHalfAngle, -flareRad + coneHalfAngle);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.strokeStyle = isEarthDir ? "rgba(255, 80, 40, 0.6)" : "rgba(255, 160, 60, 0.4)";
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([6, 4]);
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(
+          cx + Math.cos(-flareRad - coneHalfAngle) * coneOuterR,
+          cy + Math.sin(-flareRad - coneHalfAngle) * coneOuterR
+        );
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(
+          cx + Math.cos(-flareRad + coneHalfAngle) * coneOuterR,
+          cy + Math.sin(-flareRad + coneHalfAngle) * coneOuterR
+        );
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        if (sw.cme_watch || isEarthDir) {
+          const labelR = coneOuterR * 0.4;
+          const labelX = cx + Math.cos(-flareRad) * labelR;
+          const labelY = cy + Math.sin(-flareRad) * labelR;
+          ctx.font = `bold 10px ${SANS}`;
+          ctx.fillStyle = isEarthDir ? "rgba(255, 100, 50, 0.9)" : "rgba(255, 180, 80, 0.8)";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          const labelText = sw.cme_watch ? "CME" : "FLARE";
+          ctx.fillText(labelText, labelX, labelY);
+        }
+
+        ctx.restore();
+
+        this._flareConeData = {
+          lon: flareLon,
+          halfAngle: coneHalfAngle * RAD,
+          earthDirected: isEarthDir,
+        };
+      } else {
+        this._flareConeData = null;
+      }
+
       // NEOs from backend at true positions
       if (this._mapData && Array.isArray(this._mapData.small_bodies)) {
         for (const b of this._mapData.small_bodies) {
@@ -1615,6 +1868,26 @@
           ctx.beginPath();
           ctx.ellipse(pos.x, pos.y, dotR * 2, dotR * 0.62, -0.42, 0, TWO_PI);
           ctx.stroke();
+        }
+
+        // Highlight if planet is in the flare/CME cone
+        if (this._flareConeData) {
+          const planetLon = p.lon;
+          const coneLon = this._flareConeData.lon;
+          const halfAngle = this._flareConeData.halfAngle;
+          let angleDiff = Math.abs(wrapDeg(planetLon - coneLon));
+          if (angleDiff > 180) angleDiff = 360 - angleDiff;
+          if (angleDiff <= halfAngle) {
+            const animPhase = (Date.now() % 1500) / 1500;
+            const pulseR = dotR * (1.6 + 0.3 * Math.sin(animPhase * TWO_PI));
+            ctx.strokeStyle = this._flareConeData.earthDirected
+              ? `rgba(255, 80, 40, ${0.6 + 0.3 * Math.sin(animPhase * TWO_PI)})`
+              : `rgba(255, 160, 60, ${0.4 + 0.2 * Math.sin(animPhase * TWO_PI)})`;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(pos.x, pos.y, pulseR, 0, TWO_PI);
+            ctx.stroke();
+          }
         }
 
         const label = `${p.name}  ${geo.sign.glyph}${TS}${retro ? " \u211E" : ""}`;
@@ -1703,6 +1976,8 @@
       const k = fit * this._vp.zoom;
       const cx = w / 2 + this._vp.x;
       const cy = h / 2 + this._vp.y;
+      const moonSign = signFromLon(ms.lon);
+      this._drawZodiacBand(ctx, cx, cy, zInner * k, zOuter * k, moonSign.index);
 
       // Orbit shells
       RINGS.forEach((ring, i) => {
@@ -1804,6 +2079,7 @@
       const cy = h / 2 + this._vp.y;
       const baseR = Math.min(w, h) * 0.28;
       const sunR = baseR * this._vp.zoom;
+      const sw = this._solarData;
 
       // Sun glow layers
       for (let i = 4; i >= 1; i--) {
@@ -1832,28 +2108,192 @@
       }
       ctx.restore();
 
-      // Sun disc
-      const sg = ctx.createRadialGradient(cx - sunR * 0.3, cy - sunR * 0.3, sunR * 0.1, cx, cy, sunR);
+      // Sun disc with limb darkening
+      const sg = ctx.createRadialGradient(cx - sunR * 0.15, cy - sunR * 0.15, sunR * 0.1, cx, cy, sunR);
       sg.addColorStop(0, "#fff8e0");
       sg.addColorStop(0.3, "#ffd54f");
-      sg.addColorStop(0.7, "#ffb300");
-      sg.addColorStop(1, "#e65100");
+      sg.addColorStop(0.65, "#ffb300");
+      sg.addColorStop(0.85, "#e65100");
+      sg.addColorStop(1, "#bf360c");
       ctx.fillStyle = sg;
       ctx.beginPath(); ctx.arc(cx, cy, sunR, 0, TWO_PI); ctx.fill();
+
+      // Rotation grid overlay (equator and central meridian)
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(cx, cy, sunR, 0, TWO_PI);
+      ctx.clip();
+
+      ctx.strokeStyle = "rgba(255,255,255,0.15)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(cx - sunR, cy);
+      ctx.lineTo(cx + sunR, cy);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - sunR);
+      ctx.lineTo(cx, cy + sunR);
+      ctx.stroke();
+
+      for (let latDeg = -60; latDeg <= 60; latDeg += 30) {
+        if (latDeg === 0) continue;
+        const latRad = latDeg * DEG;
+        const yOff = sunR * Math.sin(latRad);
+        const xExtent = sunR * Math.cos(latRad);
+        ctx.strokeStyle = "rgba(255,255,255,0.08)";
+        ctx.beginPath();
+        ctx.ellipse(cx, cy + yOff, xExtent, xExtent * 0.15, 0, 0, TWO_PI);
+        ctx.stroke();
+      }
+
+      ctx.restore();
+
+      // Plot sunspot regions using orthographic projection
+      const regions = (sw && Array.isArray(sw.regions)) ? sw.regions : [];
+      const flares = (sw && Array.isArray(sw.flares)) ? sw.flares : [];
+      const flareRegions = new Set(flares.filter(f => f.source_region).map(f => f.source_region));
+      const animPhase = (Date.now() % 2000) / 2000;
+
+      for (const region of regions) {
+        const lat = region.latitude;
+        const lon = region.longitude;
+        if (lat == null || lon == null) continue;
+
+        const latRad = lat * DEG;
+        const lonRad = lon * DEG;
+        const cosFront = Math.cos(latRad) * Math.cos(lonRad);
+        if (cosFront < 0) continue;
+
+        const px = cx + sunR * Math.cos(latRad) * Math.sin(lonRad);
+        const py = cy - sunR * Math.sin(latRad);
+
+        const area = region.area || 50;
+        const spotR = Math.max(4, Math.min(18, Math.sqrt(area / 50) * 6)) * this._vp.zoom;
+
+        const isComplex = region.is_complex || false;
+        const hasFlare = flareRegions.has(region.region);
+        let spotColor = "rgba(80, 40, 20, 0.85)";
+        if (isComplex) {
+          spotColor = "rgba(180, 50, 30, 0.9)";
+        }
+
+        ctx.save();
+        ctx.globalAlpha = 0.3 + 0.5 * cosFront;
+        const spotGrad = ctx.createRadialGradient(px - spotR * 0.2, py - spotR * 0.2, 0, px, py, spotR);
+        spotGrad.addColorStop(0, "rgba(30, 15, 10, 0.95)");
+        spotGrad.addColorStop(0.5, spotColor);
+        spotGrad.addColorStop(1, "rgba(60, 30, 20, 0.3)");
+        ctx.fillStyle = spotGrad;
+        ctx.beginPath();
+        ctx.arc(px, py, spotR, 0, TWO_PI);
+        ctx.fill();
+
+        if (hasFlare) {
+          const pulseR = spotR * (1.5 + 0.5 * Math.sin(animPhase * TWO_PI));
+          ctx.strokeStyle = `rgba(255, 100, 50, ${0.6 + 0.4 * Math.sin(animPhase * TWO_PI)})`;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(px, py, pulseR, 0, TWO_PI);
+          ctx.stroke();
+        }
+
+        ctx.restore();
+
+        if (sunR > 80) {
+          ctx.font = `bold ${Math.max(9, 11 * this._vp.zoom)}px ${SANS}`;
+          ctx.fillStyle = "rgba(255,255,255,0.8)";
+          ctx.textAlign = "center";
+          ctx.fillText(String(region.region), px, py - spotR - 4);
+        }
+
+        this._pickables.push({
+          id: `region:${region.region}`,
+          kind: "region",
+          sx: px,
+          sy: py,
+          hit: Math.max(spotR + 4, 12),
+          label: `Region ${region.region}`,
+          region: region,
+        });
+      }
+
+      // Draw flare markers for flares with known location but no matching region
+      for (const flare of flares) {
+        if (flare.source_region) continue;
+        const lat = flare.latitude;
+        const lon = flare.longitude;
+        if (lat == null || lon == null) continue;
+
+        const latRad = lat * DEG;
+        const lonRad = lon * DEG;
+        const cosFront = Math.cos(latRad) * Math.cos(lonRad);
+        if (cosFront < 0) continue;
+
+        const px = cx + sunR * Math.cos(latRad) * Math.sin(lonRad);
+        const py = cy - sunR * Math.sin(latRad);
+
+        const pulseR = 8 * this._vp.zoom * (1 + 0.3 * Math.sin(animPhase * TWO_PI));
+        ctx.strokeStyle = `rgba(255, 80, 30, ${0.7 + 0.3 * Math.sin(animPhase * TWO_PI)})`;
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.arc(px, py, pulseR, 0, TWO_PI);
+        ctx.stroke();
+
+        ctx.fillStyle = "rgba(255, 200, 100, 0.9)";
+        ctx.beginPath();
+        ctx.arc(px, py, 3 * this._vp.zoom, 0, TWO_PI);
+        ctx.fill();
+
+        if (flare.class && sunR > 80) {
+          ctx.font = `bold ${Math.max(9, 10 * this._vp.zoom)}px ${SANS}`;
+          ctx.fillStyle = "rgba(255, 200, 100, 0.95)";
+          ctx.textAlign = "center";
+          ctx.fillText(flare.class, px, py - 12 * this._vp.zoom);
+        }
+      }
 
       // Sun label
       this._label(ctx, "Sun", cx, cy - sunR - 18, { align: "center", size: 14, color: pal.text, bold: true });
 
       // Make sun pickable for detail card
       this._pickables.push({
-        id: "sun:Sun", kind: "sun", sx: cx, sy: cy, hit: sunR, label: "Sun",
+        id: "sun:Sun", kind: "sun", sx: cx, sy: cy, hit: sunR * 0.3, label: "Sun",
       });
 
+      // Legend (bottom right)
+      if (regions.length > 0 && sunR > 60) {
+        const legX = w - 160;
+        let legY = h - 100;
+        ctx.font = `bold 11px ${SANS}`;
+        ctx.fillStyle = pal.text;
+        ctx.textAlign = "left";
+        ctx.fillText("SUNSPOT LEGEND", legX, legY);
+        legY += 18;
+
+        ctx.fillStyle = "rgba(80, 40, 20, 0.85)";
+        ctx.beginPath(); ctx.arc(legX + 6, legY, 5, 0, TWO_PI); ctx.fill();
+        ctx.fillStyle = pal.muted;
+        ctx.font = `10px ${SANS}`;
+        ctx.fillText("Active Region", legX + 18, legY + 3);
+        legY += 16;
+
+        ctx.fillStyle = "rgba(180, 50, 30, 0.9)";
+        ctx.beginPath(); ctx.arc(legX + 6, legY, 5, 0, TWO_PI); ctx.fill();
+        ctx.fillStyle = pal.muted;
+        ctx.fillText("Complex (Beta-Gamma-Delta)", legX + 18, legY + 3);
+        legY += 16;
+
+        ctx.strokeStyle = "rgba(255, 100, 50, 0.8)";
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(legX + 6, legY, 6, 0, TWO_PI); ctx.stroke();
+        ctx.fillStyle = pal.muted;
+        ctx.fillText("Active Flare", legX + 18, legY + 3);
+      }
+
       // Solar weather stats panel
-      const sw = this._solarData;
       const panelX = 24;
       let panelY = 80;
-      const lineH = 26;
+      const lineH = 24;
 
       ctx.fillStyle = pal.text;
       ctx.font = `bold 16px ${SANS}`;
@@ -1869,6 +2309,9 @@
         ctx.fillText("Loading solar data…", panelX, panelY);
       } else {
         const rows = [];
+        if (sw.active_regions_count != null && sw.active_regions_count > 0) {
+          rows.push(["Active Regions", String(sw.active_regions_count)]);
+        }
         if (sw.k_index != null) {
           const kp = sw.k_index;
           let level = "Quiet";
@@ -1878,12 +2321,13 @@
           rows.push(["Kp Index", `${kp} (${level})`]);
         }
         if (sw.xray_class) rows.push(["X-ray Class", String(sw.xray_class)]);
-        if (sw.sunspot_number != null) rows.push(["Sunspot Number", String(sw.sunspot_number)]);
-        if (sw.solar_wind_speed != null) rows.push(["Solar Wind", `${sw.solar_wind_speed} km/s`]);
-        if (sw.solar_wind_density != null) rows.push(["Wind Density", `${sw.solar_wind_density} p/cm³`]);
-        if (sw.bt != null) rows.push(["Bt (IMF)", `${sw.bt} nT`]);
-        if (sw.bz != null) rows.push(["Bz (IMF)", `${sw.bz} nT`]);
+        if (sw.sunspot_number != null) rows.push(["Sunspot Number", String(Math.round(sw.sunspot_number))]);
+        if (sw.solar_wind_speed != null) rows.push(["Solar Wind", `${Math.round(sw.solar_wind_speed)} km/s`]);
+        if (sw.solar_wind_density != null) rows.push(["Wind Density", `${sw.solar_wind_density.toFixed(1)} p/cm³`]);
+        if (sw.bt != null) rows.push(["Bt (IMF)", `${sw.bt.toFixed(1)} nT`]);
+        if (sw.bz != null) rows.push(["Bz (IMF)", `${sw.bz.toFixed(1)} nT`]);
         if (sw.flare_active) rows.push(["Solar Flare", "Active"]);
+        if (sw.earth_directed) rows.push(["Earth Directed", "Yes"]);
         if (sw.cme_watch) rows.push(["CME Watch", "Yes"]);
         if (sw.aurora_activity) rows.push(["Aurora Activity", String(sw.aurora_activity)]);
 
@@ -1939,7 +2383,7 @@
         this._selectedId = null;
         this._selectedData = null;
         const card = this._el('[data-sm="card"]');
-        if (card) { card.hidden = true; card.innerHTML = ""; }
+        if (card) { card.hidden = true; card.innerHTML = ""; card.className = "sm-card"; }
         if (!opts.silent) this._announce("Selection cleared.");
         this._dirty = true;
         return;
@@ -1972,30 +2416,97 @@
       let note = "";
       let signIndex = null;
       let srSummary = "";
+      let theme = "";
 
-      if (p.kind === "sun") {
+      if (p.kind === "western_zodiac") {
+        const z = ZODIAC[p.index];
+        title = z.name;
+        glyph = z.glyph + TS;
+        kind = "Western Zodiac \u00B7 30\u00B0 sector";
+        theme = "western";
+        signIndex = p.index;
+        rows.push(["Element", z.element]);
+        rows.push(["Quality", z.quality]);
+        rows.push(["Season dates", ZODIAC_DATE_RANGES[p.index] || "\u2014"]);
+        rows.push(["Chinese counterpart", CHINESE_ZODIAC[p.index].name]);
+        note = "Tap planets and the Moon to see which sign they occupy today.";
+        srSummary = `${z.name}, a ${z.element.toLowerCase()} sign.`;
+      } else if (p.kind === "chinese_zodiac") {
+        const z = CHINESE_ZODIAC[p.index];
+        title = z.name;
+        kind = "Chinese Zodiac \u00B7 Shichen sector";
+        theme = "chinese";
+        signIndex = p.index;
+        rows.push(["Element", z.element]);
+        rows.push(["Yin / Yang", z.yin ? "Yin" : "Yang"]);
+        rows.push(["Pinyin", z.pinyin]);
+        rows.push(["Western counterpart", ZODIAC[p.index].name]);
+        note = "English names only on the chart ring; year-of-animal forecasts use the lunar calendar.";
+        srSummary = `${z.name}, ${z.yin ? "yin" : "yang"} ${z.element.toLowerCase()}.`;
+      } else if (p.kind === "sun") {
         const earth = planetHeliocentric("Earth", date);
         title = "Sun";
         glyph = PLANET_GLYPHS.Sun + TS;
-        kind = "Star \u00B7 heliocentric origin";
+        kind = "Star \u00B7 Solar Weather";
         rows.push(["Distance from Earth", `${fmtAU(earth.r)} (${fmtMkm(earth.r)})`]);
-        const sunSign = signFromLon(wrapDeg(earth.lon + 180));
-        signIndex = sunSign.index;
-        rows.push(["Sun is in", signLabel(sunSign)]);
-        rows.push(["Sign traits", `${sunSign.element}, ${sunSign.quality}`]);
         const sw = this._solarData;
-        if (sw && (sw.k_index != null || sw.xray_class || sw.sunspot_number != null)) {
+        if (sw) {
+          if (sw.active_regions_count != null && sw.active_regions_count > 0) {
+            rows.push(["Active regions", String(sw.active_regions_count)]);
+          }
           if (sw.sunspot_number != null) rows.push(["Sunspot number", String(Math.round(sw.sunspot_number))]);
-          if (sw.k_index != null) rows.push(["Planetary K-index", `${sw.k_index}${sw.g_scale ? ` (G${sw.g_scale})` : ""}`]);
-          if (sw.f107_flux != null) rows.push(["F10.7 flux", `${sw.f107_flux} sfu`]);
+          if (sw.k_index != null) {
+            let level = "Quiet";
+            if (sw.k_index >= 5) level = "Storm";
+            else if (sw.k_index >= 4) level = "Active";
+            else if (sw.k_index >= 3) level = "Unsettled";
+            rows.push(["Planetary Kp", `${sw.k_index} (${level})${sw.g_scale ? ` G${sw.g_scale}` : ""}`]);
+          }
           if (sw.xray_class) rows.push(["X-ray class", String(sw.xray_class)]);
-          if (sw.geomagnetic_storm_active) rows.push(["Geomagnetic storm", "Active"]);
+          if (sw.f107_flux != null) rows.push(["F10.7 flux", `${Math.round(sw.f107_flux)} sfu`]);
+          if (sw.solar_wind_speed != null) rows.push(["Solar wind", `${Math.round(sw.solar_wind_speed)} km/s`]);
+          if (sw.solar_wind_density != null) rows.push(["Wind density", `${sw.solar_wind_density.toFixed(1)} p/cm\u00B3`]);
+          if (sw.bz != null) rows.push(["IMF Bz", `${sw.bz.toFixed(1)} nT`]);
+          if (sw.bt != null) rows.push(["IMF Bt", `${sw.bt.toFixed(1)} nT`]);
           if (sw.flare_active) rows.push(["Solar flare", "Active"]);
+          if (sw.earth_directed) rows.push(["Earth directed", "Yes"]);
+          if (sw.cme_watch) rows.push(["CME watch", "Yes"]);
+          if (sw.geomagnetic_storm_active) rows.push(["Geomagnetic storm", "Active"]);
+          if (sw.aurora_activity) rows.push(["Aurora activity", String(sw.aurora_activity)]);
           note = String(sw.attribution || "NOAA Space Weather Prediction Center");
+          const statusParts = [];
+          if (sw.flare_active) statusParts.push(`${sw.xray_class || ""} flare active`);
+          if (sw.geomagnetic_storm_active) statusParts.push(`G${sw.g_scale} storm`);
+          if (sw.active_regions_count > 0) statusParts.push(`${sw.active_regions_count} active regions`);
+          srSummary = statusParts.length > 0 ? statusParts.join(", ") + "." : "Solar activity quiet.";
         } else {
           note = "No live space-weather data. Enable Solar display in Settings \u2192 Space.";
+          srSummary = "Solar weather data loading.";
         }
-        srSummary = `Sun in ${sunSign.name}.`;
+      } else if (p.kind === "region") {
+        const reg = p.region;
+        title = `Region ${reg.region}`;
+        glyph = "\u2600" + TS;
+        kind = "Sunspot Region";
+        if (reg.location) rows.push(["Location", reg.location]);
+        if (reg.latitude != null && reg.longitude != null) {
+          rows.push(["Heliographic", `${reg.latitude.toFixed(0)}\u00B0 lat, ${reg.longitude.toFixed(0)}\u00B0 lon`]);
+        }
+        if (reg.carrington_longitude != null) rows.push(["Carrington lon", `${Math.round(reg.carrington_longitude)}\u00B0`]);
+        if (reg.spot_class) rows.push(["Spot class", reg.spot_class]);
+        if (reg.mag_class) rows.push(["Mag class", reg.mag_class]);
+        if (reg.area != null) rows.push(["Area", `${reg.area} \u03BCH`]);
+        if (reg.number_spots != null) rows.push(["Spot count", String(reg.number_spots)]);
+        if (reg.c_flare_probability != null) rows.push(["C-flare prob", `${reg.c_flare_probability}%`]);
+        if (reg.m_flare_probability != null) rows.push(["M-flare prob", `${reg.m_flare_probability}%`]);
+        if (reg.x_flare_probability != null) rows.push(["X-flare prob", `${reg.x_flare_probability}%`]);
+        if (reg.is_complex) {
+          rows.push(["Complex", "Beta-Gamma-Delta"]);
+        }
+        const earthDir = reg.longitude != null && Math.abs(reg.longitude) <= 45;
+        if (earthDir) rows.push(["Earth facing", "Yes"]);
+        note = "NOAA SWPC Active Region Summary";
+        srSummary = `Sunspot region ${reg.region}${reg.mag_class ? `, ${reg.mag_class}` : ""}${reg.is_complex ? ", complex" : ""}.`;
       } else if (p.kind === "planet") {
         const pl = p.planet;
         title = pl.name;
@@ -2004,6 +2515,7 @@
         signIndex = p.sign.index;
         rows.push([p.ofSun ? "Sun is in" : "In sign", signLabel(p.sign)]);
         rows.push(["Sign traits", `${p.sign.element}, ${p.sign.quality}`]);
+        rows.push(["Chinese sector", chineseSignLabel(chineseSignFromIndex(p.sign.index))]);
         if (pl.name !== "Earth") {
           rows.push(["Motion", p.retro ? "Retrograde \u211E" : "Direct"]);
         }
@@ -2034,6 +2546,7 @@
         rows.push(["Distance", fmtKm(ms.distKm)]);
         rows.push(["In sign", signLabel(s)]);
         rows.push(["Sign traits", `${s.element}, ${s.quality}`]);
+        rows.push(["Chinese sector", chineseSignLabel(chineseSignFromIndex(s.index))]);
         rows.push(["Orbital period", "27.3 d (sidereal)"]);
         srSummary = `${ms.phaseName}, ${Math.round(ms.illumination * 100)} percent illuminated, in ${s.name}.`;
       } else if (p.kind === "earthcenter") {
@@ -2045,6 +2558,8 @@
         signIndex = sunSign.index;
         rows.push(["Distance from Sun", `${fmtAU(earth.r)} (${fmtMkm(earth.r)})`]);
         rows.push(["Sun is in", signLabel(sunSign)]);
+        rows.push(["Sign traits", `${sunSign.element}, ${sunSign.quality}`]);
+        rows.push(["Chinese sector", chineseSignLabel(chineseSignFromIndex(sunSign.index))]);
         const ms = p.moon || moonState(date);
         rows.push(["Moon tonight", `${ms.phaseName} \u00B7 ${Math.round(ms.illumination * 100)}%`]);
       } else if (p.kind === "neo") {
@@ -2095,7 +2610,7 @@
         note = "Shown on a diagram ring \u2014 not a live position.";
       }
 
-      return { title, glyph, kind, rows, note, signIndex, srSummary };
+      return { title, glyph, kind, rows, note, signIndex, srSummary, theme };
     }
 
     _renderCard() {
@@ -2104,6 +2619,7 @@
       const d = this._selectedData;
       if (!d) { card.hidden = true; card.innerHTML = ""; return; }
       card.hidden = false;
+      card.className = "sm-card" + (d.theme ? ` sm-card--${d.theme}` : "");
       card.innerHTML = `
         <button type="button" class="sm-close" aria-label="Close details">\u00D7</button>
         <div class="sm-card-head">
@@ -2123,17 +2639,23 @@
     _renderChip() {
       const chip = this._el('[data-sm="solar-chip"]');
       if (!chip) return;
-      const sw = this._solarData;
-      const show = this._mode === "solar_system" && sw
-        && (sw.k_index != null || sw.xray_class || sw.sunspot_number != null);
+      // Zodiac chip appears wherever the zodiac ring is shown (not Sun mode).
+      const show = this._mode !== "sun";
       chip.hidden = !show;
       if (!show) return;
-      const parts = [];
-      if (sw.k_index != null) parts.push(`Kp ${sw.k_index}`);
-      if (sw.xray_class) parts.push(`X-ray ${esc(sw.xray_class)}`);
-      if (!parts.length && sw.sunspot_number != null) parts.push(`SSN ${Math.round(sw.sunspot_number)}`);
-      chip.innerHTML = `<span class="sm-chip-glyph" aria-hidden="true">\u2609${TS}</span>${parts.join(" \u00B7 ")}`;
-      chip.setAttribute("aria-label", `Space weather: ${parts.join(", ")}. Show sun details.`);
+      const date = this._date();
+      const w = westernSunSignByDate(date);
+      const c = chineseYearByDate(date);
+      chip.classList.add("sm-chip-zodiac");
+      chip.innerHTML = `
+        <span class="sm-chip-z-title">Zodiac</span>
+        <span class="sm-chip-z-west"><span class="sm-chip-z-glyph" aria-hidden="true">${w.glyph}${TS}</span>${esc(w.name)}</span>
+        <span class="sm-chip-z-dot" aria-hidden="true">\u00B7</span>
+        <span class="sm-chip-z-cn">${esc(c.element)} ${esc(c.animal)}</span>`;
+      chip.setAttribute(
+        "aria-label",
+        `Zodiac. Western sun sign ${w.name}. Chinese year of the ${c.polarity} ${c.element} ${c.animal}. Show sign details.`,
+      );
     }
 
     _renderDrawer() {
@@ -2161,6 +2683,9 @@
       }
 
       const rows = [];
+      if (sw.active_regions_count != null && sw.active_regions_count > 0) {
+        rows.push(`<div class="sm-drawer-row"><span class="sm-drawer-label">Active Regions</span><span class="sm-drawer-value">${sw.active_regions_count}</span></div>`);
+      }
       if (sw.k_index != null) {
         let level = "Quiet";
         if (sw.k_index >= 5) level = "Storm";
@@ -2169,19 +2694,59 @@
         rows.push(`<div class="sm-drawer-row" data-sm-row="kp"><span class="sm-drawer-label">Kp Index</span><span class="sm-drawer-value">${sw.k_index} (${level})</span></div>`);
       }
       if (sw.xray_class) rows.push(`<div class="sm-drawer-row"><span class="sm-drawer-label">X-ray Class</span><span class="sm-drawer-value">${esc(sw.xray_class)}</span></div>`);
-      if (sw.sunspot_number != null) rows.push(`<div class="sm-drawer-row"><span class="sm-drawer-label">Sunspot Number</span><span class="sm-drawer-value">${sw.sunspot_number}</span></div>`);
-      if (sw.solar_wind_speed != null) rows.push(`<div class="sm-drawer-row"><span class="sm-drawer-label">Solar Wind</span><span class="sm-drawer-value">${sw.solar_wind_speed} km/s</span></div>`);
-      if (sw.solar_wind_density != null) rows.push(`<div class="sm-drawer-row"><span class="sm-drawer-label">Wind Density</span><span class="sm-drawer-value">${sw.solar_wind_density} p/cm\u00B3</span></div>`);
-      if (sw.bt != null) rows.push(`<div class="sm-drawer-row"><span class="sm-drawer-label">Bt (IMF)</span><span class="sm-drawer-value">${sw.bt} nT</span></div>`);
-      if (sw.bz != null) rows.push(`<div class="sm-drawer-row"><span class="sm-drawer-label">Bz (IMF)</span><span class="sm-drawer-value">${sw.bz} nT</span></div>`);
+      if (sw.sunspot_number != null) rows.push(`<div class="sm-drawer-row"><span class="sm-drawer-label">Sunspot Number</span><span class="sm-drawer-value">${Math.round(sw.sunspot_number)}</span></div>`);
+      if (sw.solar_wind_speed != null) rows.push(`<div class="sm-drawer-row"><span class="sm-drawer-label">Solar Wind</span><span class="sm-drawer-value">${Math.round(sw.solar_wind_speed)} km/s</span></div>`);
+      if (sw.solar_wind_density != null) rows.push(`<div class="sm-drawer-row"><span class="sm-drawer-label">Wind Density</span><span class="sm-drawer-value">${Number(sw.solar_wind_density).toFixed(1)} p/cm\u00B3</span></div>`);
+      if (sw.bt != null) rows.push(`<div class="sm-drawer-row"><span class="sm-drawer-label">Bt (IMF)</span><span class="sm-drawer-value">${Number(sw.bt).toFixed(1)} nT</span></div>`);
+      if (sw.bz != null) rows.push(`<div class="sm-drawer-row"><span class="sm-drawer-label">Bz (IMF)</span><span class="sm-drawer-value">${Number(sw.bz).toFixed(1)} nT</span></div>`);
       if (sw.flare_active) rows.push(`<div class="sm-drawer-row"><span class="sm-drawer-label">Solar Flare</span><span class="sm-drawer-value">Active</span></div>`);
+      if (sw.earth_directed) rows.push(`<div class="sm-drawer-row"><span class="sm-drawer-label">Earth Directed</span><span class="sm-drawer-value">Yes</span></div>`);
       if (sw.cme_watch) rows.push(`<div class="sm-drawer-row"><span class="sm-drawer-label">CME Watch</span><span class="sm-drawer-value">Yes</span></div>`);
       if (sw.aurora_activity) rows.push(`<div class="sm-drawer-row"><span class="sm-drawer-label">Aurora Activity</span><span class="sm-drawer-value">${esc(sw.aurora_activity)}</span></div>`);
+
+      let regionsHtml = "";
+      const regions = Array.isArray(sw.regions) ? sw.regions : [];
+      if (regions.length > 0) {
+        const regionRows = regions.slice(0, 8).map((reg) => {
+          const loc = reg.location || `${reg.latitude || "?"}/${reg.longitude || "?"}`;
+          const magBadge = reg.is_complex
+            ? `<span style="color:#e65100;font-weight:600;">${esc(reg.mag_class || "Complex")}</span>`
+            : esc(reg.mag_class || "");
+          return `<div class="sm-drawer-row sm-drawer-row-region" data-region="${esc(String(reg.region))}">
+            <span class="sm-drawer-label">${esc(String(reg.region))}</span>
+            <span class="sm-drawer-value">${esc(loc)} ${magBadge}</span>
+          </div>`;
+        }).join("");
+        regionsHtml = `
+          <div class="sm-drawer-title" style="margin-top:12px;">\u2609 ACTIVE REGIONS</div>
+          ${regionRows}
+        `;
+      }
+
+      let flaresHtml = "";
+      const flares = Array.isArray(sw.flares) ? sw.flares : [];
+      if (flares.length > 0) {
+        const flareRows = flares.slice(0, 5).map((f) => {
+          const cls = f.class || f.xray_class || "?";
+          const region = f.source_region ? `AR${f.source_region}` : "";
+          const earthDir = f.earth_directed ? " \u2192\u{1F30D}" : "";
+          return `<div class="sm-drawer-row">
+            <span class="sm-drawer-label">${esc(cls)}</span>
+            <span class="sm-drawer-value">${esc(region)}${earthDir}</span>
+          </div>`;
+        }).join("");
+        flaresHtml = `
+          <div class="sm-drawer-title" style="margin-top:12px;">\u26A1 RECENT FLARES</div>
+          ${flareRows}
+        `;
+      }
 
       const html = rows.length > 0 ? rows.join("") : `<div class="sm-drawer-empty">No solar data available</div>`;
       drawer.innerHTML = `
         <div class="sm-drawer-title">\u2600 SOLAR WEATHER</div>
         ${html}
+        ${regionsHtml}
+        ${flaresHtml}
         <div class="sm-drawer-note">Source: NOAA SWPC</div>
       `;
     }
@@ -2250,6 +2815,7 @@
     _renderEarthDrawer(drawer, toggle) {
       const data = this._mapData || {};
       const passes = Array.isArray(data.overhead_passes) ? data.overhead_passes : [];
+      const meta = data.pass_meta || {};
       const deep = (Array.isArray(data.bodies) ? data.bodies : [])
         .filter((b) => b.type === "spacecraft");
       const showCraft = this._layers.spacecraft !== false;
@@ -2263,11 +2829,25 @@
         passHtml = `<div class="sm-empty">
           <span class="sm-empty-glyph" aria-hidden="true">\u2726${TS}</span>
           The spacecraft layer is hidden. Re-enable it in the Layers menu.</div>`;
-      } else if (!passes.length) {
+      } else if (meta.error === "no_home") {
         passHtml = `<div class="sm-empty">
           <span class="sm-empty-glyph" aria-hidden="true">\u2726${TS}</span>
-          No satellite passes in the current window. Enable spacecraft tracking in
-          Settings \u2192 Space, or check back for the next overhead window.</div>`;
+          Set your home latitude and longitude in Home Assistant
+          (Settings \u2192 Home, or edit <strong>zone.home</strong> on the map).
+          Passes are computed for your home location.</div>`;
+      } else if (meta.error === "horizons_empty") {
+        passHtml = `<div class="sm-empty">
+          <span class="sm-empty-glyph" aria-hidden="true">\u2726${TS}</span>
+          Could not load pass data from JPL Horizons. Check your network connection,
+          verify craft IDs in Settings \u2192 Space \u2192 Spacecraft Tracking
+          (default ISS is <code>-125544</code>), then use Actions \u2192 Refresh.</div>`;
+      } else if (!passes.length) {
+        const hrs = meta.lookahead_hours || 48;
+        passHtml = `<div class="sm-empty">
+          <span class="sm-empty-glyph" aria-hidden="true">\u2726${TS}</span>
+          No satellite passes above ${meta.min_elevation_deg != null ? meta.min_elevation_deg : 10}\u00B0
+          in the next ${hrs} hours for your location.
+          Try Actions \u2192 Refresh, or add craft IDs under Settings \u2192 Space.</div>`;
       } else {
         const ordered = passes.slice().sort((a, b) => (b.ongoing ? 1 : 0) - (a.ongoing ? 1 : 0));
         passHtml = ordered.slice(0, 10).map((p, i) => `
@@ -2327,6 +2907,8 @@
       const rect = this._canvas.getBoundingClientRect();
       const sx = clientX - rect.left;
       const sy = clientY - rect.top;
+      const zPick = this._pickZodiacAt(sx, sy);
+      if (zPick) return zPick;
       let best = null;
       let bestD = Infinity;
       for (const p of this._pickables) {

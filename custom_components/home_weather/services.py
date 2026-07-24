@@ -942,6 +942,7 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
                 "catalog_counts": data.get("catalog_counts") or {},
                 "primary_close_approach": data.get("primary_close_approach"),
                 "overhead_passes": data.get("overhead_passes") or [],
+                "pass_meta": data.get("pass_meta") or {},
                 "spacecraft_catalog": data.get("spacecraft_catalog") or [],
                 "updated": data.get("updated"),
             },

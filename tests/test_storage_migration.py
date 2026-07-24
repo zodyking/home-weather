@@ -116,3 +116,42 @@ def test_migration_explicit_monitoring_threshold_wins_over_alert():
     }
     merged = migrate_config(raw)
     assert merged["earthquake_monitoring"]["min_magnitude"] == 2.0
+
+
+def test_migration_enables_media_player_cache_once():
+    """Legacy cache=false is flipped to true so Apple TV/HomePod TTS works."""
+    raw = {
+        "media_players": [
+            {"entity_id": "media_player.a", "tts_entity_id": "tts.g", "cache": False},
+            {"entity_id": "media_player.b", "tts_entity_id": "tts.g"},
+        ],
+    }
+    merged = migrate_config(raw)
+    assert all(mp["cache"] is True for mp in merged["media_players"])
+    assert merged["_media_player_cache_default_migrated"] is True
+
+
+def test_migration_respects_cache_optout_after_flag_set():
+    """Once migrated, a deliberate cache=false is preserved."""
+    raw = {
+        "_media_player_cache_default_migrated": True,
+        "media_players": [
+            {"entity_id": "media_player.a", "tts_entity_id": "tts.g", "cache": False},
+        ],
+    }
+    merged = migrate_config(raw)
+    assert merged["media_players"][0]["cache"] is False
+
+
+def test_migration_repairs_invalid_iss_horizons_id():
+    """The old invalid ISS craft ID is rewritten to the valid Horizons ID."""
+    raw = {"spacecraft_alerts": {"craft_ids": ["-255544"]}}
+    merged = migrate_config(raw)
+    assert merged["spacecraft_alerts"]["craft_ids"] == ["-125544"]
+
+
+def test_migration_preserves_custom_craft_ids():
+    """Custom craft IDs are kept; only the bad ISS default is rewritten."""
+    raw = {"spacecraft_alerts": {"craft_ids": ["-255544", "-234816"]}}
+    merged = migrate_config(raw)
+    assert merged["spacecraft_alerts"]["craft_ids"] == ["-125544", "-234816"]

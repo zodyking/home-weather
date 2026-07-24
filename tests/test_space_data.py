@@ -7,6 +7,7 @@ from custom_components.home_weather.space_data import (
     _first_float,
     _k_index_to_g_scale,
     _parse_horizons_vectors,
+    _parse_observer_alt_az,
     _parse_xray_class,
     build_coordinator_payload,
     detect_space_events,
@@ -86,9 +87,28 @@ def test_detect_overhead_passes():
         {"time": "2025-Jul-02 12:04", "altitude_deg": 45, "azimuth_deg": 180},
         {"time": "2025-Jul-02 12:06", "altitude_deg": 8, "azimuth_deg": 240},
     ]
-    passes = _detect_overhead_passes("-255544", "ISS", samples, 10)
+    passes = _detect_overhead_passes("-125544", "ISS", samples, 10)
     assert len(passes) == 1
     assert passes[0]["max_elevation_deg"] == 45.0
+
+
+def test_parse_observer_alt_az_quantity_four():
+    text = """
+$$SOE
+2026-Jul-24 02:14     145.123456   12.345678
+2026-Jul-24 02:19     180.000000   45.000000
+$$EOE
+"""
+    samples = _parse_observer_alt_az(text)
+    assert len(samples) == 2
+    assert samples[1]["altitude_deg"] == 45.0
+    assert samples[1]["azimuth_deg"] == 180.0
+
+
+def test_get_space_config_pass_window_defaults():
+    cfg = get_space_config({})
+    assert cfg["pass_lookahead_hours"] == 48
+    assert cfg["pass_lookback_hours"] == 2
 
 
 def test_build_coordinator_payload_counts():
@@ -102,7 +122,7 @@ def test_build_coordinator_payload_counts():
         bodies,
         small_bodies,
         {"name": "Apophis", "lunar_distance": 2.0, "diameter_m": 300},
-        [{"craft_id": "-255544", "craft_name": "ISS", "max_elevation_deg": 55}],
+        [{"craft_id": "-125544", "craft_name": "ISS", "max_elevation_deg": 55}],
         {"k_index": 6, "g_scale": 2, "geomagnetic_storm_active": True},
         [],
         get_neo_alerts_config({"neo_alerts": {"max_lunar_distances": 5}}),
@@ -137,12 +157,12 @@ def test_disabled_space_config_empty_shape():
 def test_tts_filters():
     spacecraft_cfg = get_spacecraft_alerts_config({"spacecraft_alerts": {"min_elevation_deg": 20}})
     assert passes_spacecraft_tts_filter(
-        {"craft_id": "-255544", "max_elevation_deg": 55},
+        {"craft_id": "-125544", "max_elevation_deg": 55},
         spacecraft_cfg,
         "home_weather_spacecraft_overhead",
     )
     assert not passes_spacecraft_tts_filter(
-        {"craft_id": "-255544", "max_elevation_deg": 5},
+        {"craft_id": "-125544", "max_elevation_deg": 5},
         spacecraft_cfg,
         "home_weather_spacecraft_overhead",
     )
@@ -156,3 +176,4 @@ def test_tts_filters():
         {"max_lunar_distances": 5, "min_diameter_m": 100},
         "home_weather_neo_close_approach",
     )
+

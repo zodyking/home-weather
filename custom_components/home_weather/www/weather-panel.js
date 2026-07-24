@@ -17,6 +17,7 @@ class HomeWeatherPanel extends HTMLElement {
     this._mapsLayers = this._normalizeMapLayers({ hurricane: true, tornado: true, earthquakes: true, lightning: true, volcanoes: true, travel: false, wildfire: false, air_quality: false });
     this._mapsSort = "newest";
     this._settingsPane = "general";
+    this._settingsReturnView = "forecast";
     this._zoneEditor = null;
     this._zoneEditorPromise = null;
     this._zoneEditorReturnView = "settings";
@@ -59,6 +60,9 @@ class HomeWeatherPanel extends HTMLElement {
     this._dashboardSettled = false;
     this._settingsNotice = null;
     this._settingsNoticeTimer = null;
+    this._saveToastEl = null;
+    this._saveToastTimer = null;
+    this._saveToastHideTimer = null;
   }
 
   get _isNarrow() {
@@ -123,6 +127,13 @@ class HomeWeatherPanel extends HTMLElement {
       this._ttsStatusUnsub();
       this._ttsStatusUnsub = null;
     }
+    // Remove any lingering save-confirmation toast attached to document.body
+    if (this._saveToastTimer) { clearTimeout(this._saveToastTimer); this._saveToastTimer = null; }
+    if (this._saveToastHideTimer) { clearTimeout(this._saveToastHideTimer); this._saveToastHideTimer = null; }
+    if (this._saveToastEl && this._saveToastEl.parentNode) {
+      this._saveToastEl.parentNode.removeChild(this._saveToastEl);
+    }
+    this._saveToastEl = null;
   }
 
   _subscribeToWebhookEvents() {
@@ -701,6 +712,66 @@ class HomeWeatherPanel extends HTMLElement {
     if (message != null) el.textContent = message;
   }
 
+  /** Floating confirmation popup shown after a save completes.
+   *
+   *  Auto-save happens silently, so this gives the user explicit "it saved"
+   *  feedback. Rendered on document.body with inline styles so it survives the
+   *  panel's full-innerHTML re-renders and never disrupts an in-progress edit.
+   */
+  _showSaveToast(message, { error = false } = {}) {
+    try {
+      if (this._saveToastTimer) { clearTimeout(this._saveToastTimer); this._saveToastTimer = null; }
+      if (this._saveToastHideTimer) { clearTimeout(this._saveToastHideTimer); this._saveToastHideTimer = null; }
+      if (this._saveToastEl && this._saveToastEl.parentNode) {
+        this._saveToastEl.parentNode.removeChild(this._saveToastEl);
+      }
+
+      const toast = document.createElement("div");
+      toast.textContent = message;
+      toast.setAttribute("role", "status");
+      toast.setAttribute("aria-live", "polite");
+      Object.assign(toast.style, {
+        position: "fixed",
+        left: "50%",
+        bottom: "calc(88px + env(safe-area-inset-bottom, 0px))",
+        transform: "translateX(-50%) translateY(12px)",
+        zIndex: "10000",
+        maxWidth: "min(420px, calc(100vw - 32px))",
+        padding: "12px 18px",
+        borderRadius: "10px",
+        background: "#282828",
+        color: error ? "#f44336" : "#e1e1e1",
+        border: `1px solid ${error ? "rgba(244, 67, 54, 0.55)" : "rgba(76, 175, 80, 0.55)"}`,
+        boxShadow: "0 8px 28px rgba(0, 0, 0, 0.45)",
+        font: "500 14px/1.35 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
+        textAlign: "center",
+        pointerEvents: "none",
+        opacity: "0",
+        transition: "opacity 0.28s ease, transform 0.28s ease",
+      });
+      document.body.appendChild(toast);
+      this._saveToastEl = toast;
+
+      requestAnimationFrame(() => {
+        toast.style.opacity = "1";
+        toast.style.transform = "translateX(-50%) translateY(0)";
+      });
+
+      this._saveToastTimer = setTimeout(() => {
+        this._saveToastTimer = null;
+        toast.style.opacity = "0";
+        toast.style.transform = "translateX(-50%) translateY(12px)";
+        this._saveToastHideTimer = setTimeout(() => {
+          this._saveToastHideTimer = null;
+          if (toast.parentNode) toast.parentNode.removeChild(toast);
+          if (this._saveToastEl === toast) this._saveToastEl = null;
+        }, 320);
+      }, error ? 4200 : 1900);
+    } catch (_) {
+      /* toast is best-effort; never let it break saving */
+    }
+  }
+
   /** Debounced auto-save fired from form edits. Applies optimistically and
    *  saves in the background so the UI never blocks. */
   _scheduleAutoSave() {
@@ -772,6 +843,8 @@ class HomeWeatherPanel extends HTMLElement {
     try {
       await this._hass.callWS({ type: "home_weather/set_config", config: snapshot });
       this._setSaveStatus("saved", "All changes saved");
+      // Explicit confirmation popup (auto-save is otherwise silent).
+      this._showSaveToast("\u2713 All changes saved");
       // Refresh derived data in the background, never blocking the form.
       this._loadWeatherDataQuiet();
       this._loadWebhookInfoQuiet();
@@ -785,7 +858,7 @@ class HomeWeatherPanel extends HTMLElement {
       // and surface a clear, retryable error.
       console.error("Error saving:", e);
       this._setSaveStatus("error", "Save failed \u2014 your changes are kept. Retry or edit to save again.");
-      if (!silent) this._showSettingsNotice("Failed to save settings");
+      this._showSaveToast("\u26a0 Save failed \u2014 your changes are kept. Retry.", { error: true });
     }
   }
 
@@ -873,13 +946,13 @@ class HomeWeatherPanel extends HTMLElement {
     if (!Array.isArray(arr)) return [];
     return arr.map((item) => {
       if (typeof item === "string") {
-        return { entity_id: item, tts_entity_id: "", volume: 0.6, cache: false, language: "", preroll_ms: 150, options: {} };
+        return { entity_id: item, tts_entity_id: "", volume: 0.6, cache: true, language: "", preroll_ms: 150, options: {} };
       }
       return {
         entity_id: item.entity_id || "",
         tts_entity_id: item.tts_entity_id || "",
         volume: item.volume ?? 0.6,
-        cache: !!item.cache,
+        cache: item.cache !== false,
         language: item.language || "",
         preroll_ms: item.preroll_ms ?? 150,
         options: item.options || {},
@@ -3681,6 +3754,8 @@ class HomeWeatherPanel extends HTMLElement {
           flex-shrink: 0;
           transition: background var(--dur-fast) var(--ease);
         }
+        /* Idle = nothing to report: hide the pill entirely so no stray dot lingers. */
+        .settings-save-status[data-state="idle"] { display: none; }
         .settings-save-status[data-state="saving"] { color: var(--hw-accent-hover); }
         .settings-save-status[data-state="saving"]::before { background: var(--hw-accent); animation: hwSavePulse 1s var(--ease) infinite; }
         .settings-save-status[data-state="saved"] { color: var(--hw-success); }
@@ -4928,6 +5003,9 @@ class HomeWeatherPanel extends HTMLElement {
       this._closeMenusheet();
       return;
     }
+    if (view === "settings") {
+      this._settingsReturnView = this._currentView || "forecast";
+    }
     if (this._currentView === "settings") {
       this._syncSettingsFromForm();
       if (view !== "settings") this._clearSettingsNotice();
@@ -5365,7 +5443,7 @@ class HomeWeatherPanel extends HTMLElement {
             tts_entity_id: ttsEntity,
             message: "This is a test of the weather announcement system.",
             volume: mp.volume || 0.6,
-            cache: mp.cache || false,
+            cache: mp.cache !== false,
           };
 
           // Only add language if non-empty
@@ -5529,7 +5607,7 @@ class HomeWeatherPanel extends HTMLElement {
         const val = addMediaSelect.value;
         if (!val) return;
         const list = [...(this._settings.media_players || [])];
-        list.push({ entity_id: val, tts_entity_id: "", volume: 0.6, cache: false, language: "", options: {} });
+        list.push({ entity_id: val, tts_entity_id: "", volume: 0.6, cache: true, language: "", options: {} });
         this._settings.media_players = list;
         this._render();
       });
@@ -5620,9 +5698,9 @@ class HomeWeatherPanel extends HTMLElement {
       </button>`;
   }
 
-  _renderMenubar({ menus = [], backAction = null, backLabel = null }) {
+  _renderMenubar({ menus = [], backAction = null, backLabel = null, backValue = "" }) {
     const backBtnHtml = backAction && backLabel ? `
-      <button type="button" class="hw-menubar-back" data-mb-action="${backAction}" data-mb-value="" title="${backLabel}">
+      <button type="button" class="hw-menubar-back" data-mb-action="${backAction}" data-mb-value="${backValue}" title="${backLabel}">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
         <span>${backLabel}</span>
       </button>` : "";
@@ -5647,7 +5725,7 @@ class HomeWeatherPanel extends HTMLElement {
           </button>
         </div>
         <div class="hw-menusheet-body">
-          ${backAction && backLabel ? `<button type="button" class="hw-menu-item hw-menu-back-item" data-mb-action="${backAction}" data-mb-value="">
+          ${backAction && backLabel ? `<button type="button" class="hw-menu-item hw-menu-back-item" data-mb-action="${backAction}" data-mb-value="${backValue}">
             <span class="hw-menu-mark"><svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg></span>
             <span class="hw-menu-item-label">${backLabel}</span>
           </button><hr class="hw-menu-divider"/>` : ""}
@@ -5728,10 +5806,17 @@ class HomeWeatherPanel extends HTMLElement {
   }
 
   _renderSettingsMenubar() {
+    const returnView = this._settingsReturnView || "forecast";
+    const backLabel = returnView === "space"
+      ? "Back to Space Map"
+      : returnView === "hurricanes"
+        ? "Back to Hazard Map"
+        : "Back";
     return this._renderMenubar({
       menus: [],
       backAction: "nav",
-      backLabel: "Back",
+      backLabel,
+      backValue: returnView,
     });
   }
 
@@ -5882,10 +5967,15 @@ class HomeWeatherPanel extends HTMLElement {
 
   async _handleMenubarAction(action, value, type, el) {
     switch (action) {
-      case "nav":
+      case "nav": {
         this._closeMenusheet();
-        this._navigateTo(value || "forecast");
+        const target = value || "forecast";
+        if (target === "settings" && this._currentView === "space") {
+          this._settingsPane = "space";
+        }
+        this._navigateTo(target);
         break;
+      }
       case "edit-zones":
         this._closeMenusheet();
         this._closeAllMenus();
@@ -5968,7 +6058,8 @@ class HomeWeatherPanel extends HTMLElement {
         }
         this._spaceMode = mode;
         this._spaceMap?.setMode(mode);
-        this._render();
+        this._syncMenubarChecks("space-mode", (v) => v === mode);
+        this._closeAllMenus();
         break;
       }
       case "space-layer": {
@@ -7291,7 +7382,7 @@ class HomeWeatherPanel extends HTMLElement {
     const solarWeatherMonitoring = { ...defaultSolarWeatherMonitoring, ...(this._settings.solar_weather_monitoring || {}) };
     const defaultSpacecraftAlerts = {
       enabled: false, sound_file: "", sound_volume: 0.8, tts_volume: 0.9,
-      min_elevation_deg: 10, craft_ids: ["-255544"], announce_pass_start: true, announce_pass_peak: false,
+      min_elevation_deg: 10, craft_ids: ["-125544"], announce_pass_start: true, announce_pass_peak: false,
     };
     const spacecraftAlerts = { ...defaultSpacecraftAlerts, ...(this._settings.spacecraft_alerts || {}) };
     const defaultSolarWeatherAlerts = {
@@ -7830,7 +7921,7 @@ class HomeWeatherPanel extends HTMLElement {
         color: "#81c784",
         desc: "Overhead pass detection for sensors and automations",
         content: `
-          <p class="form-hint">Controls the <strong>Spacecraft Overhead</strong> binary sensor and pass elevation/azimuth sensors. Spoken pass alerts are in <strong>Announcements</strong>.</p>
+            <p class="form-hint">ISS and other craft tracked via JPL Horizons for the next 48 hours at your Home Assistant home location. Spoken pass alerts are in <strong>Announcements</strong>.</p>
           <div class="form-group">
             <label for="spacecraft-min-elevation">Minimum elevation (°)</label>
             <input type="number" id="spacecraft-min-elevation" min="0" max="90" step="1" value="${spacecraftAlerts.min_elevation_deg ?? 10}"/>
@@ -7838,8 +7929,8 @@ class HomeWeatherPanel extends HTMLElement {
           </div>
           <div class="form-group">
             <label for="spacecraft-craft-ids">Horizons craft IDs (comma-separated)</label>
-            <input type="text" id="spacecraft-craft-ids" placeholder="-255544" value="${(spacecraftAlerts.craft_ids || ["-255544"]).join(", ")}"/>
-            <p class="form-hint">Default <code>-255544</code> is the International Space Station.</p>
+            <input type="text" id="spacecraft-craft-ids" placeholder="-125544" value="${(spacecraftAlerts.craft_ids || ["-125544"]).join(", ")}"/>
+            <p class="form-hint">Default <code>-125544</code> is the International Space Station.</p>
           </div>`,
       },
       {
@@ -8022,6 +8113,24 @@ class HomeWeatherPanel extends HTMLElement {
                     </label>
                   </div>
                 `).join("")}
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Forecast add-ons</label>
+              <p class="form-hint">Optional zodiac section appended to scheduled forecast announcements.</p>
+              <div class="toggle-row">
+                <span>Include western zodiac</span>
+                <label class="toggle-switch">
+                  <input type="checkbox" id="include-western-zodiac" ${tts.include_western_zodiac ? "checked" : ""}/>
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+              <div class="toggle-row">
+                <span>Include Chinese zodiac</span>
+                <label class="toggle-switch">
+                  <input type="checkbox" id="include-chinese-zodiac" ${tts.include_chinese_zodiac ? "checked" : ""}/>
+                  <span class="toggle-slider"></span>
+                </label>
               </div>
             </div>
             <div class="subsection-title">Per-speaker playback</div>
@@ -8906,6 +9015,8 @@ class HomeWeatherPanel extends HTMLElement {
       precip_threshold: parseInt(s.getElementById("precip-threshold")?.value || existing.precip_threshold || 30, 10),
       wind_speed_threshold: parseInt(s.getElementById("wind-speed-threshold")?.value || existing.wind_speed_threshold || 15, 10),
       wind_gust_threshold: parseInt(s.getElementById("wind-gust-threshold")?.value || existing.wind_gust_threshold || 20, 10),
+      include_western_zodiac: s.getElementById("include-western-zodiac")?.checked ?? existing.include_western_zodiac ?? false,
+      include_chinese_zodiac: s.getElementById("include-chinese-zodiac")?.checked ?? existing.include_chinese_zodiac ?? false,
       use_ai_rewrite: s.getElementById("use-ai-rewrite")?.checked ?? existing.use_ai_rewrite ?? false,
       ai_task_entity: s.getElementById("ai-task-entity")?.value || existing.ai_task_entity || "",
       ai_rewrite_prompt: s.getElementById("ai-rewrite-prompt")?.value || existing.ai_rewrite_prompt || "",
@@ -9333,12 +9444,12 @@ class HomeWeatherPanel extends HTMLElement {
     const s = this.shadowRoot;
     const defaults = {
       enabled: false, sound_file: "", sound_volume: 0.8, tts_volume: 0.9,
-      min_elevation_deg: 10, craft_ids: ["-255544"], announce_pass_start: true, announce_pass_peak: false,
+      min_elevation_deg: 10, craft_ids: ["-125544"], announce_pass_start: true, announce_pass_peak: false,
     };
     if (!s) return { ...(this._settings.spacecraft_alerts || {}), ...defaults };
     const getVal = (id, def) => (s.getElementById(id)?.value ?? def);
     const getChecked = (id) => !!s.getElementById(id)?.checked;
-    const craftRaw = (getVal("spacecraft-craft-ids", "-255544") || "").trim();
+    const craftRaw = (getVal("spacecraft-craft-ids", "-125544") || "").trim();
     const craft_ids = craftRaw.split(",").map((v) => v.trim()).filter(Boolean);
     return {
       ...(this._settings.spacecraft_alerts || {}),
@@ -9347,7 +9458,7 @@ class HomeWeatherPanel extends HTMLElement {
       sound_volume: Math.min(1, Math.max(0, parseFloat(getVal("spacecraft-alerts-sound-volume", "0.8")))),
       tts_volume: Math.min(1, Math.max(0, parseFloat(getVal("spacecraft-alerts-tts-volume", "0.9")))),
       min_elevation_deg: Math.min(90, Math.max(0, parseFloat(getVal("spacecraft-min-elevation", "10")) || 10)),
-      craft_ids: craft_ids.length ? craft_ids : ["-255544"],
+      craft_ids: craft_ids.length ? craft_ids : ["-125544"],
       announce_pass_start: getChecked("spacecraft-announce-pass-start"),
       announce_pass_peak: getChecked("spacecraft-announce-pass-peak"),
     };

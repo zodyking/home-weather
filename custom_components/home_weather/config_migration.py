@@ -26,7 +26,63 @@ def migrate_config(data: dict[str, Any]) -> dict[str, Any]:
     _migrate_monitoring_blocks(merged, data)
     _migrate_alert_thresholds_into_monitoring(merged, data)
     _migrate_announcement_players(merged, data)
+    _migrate_media_player_cache(merged, data)
+    _migrate_iss_horizons_id(merged)
     return merged
+
+
+# Old (invalid) ISS Horizons ID that returns "No such record", so no overhead
+# passes were ever detected. Replace with the valid spacecraft ID.
+_OLD_ISS_HORIZONS_ID = "-255544"
+_NEW_ISS_HORIZONS_ID = "-125544"
+
+
+def _migrate_iss_horizons_id(merged: dict[str, Any]) -> None:
+    """Repair the ISS Horizons craft ID stored by older versions.
+
+    The default ISS ID was ``-255544``, which is not a valid JPL Horizons
+    record, so the observer ephemeris (and therefore every overhead pass) came
+    back empty. Rewrite any stored occurrence to the correct ``-125544``.
+    """
+    alerts = merged.get("spacecraft_alerts")
+    if not isinstance(alerts, dict):
+        return
+    craft_ids = alerts.get("craft_ids")
+    if not isinstance(craft_ids, list):
+        return
+    alerts["craft_ids"] = [
+        _NEW_ISS_HORIZONS_ID if str(cid) == _OLD_ISS_HORIZONS_ID else cid
+        for cid in craft_ids
+    ]
+
+
+# Sentinel key marking that the one-time media-player cache correction ran.
+_CACHE_MIGRATION_FLAG = "_media_player_cache_default_migrated"
+
+
+def _migrate_media_player_cache(merged: dict[str, Any], raw: dict[str, Any]) -> None:
+    """One-time flip of media-player ``cache`` from the old ``false`` default.
+
+    Older versions defaulted every media player to ``cache: false``. For
+    AirPlay/Apple TV/HomePod targets (pyatv) that causes the TTS proxy audio to
+    be generated lazily during a fetch with a hardcoded 10s timeout, so
+    announcements fail with "Connection ... timed out". Caching pre-generates
+    the file so playback is reliable.
+
+    This runs exactly once (gated by ``_CACHE_MIGRATION_FLAG``) so a user who
+    later deliberately disables caching keeps that choice.
+    """
+    if raw.get(_CACHE_MIGRATION_FLAG):
+        merged[_CACHE_MIGRATION_FLAG] = True
+        return
+
+    media_players = merged.get("media_players")
+    if isinstance(media_players, list):
+        for mp in media_players:
+            if isinstance(mp, dict) and mp.get("cache") is not True:
+                mp["cache"] = True
+
+    merged[_CACHE_MIGRATION_FLAG] = True
 
 
 def _migrate_monitoring_blocks(merged: dict[str, Any], raw: dict[str, Any]) -> None:
