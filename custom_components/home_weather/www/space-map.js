@@ -174,6 +174,7 @@
       moonDark: "rgba(16, 20, 32, 0.85)",
       ring: "rgba(160, 175, 200, 0.35)",
       live: "#4ade80",
+      satInactive: "rgba(160, 140, 200, 0.7)",
       comet: "#7fd8ea",
       asteroid: "#e8a05c",
     },
@@ -198,6 +199,7 @@
       moonDark: "rgba(84, 70, 46, 0.65)",
       ring: "rgba(90, 78, 55, 0.42)",
       live: "#15803d",
+      satInactive: "rgba(100, 80, 140, 0.6)",
       comet: "#0e7490",
       asteroid: "#9a5b17",
     },
@@ -340,9 +342,11 @@
     }
     const stem = (((year - 4) % 10) + 10) % 10;
     const branch = (((year - 4) % 12) + 12) % 12;
+    const zodiac = CHINESE_ZODIAC[branch];
     return {
       element: SEXAGENARY_ELEMENTS[Math.floor(stem / 2)],
-      animal: CHINESE_ZODIAC[branch].name,
+      animal: zodiac.name,
+      hanzi: zodiac.hanzi,
       polarity: stem % 2 === 0 ? "Yang" : "Yin",
       index: branch,
       year,
@@ -603,35 +607,67 @@
     }
     .sm-chip[hidden] { display: none !important; }
 
-    /* Zodiac chip: western + Chinese year with themed fonts */
-    .sm-chip-zodiac { gap: 9px; padding: 0 16px; }
-    .sm-chip-z-title {
-      font-family: ${ZODIAC_FONT};
-      font-size: 9.5px;
-      font-weight: 600;
-      letter-spacing: 0.24em;
-      text-transform: uppercase;
-      color: var(--sm-gold);
-      opacity: 0.9;
-      padding-right: 2px;
-      border-right: 1px solid var(--sm-border);
+    /* Zodiac chip: western + Chinese year with distinctive themed fonts */
+    .sm-chip-zodiac { gap: 6px; padding: 0 14px; }
+    .sm-chip-z-section {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 6px;
+      background: rgba(0, 0, 0, 0.25);
     }
+    .sm-chip-z-section.western {
+      background: linear-gradient(135deg, rgba(212, 175, 55, 0.15) 0%, rgba(180, 140, 40, 0.08) 100%);
+      border: 1px solid rgba(212, 175, 55, 0.3);
+    }
+    .sm-chip-z-section.chinese {
+      background: linear-gradient(135deg, rgba(201, 80, 60, 0.15) 0%, rgba(180, 60, 40, 0.08) 100%);
+      border: 1px solid rgba(201, 100, 80, 0.3);
+    }
+    .sm-chip-z-label {
+      font-family: ${SANS};
+      font-size: 8.5px;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      opacity: 0.7;
+      color: var(--sm-muted);
+    }
+    .sm-chip-z-section.western .sm-chip-z-label { color: rgba(212, 175, 55, 0.8); }
+    .sm-chip-z-section.chinese .sm-chip-z-label { color: rgba(232, 160, 144, 0.8); }
     .sm-chip-z-west {
       display: inline-flex;
       align-items: center;
-      gap: 5px;
+      gap: 6px;
       font-family: ${ZODIAC_FONT};
-      font-weight: 500;
-      letter-spacing: 0.05em;
-      color: var(--sm-text);
-    }
-    .sm-chip-z-west .sm-chip-z-glyph { color: var(--sm-gold); font-size: 15px; }
-    .sm-chip-z-dot { color: var(--sm-muted); opacity: 0.6; }
-    .sm-chip-z-cn {
-      font-family: ${CHINESE_FONT};
+      font-size: 13px;
       font-weight: 600;
-      letter-spacing: 0.08em;
-      color: var(--sm-chinese);
+      font-style: italic;
+      letter-spacing: 0.06em;
+      color: var(--sm-gold);
+      text-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+    }
+    .sm-chip-z-west .sm-chip-z-glyph {
+      font-size: 18px;
+      font-style: normal;
+      text-shadow: 0 0 8px rgba(212, 175, 55, 0.5);
+    }
+    .sm-chip-z-cn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-family: ${CHINESE_FONT};
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      color: #e8a090;
+      text-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+    }
+    .sm-chip-z-cn .sm-chip-z-hanzi {
+      font-size: 16px;
+      color: #f0b8a8;
+      text-shadow: 0 0 6px rgba(201, 100, 80, 0.4);
     }
 
     /* ---- drawer (lists) ---- */
@@ -1736,12 +1772,16 @@
 
         ctx.save();
         const isEarthDir = sw.earth_directed;
-        const coneAlpha = isEarthDir ? 0.25 : 0.12;
-        const coneColor = isEarthDir ? "rgba(255, 100, 50," : "rgba(255, 180, 80,";
+        const coneAlpha = isEarthDir ? 0.28 : 0.15;
+        const coneColor = isEarthDir ? "rgba(255, 80, 40," : "rgba(255, 160, 80,";
+
+        // Animated pulse for active solar event
+        const animPhase = (Date.now() % 2000) / 2000;
+        const pulseAlpha = coneAlpha * (0.8 + 0.4 * Math.sin(animPhase * TWO_PI));
 
         const coneGrad = ctx.createRadialGradient(cx, cy, coneInnerR, cx, cy, coneOuterR);
-        coneGrad.addColorStop(0, `${coneColor}${coneAlpha * 1.5})`);
-        coneGrad.addColorStop(0.5, `${coneColor}${coneAlpha})`);
+        coneGrad.addColorStop(0, `${coneColor}${pulseAlpha * 1.8})`);
+        coneGrad.addColorStop(0.4, `${coneColor}${pulseAlpha})`);
         coneGrad.addColorStop(1, `${coneColor}0)`);
         ctx.fillStyle = coneGrad;
         ctx.beginPath();
@@ -1750,9 +1790,10 @@
         ctx.closePath();
         ctx.fill();
 
-        ctx.strokeStyle = isEarthDir ? "rgba(255, 80, 40, 0.6)" : "rgba(255, 160, 60, 0.4)";
-        ctx.lineWidth = 1.5;
-        ctx.setLineDash([6, 4]);
+        // Solid border lines for clarity
+        ctx.strokeStyle = isEarthDir ? "rgba(255, 60, 30, 0.7)" : "rgba(255, 140, 50, 0.5)";
+        ctx.lineWidth = 2;
+        ctx.setLineDash([8, 4]);
         ctx.beginPath();
         ctx.moveTo(cx, cy);
         ctx.lineTo(
@@ -1767,17 +1808,51 @@
         ctx.stroke();
         ctx.setLineDash([]);
 
-        if (sw.cme_watch || isEarthDir) {
-          const labelR = coneOuterR * 0.4;
-          const labelX = cx + Math.cos(-flareRad) * labelR;
-          const labelY = cy + Math.sin(-flareRad) * labelR;
-          ctx.font = `bold 10px ${SANS}`;
-          ctx.fillStyle = isEarthDir ? "rgba(255, 100, 50, 0.9)" : "rgba(255, 180, 80, 0.8)";
-          ctx.textAlign = "center";
-          ctx.textBaseline = "middle";
-          const labelText = sw.cme_watch ? "CME" : "FLARE";
-          ctx.fillText(labelText, labelX, labelY);
+        // Explosion burst at sun
+        const burstR = 32;
+        for (let i = 0; i < 8; i++) {
+          const a = -flareRad + (i - 3.5) * 0.15;
+          const len = burstR * (0.6 + 0.4 * Math.sin(animPhase * TWO_PI + i));
+          ctx.strokeStyle = `rgba(255, ${isEarthDir ? 100 : 180}, ${isEarthDir ? 50 : 80}, ${0.5 + 0.3 * Math.sin(animPhase * TWO_PI)})`;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(cx + Math.cos(a) * 18, cy + Math.sin(a) * 18);
+          ctx.lineTo(cx + Math.cos(a) * len, cy + Math.sin(a) * len);
+          ctx.stroke();
         }
+
+        // Main label with icon and description
+        const labelR = coneOuterR * 0.35;
+        const labelX = cx + Math.cos(-flareRad) * labelR;
+        const labelY = cy + Math.sin(-flareRad) * labelR;
+        
+        // Label background for readability
+        const isCME = sw.cme_watch;
+        const mainLabel = isCME ? "☀ CME" : "☀ SOLAR FLARE";
+        const subLabel = isEarthDir ? "Earth-directed" : "Active region";
+        
+        ctx.font = `bold 12px ${SANS}`;
+        const labelW = ctx.measureText(mainLabel).width;
+        
+        // Semi-transparent background pill
+        ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
+        ctx.beginPath();
+        ctx.roundRect(labelX - labelW/2 - 8, labelY - 20, labelW + 16, 38, 6);
+        ctx.fill();
+        ctx.strokeStyle = isEarthDir ? "rgba(255, 80, 40, 0.8)" : "rgba(255, 160, 80, 0.6)";
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        
+        // Main text
+        ctx.fillStyle = isEarthDir ? "#ff6030" : "#ffb060";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(mainLabel, labelX, labelY - 6);
+        
+        // Sub label
+        ctx.font = `9px ${SANS}`;
+        ctx.fillStyle = isEarthDir ? "rgba(255, 120, 80, 0.9)" : "rgba(255, 200, 150, 0.8)";
+        ctx.fillText(subLabel, labelX, labelY + 8);
 
         ctx.restore();
 
@@ -1890,14 +1965,40 @@
           }
         }
 
-        const label = `${p.name}  ${geo.sign.glyph}${TS}${retro ? " \u211E" : ""}`;
-        // Flip the label to the left side when it would clip the right edge
+        // Draw planet name and zodiac glyph separately for better styling
+        const nameText = p.name;
+        const glyphText = geo.sign.glyph + TS;
+        const retroText = retro ? " R" : "";
+        
         ctx.font = `11.5px ${SERIF}`;
-        const labelW = ctx.measureText(label).width;
-        if (pos.x + dotR + 8 + labelW > w - 4) {
-          this._label(ctx, label, pos.x - dotR - 6, pos.y, { size: 11.5, align: "right" });
-        } else {
-          this._label(ctx, label, pos.x + dotR + 6, pos.y, { size: 11.5 });
+        const nameW = ctx.measureText(nameText).width;
+        const glyphW = ctx.measureText(glyphText).width;
+        const retroW = ctx.measureText(retroText).width;
+        const totalW = nameW + 6 + glyphW + retroW;
+        
+        // Flip to left side if would clip right edge
+        const alignRight = pos.x + dotR + 8 + totalW > w - 4;
+        const baseX = alignRight ? pos.x - dotR - 6 : pos.x + dotR + 6;
+        const dir = alignRight ? -1 : 1;
+        
+        // Planet name in standard ink color
+        ctx.textAlign = alignRight ? "right" : "left";
+        this._label(ctx, nameText, baseX, pos.y, { size: 11.5, align: alignRight ? "right" : "left" });
+        
+        // Zodiac glyph in gold, elegant style
+        const glyphX = alignRight ? baseX - nameW - 6 : baseX + nameW + 6;
+        ctx.font = `bold 13px ${ZODIAC_FONT}`;
+        ctx.textAlign = alignRight ? "right" : "left";
+        ctx.textBaseline = "middle";
+        ctx.fillStyle = pal.gold;
+        ctx.fillText(glyphText, glyphX, pos.y);
+        
+        // Retrograde indicator in muted color
+        if (retro) {
+          const retroX = alignRight ? glyphX - glyphW - 2 : glyphX + glyphW + 2;
+          ctx.font = `italic 10px ${SERIF}`;
+          ctx.fillStyle = pal.muted;
+          ctx.fillText("R", retroX, pos.y);
         }
 
         this._pickables.push({
@@ -1970,14 +2071,11 @@
         { r: 118, name: "GEO", note: "35,786 km" },
       ];
       const R_MOON = 158;
-      const zInner = 178;
-      const zOuter = zInner + 26;
-      const fit = (Math.min(w, h) / 2 - 8) / (zOuter + 4);
+      const outer = R_MOON + 18;
+      const fit = (Math.min(w, h) / 2 - 8) / (outer + 4);
       const k = fit * this._vp.zoom;
       const cx = w / 2 + this._vp.x;
       const cy = h / 2 + this._vp.y;
-      const moonSign = signFromLon(ms.lon);
-      this._drawZodiacBand(ctx, cx, cy, zInner * k, zOuter * k, moonSign.index);
 
       // Orbit shells
       RINGS.forEach((ring, i) => {
@@ -2025,50 +2123,98 @@
       const mR = Math.max(7, Math.min(13, 8 * this._vp.zoom));
       this._drawMoonDisk(ctx, mPos.x, mPos.y, mR, ms.phaseAngle);
       this._label(ctx,
-        `Moon  ${moonSign.glyph}${TS} \u00B7 ${Math.round(ms.illumination * 100)}%`,
+        `Moon \u00B7 ${Math.round(ms.illumination * 100)}%`,
         mPos.x + mR + 6, mPos.y, { size: 11 });
       this._pickables.push({
         id: "moon:Moon", kind: "earthmoon", sx: mPos.x, sy: mPos.y,
         hit: Math.max(14, mR + 6), label: "Moon", moon: ms,
       });
 
-      // Live satellites — only passes flagged ongoing, placed by real azimuth
+      // Plot all tracked satellites at orbital positions
       if (this._layers.spacecraft !== false && this._mapData
         && Array.isArray(this._mapData.overhead_passes)) {
-        const live = this._mapData.overhead_passes.filter((p) => p.ongoing);
-        live.forEach((p) => {
-          const az = Number(p.azimuth_deg);
-          const hasAz = Number.isFinite(az);
-          // North-up compass: az 0° = top, clockwise
-          const a = hasAz ? (90 - az) : 90;
-          const isStation = /ISS|station/i.test(String(p.craft_name || ""));
-          const ring = isStation ? RINGS[0] : RINGS[1];
-          const pos = this._polar(cx, cy, k, a, ring.r);
-          ctx.fillStyle = pal.live;
+        const passes = this._mapData.overhead_passes;
+        // Group passes by craft to get unique satellites
+        const craftMap = new Map();
+        passes.forEach((p) => {
+          const id = p.craft_id || p.craft_name;
+          if (!craftMap.has(id) || p.ongoing) {
+            craftMap.set(id, p);
+          }
+        });
+        const satellites = [...craftMap.values()];
+        const now = Date.now();
+
+        satellites.forEach((p, idx) => {
+          const name = String(p.craft_name || p.craft_id || "");
+          const isStation = /ISS|station/i.test(name);
+          const isHubble = /hubble/i.test(name);
+          const isTiangong = /tiangong/i.test(name);
+
+          // Assign orbital ring: ISS/Hubble/Tiangong in LEO, others distributed
+          let ring;
+          if (isStation || isHubble || isTiangong) {
+            ring = RINGS[0]; // LEO
+          } else if (/GPS|GLONASS|Galileo|BeiDou/i.test(name)) {
+            ring = RINGS[1]; // MEO
+          } else {
+            ring = RINGS[Math.min(idx % 3, 2)]; // Distribute others
+          }
+
+          // Calculate orbital position based on pass timing and orbital period
+          let lon;
+          if (p.ongoing && p.azimuth_deg != null) {
+            // Use real azimuth for overhead satellites
+            lon = 90 - Number(p.azimuth_deg);
+          } else {
+            // Estimate position: LEO ~90min orbit, MEO ~12hr, GEO stationary
+            const passTime = new Date(p.pass_start || p.peak || now).getTime();
+            const orbitalPeriodMs = ring === RINGS[0] ? 5400000 : ring === RINGS[1] ? 43200000 : 86400000;
+            const elapsed = (now - passTime) % orbitalPeriodMs;
+            const baseLon = (idx * 47) % 360; // Spread satellites around
+            lon = baseLon + (elapsed / orbitalPeriodMs) * 360;
+          }
+
+          const pos = this._polar(cx, cy, k, lon, ring.r);
+          const isLive = p.ongoing;
+
+          // Satellite marker - diamond shape
+          const size = isLive ? 6 : 4;
+          ctx.fillStyle = isLive ? pal.live : pal.satInactive || "rgba(160, 140, 200, 0.7)";
           ctx.beginPath();
-          ctx.moveTo(pos.x, pos.y - 5);
-          ctx.lineTo(pos.x + 5, pos.y);
-          ctx.lineTo(pos.x, pos.y + 5);
-          ctx.lineTo(pos.x - 5, pos.y);
+          ctx.moveTo(pos.x, pos.y - size);
+          ctx.lineTo(pos.x + size, pos.y);
+          ctx.lineTo(pos.x, pos.y + size);
+          ctx.lineTo(pos.x - size, pos.y);
           ctx.closePath();
           ctx.fill();
-          ctx.strokeStyle = pal.live;
-          ctx.globalAlpha = 0.4;
-          ctx.lineWidth = 1;
-          ctx.beginPath(); ctx.arc(pos.x, pos.y, 9, 0, TWO_PI); ctx.stroke();
-          ctx.globalAlpha = 1;
-          this._label(ctx, `${p.craft_name || p.craft_id} \u00B7 overhead`,
-            pos.x + 9, pos.y, { size: 10, color: pal.live });
+
+          // Glow ring for live satellites
+          if (isLive) {
+            ctx.strokeStyle = pal.live;
+            ctx.globalAlpha = 0.5;
+            ctx.lineWidth = 1.5;
+            ctx.beginPath(); ctx.arc(pos.x, pos.y, 10, 0, TWO_PI); ctx.stroke();
+            ctx.globalAlpha = 1;
+          }
+
+          // Label - only show for overhead or when zoomed in
+          if (isLive || this._vp.zoom >= 1.3) {
+            const label = isLive ? `${name} \u00B7 overhead` : name;
+            this._label(ctx, label, pos.x + size + 4, pos.y,
+              { size: isLive ? 10 : 9, color: isLive ? pal.live : pal.muted });
+          }
+
           this._pickables.push({
             id: `pass:${p.craft_id}:${p.pass_start}`, kind: "pass",
-            sx: pos.x, sy: pos.y, hit: 16, label: p.craft_name || String(p.craft_id),
-            pass: p,
+            sx: pos.x, sy: pos.y, hit: Math.max(16, size + 8),
+            label: name, pass: p,
           });
         });
       }
 
-      // Compass cue: north marker on the outer band
-      this._label(ctx, "N", cx, cy - (zOuter * k) - 10, { align: "center", size: 10, color: pal.muted });
+      // Compass cue: north marker above moon orbit
+      this._label(ctx, "N", cx, cy - (R_MOON * k) - 10, { align: "center", size: 10, color: pal.muted });
     }
 
     /* -------------------------------- sun mode ------------------------------- */
@@ -2639,8 +2785,8 @@
     _renderChip() {
       const chip = this._el('[data-sm="solar-chip"]');
       if (!chip) return;
-      // Zodiac chip appears wherever the zodiac ring is shown (not Sun mode).
-      const show = this._mode !== "sun";
+      // Zodiac chip only appears in Solar System mode where the zodiac ring is shown.
+      const show = this._mode === "solar_system";
       chip.hidden = !show;
       if (!show) return;
       const date = this._date();
@@ -2648,13 +2794,23 @@
       const c = chineseYearByDate(date);
       chip.classList.add("sm-chip-zodiac");
       chip.innerHTML = `
-        <span class="sm-chip-z-title">Zodiac</span>
-        <span class="sm-chip-z-west"><span class="sm-chip-z-glyph" aria-hidden="true">${w.glyph}${TS}</span>${esc(w.name)}</span>
-        <span class="sm-chip-z-dot" aria-hidden="true">\u00B7</span>
-        <span class="sm-chip-z-cn">${esc(c.element)} ${esc(c.animal)}</span>`;
+        <span class="sm-chip-z-section western">
+          <span class="sm-chip-z-label">Constellation:</span>
+          <span class="sm-chip-z-west">
+            <span class="sm-chip-z-glyph" aria-hidden="true">${w.glyph}${TS}</span>
+            ${esc(w.name)}
+          </span>
+        </span>
+        <span class="sm-chip-z-section chinese">
+          <span class="sm-chip-z-label">Year of the:</span>
+          <span class="sm-chip-z-cn">
+            <span class="sm-chip-z-hanzi" aria-hidden="true">${c.hanzi || ""}</span>
+            ${esc(c.element)} ${esc(c.animal)}
+          </span>
+        </span>`;
       chip.setAttribute(
         "aria-label",
-        `Zodiac. Western sun sign ${w.name}. Chinese year of the ${c.polarity} ${c.element} ${c.animal}. Show sign details.`,
+        `Current constellation: ${w.name}. Year of the ${c.element} ${c.animal}. Tap for details.`,
       );
     }
 

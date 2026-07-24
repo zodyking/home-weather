@@ -7,7 +7,10 @@ Sources:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import math
+import re
 from typing import Any
 
 from homeassistant.core import HomeAssistant
@@ -40,6 +43,57 @@ PERIMETER_FIELDS = (
     "attr_POOCounty,attr_IncidentTypeCategory,attr_FireDiscoveryDateTime,"
     "poly_GISAcres,poly_DateCurrent"
 )
+
+# Extra miles beyond the configured radius when building the ArcGIS query envelope.
+WILDFIRE_QUERY_BUFFER_MILES = 150
+# Minimum query radius so nearby fires are not missed when the zone is small.
+WILDFIRE_MIN_QUERY_RADIUS_MILES = 300
+# Broad US envelope used when zone_mode is "all" (NIFC data is US-only).
+US_WILDFIRE_ENVELOPE = {
+    "xmin": -170.0,
+    "ymin": 18.0,
+    "xmax": -65.0,
+    "ymax": 72.0,
+    "spatialReference": {"wkid": 4326},
+}
+
+def _arcgis_bbox_envelope(home: dict[str, float], radius_miles: float) -> dict[str, Any]:
+    """Return an ArcGIS envelope around home for spatially filtered WFIGS queries."""
+    lat = float(home["lat"])
+    lon = float(home["lon"])
+    lat_delta = radius_miles / 69.0
+    cos_lat = math.cos(math.radians(lat)) or 1e-6
+    lon_delta = radius_miles / (69.0 * cos_lat)
+    return {
+        "xmin": lon - lon_delta,
+        "ymin": lat - lat_delta,
+        "xmax": lon + lon_delta,
+        "ymax": lat + lat_delta,
+        "spatialReference": {"wkid": 4326},
+    }
+
+
+def _wildfire_query_envelope(
+    home: dict[str, float],
+    wildfire_config: dict[str, Any],
+) -> dict[str, Any]:
+    """Choose a spatial envelope that balances coverage with ArcGIS quota usage."""
+    if wildfire_config.get("zone_mode", "zone") == "all":
+        return US_WILDFIRE_ENVELOPE
+    radius = float(wildfire_config.get("radius_miles") or 100)
+    query_radius = max(radius + WILDFIRE_QUERY_BUFFER_MILES, WILDFIRE_MIN_QUERY_RADIUS_MILES)
+    return _arcgis_bbox_envelope(home, query_radius)
+
+
+def _arcgis_retry_delay_seconds(error: dict[str, Any]) -> int:
+    """Parse Retry-After hints from an ArcGIS error payload."""
+    details = error.get("details") or []
+    for detail in details:
+        match = re.search(r"Retry after (\d+) sec", str(detail), re.IGNORECASE)
+        if match:
+            return max(int(match.group(1)), 1)
+    return 60
+
 
 EMPTY_GEOJSON: dict[str, Any] = {"type": "FeatureCollection", "features": []}
 
@@ -451,9 +505,10 @@ async def _fetch_arcgis_features(
     *,
     out_fields: str,
     geometry_type: str,
+    envelope: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Fetch all features from an ArcGIS FeatureServer query endpoint."""
-    params = {
+    params: dict[str, Any] = {
         "where": "1=1",
         "outFields": out_fields,
         "returnGeometry": "true",
@@ -461,15 +516,37 @@ async def _fetch_arcgis_features(
         "f": "json",
         "resultRecordCount": 2000,
     }
+    if envelope is not None:
+        params["geometry"] = json.dumps(envelope)
+        params["geometryType"] = "esriGeometryEnvelope"
+        params["spatialRel"] = "esriSpatialRelIntersects"
+        params["inSR"] = "4326"
+
     features: list[dict[str, Any]] = []
     offset = 0
+    max_attempts = 3
     while True:
         params["resultOffset"] = offset
-        async with session.get(url, params=params, timeout=60) as resp:
-            resp.raise_for_status()
-            payload = await resp.json(content_type=None)
-        if payload.get("error"):
-            raise RuntimeError(str(payload["error"]))
+        payload: dict[str, Any] | None = None
+        for attempt in range(max_attempts):
+            async with session.get(url, params=params, timeout=60) as resp:
+                resp.raise_for_status()
+                payload = await resp.json(content_type=None)
+            error = payload.get("error")
+            if not error:
+                break
+            if error.get("code") == 429 and attempt < max_attempts - 1:
+                delay = _arcgis_retry_delay_seconds(error)
+                _LOGGER.warning(
+                    "WFIGS rate limited (429) for %s; retrying in %ss",
+                    geometry_type,
+                    delay,
+                )
+                await asyncio.sleep(delay)
+                continue
+            raise RuntimeError(str(error))
+
+        assert payload is not None
         batch = payload.get("features") or []
         features.extend(batch)
         if not payload.get("exceededTransferLimit") or not batch:
@@ -493,15 +570,24 @@ async def async_fetch_wildfires(
 
     home = get_home_coordinates(hass, config)
     session = async_get_clientsession(hass)
+    envelope = _wildfire_query_envelope(home, wildfire_config)
 
-    raw_points, raw_polygons = await asyncio.gather(
-        _fetch_arcgis_features(
-            session, INCIDENTS_QUERY, out_fields=INCIDENT_FIELDS, geometry_type="point"
-        ),
-        _fetch_arcgis_features(
-            session, PERIMETERS_QUERY, out_fields=PERIMETER_FIELDS, geometry_type="polygon"
-        ),
+    raw_points = await _fetch_arcgis_features(
+        session,
+        INCIDENTS_QUERY,
+        out_fields=INCIDENT_FIELDS,
+        geometry_type="point",
+        envelope=envelope,
     )
+    raw_polygons: list[dict[str, Any]] = []
+    if wildfire_config.get("show_perimeters", True):
+        raw_polygons = await _fetch_arcgis_features(
+            session,
+            PERIMETERS_QUERY,
+            out_fields=PERIMETER_FIELDS,
+            geometry_type="polygon",
+            envelope=envelope,
+        )
 
     point_features: list[dict[str, Any]] = []
     for item in raw_points:

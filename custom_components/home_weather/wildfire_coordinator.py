@@ -8,9 +8,9 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .const import DOMAIN, UPDATE_INTERVAL
+from .const import DOMAIN, WILDFIRE_UPDATE_INTERVAL
 from .storage import HomeWeatherStorage
-from .wildfire_data import async_fetch_wildfires, detect_wildfire_events
+from .wildfire_data import async_fetch_wildfires, detect_wildfire_events, empty_payload
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -27,7 +27,7 @@ class WildfireCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             hass,
             _LOGGER,
             name=f"{DOMAIN}_wildfire",
-            update_interval=timedelta(seconds=UPDATE_INTERVAL),
+            update_interval=timedelta(seconds=WILDFIRE_UPDATE_INTERVAL),
         )
         self.storage = storage
         self._tracked_events: dict[str, dict[str, Any]] = {}
@@ -39,6 +39,15 @@ class WildfireCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self._fire_change_events(payload.get("alert_events") or [])
             return payload
         except Exception as err:
+            err_text = str(err)
+            if "429" in err_text or "Too many requests" in err_text:
+                _LOGGER.warning(
+                    "Wildfire data temporarily rate limited; keeping previous data: %s",
+                    err,
+                )
+                if self.data:
+                    return self.data
+                return empty_payload()
             _LOGGER.error("Error updating wildfire data: %s", err)
             raise UpdateFailed(f"Error updating wildfire data: {err}") from err
 

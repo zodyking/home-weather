@@ -286,6 +286,8 @@ NWS_SOUNDS_SUBPATH: Final = "home_weather/sounds"
 
 # Update interval for weather coordinator (5 minutes)
 UPDATE_INTERVAL: Final = 300
+# Wildfire ArcGIS queries are heavier; poll less often to avoid rate limits.
+WILDFIRE_UPDATE_INTERVAL: Final = 600
 
 # Panel configuration
 PANEL_URL_PATH: Final = "home-weather"

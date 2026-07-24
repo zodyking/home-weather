@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 from custom_components.home_weather.wildfire_data import (
+    US_WILDFIRE_ENVELOPE,
+    _arcgis_bbox_envelope,
+    _wildfire_query_envelope,
     arcgis_point_feature,
     arcgis_polygon_feature,
     build_coordinator_payload,
@@ -50,6 +53,20 @@ SAMPLE_PERIMETER = {
 }
 
 HOME = {"lat": 40.0, "lon": -100.0}
+
+
+def test_wildfire_query_envelope_uses_local_radius():
+    envelope = _wildfire_query_envelope(
+        HOME,
+        {"zone_mode": "zone", "radius_miles": 100},
+    )
+    local = _arcgis_bbox_envelope(HOME, 300)
+    assert envelope == local
+
+
+def test_wildfire_query_envelope_all_mode_uses_us_bounds():
+    envelope = _wildfire_query_envelope(HOME, {"zone_mode": "all", "radius_miles": 100})
+    assert envelope == US_WILDFIRE_ENVELOPE
 
 
 def test_arcgis_point_feature():

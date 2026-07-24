@@ -12,7 +12,9 @@ gets an alert-scaled affected-area ring radius for the hazard map.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -27,9 +29,9 @@ from .hurricane_geo import haversine_distance_miles
 _LOGGER = logging.getLogger(__name__)
 
 GVP_CATALOG_URL = (
-    "https://webservices.volcano.si.edu/geoserver/GVP-VOTW/wfs"
+    "https://webservices.volcano.si.edu/geoserver/GVP-VOTW/ows"
     "?service=WFS&version=1.0.0&request=GetFeature"
-    "&typeName=GVP-VOTW:Smithsonian_Holocene_Volcanoes"
+    "&typeName=GVP-VOTW:Smithsonian_VOTW_Holocene_Volcanoes"
     "&outputFormat=application/json"
 )
 GDACS_EVENTS_URL = "https://www.gdacs.org/gdacsapi/api/events/geteventlist/SEARCH"
@@ -610,6 +612,14 @@ def detect_volcano_events(
     return events_out
 
 
+def _extract_xml_service_exception(text: str) -> str | None:
+    """Return the GeoServer/OGC ServiceException message from an XML body."""
+    match = re.search(r"<ServiceException[^>]*>(.*?)</ServiceException>", text, re.DOTALL)
+    if not match:
+        return None
+    return " ".join(match.group(1).split())
+
+
 async def _fetch_json(session: Any, url: str, label: str, *, params: dict | None = None) -> Any:
     """Fetch JSON from a source, returning None on failure."""
     try:
@@ -617,7 +627,20 @@ async def _fetch_json(session: Any, url: str, label: str, *, params: dict | None
             if resp.status != 200:
                 _LOGGER.warning("%s returned HTTP %s", label, resp.status)
                 return None
-            return await resp.json(content_type=None)
+            text = await resp.text()
+            if not text.strip():
+                _LOGGER.warning("%s returned an empty response", label)
+                return None
+            stripped = text.lstrip()
+            content_type = (resp.headers.get("Content-Type") or "").lower()
+            if stripped.startswith("<?xml") or "xml" in content_type:
+                detail = _extract_xml_service_exception(text) or "non-JSON XML response"
+                _LOGGER.warning("%s fetch failed: %s", label, detail)
+                return None
+            return json.loads(text)
+    except json.JSONDecodeError as err:
+        _LOGGER.warning("%s fetch failed: invalid JSON (%s)", label, err)
+        return None
     except Exception as err:
         _LOGGER.warning("%s fetch failed: %s", label, err)
         return None
