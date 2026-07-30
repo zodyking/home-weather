@@ -18,8 +18,9 @@ from typing import Any, Callable
 from homeassistant.core import HomeAssistant, Event, callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.event import (
-    async_track_time_interval,
     async_track_state_change_event,
+    async_track_time_change,
+    async_track_time_interval,
 )
 from homeassistant.util import dt as dt_util
 
@@ -201,13 +202,18 @@ def compute_trigger_hours(start_h: int, end_h: int, hour_pattern: int) -> list[i
     return sorted(set(hours))
 
 
-def should_fire_scheduled_forecast(now: datetime, tts_config: dict[str, Any]) -> bool:
+def should_fire_scheduled_forecast(
+    now: datetime,
+    tts_config: dict[str, Any],
+    *,
+    check_minute: bool = True,
+) -> bool:
     """Return True when ``now`` matches the configured scheduled forecast slot."""
     if not tts_config.get("enable_time_based", False):
         return False
 
     minute_offset = _safe_int(tts_config.get("minute_offset"), 3, minimum=0)
-    if now.minute != minute_offset:
+    if check_minute and now.minute != minute_offset:
         return False
 
     hour_pattern = max(1, _safe_int(tts_config.get("hour_pattern"), 3, minimum=1))
@@ -260,13 +266,26 @@ def build_weather_data_from_state(hass: HomeAssistant, weather_entity: str) -> d
     }
 
 
-def media_players_with_tts(media_players: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def media_players_with_tts(
+    media_players: list[dict[str, Any]],
+    *,
+    fallback_tts_entity: str | None = None,
+) -> list[dict[str, Any]]:
     """Return media players that have both entity and TTS entity configured."""
-    return [
-        mp
-        for mp in media_players
-        if mp.get("entity_id") and mp.get("tts_entity_id")
-    ]
+    resolved: list[dict[str, Any]] = []
+    fallback = (fallback_tts_entity or "").strip()
+    for mp in media_players:
+        entity_id = mp.get("entity_id")
+        if not entity_id:
+            continue
+        tts_entity = (mp.get("tts_entity_id") or fallback or "").strip()
+        if not tts_entity:
+            continue
+        entry = dict(mp)
+        if not entry.get("tts_entity_id"):
+            entry["tts_entity_id"] = tts_entity
+        resolved.append(entry)
+    return resolved
 
 
 def _weather_data_usable(weather_data: dict[str, Any] | None) -> bool:
@@ -461,9 +480,9 @@ class TTSTriggerManager:
     async def _setup_time_based_trigger(self, tts_config: dict[str, Any]) -> None:
         """Set up time-based forecast triggers.
 
-        Polls once per minute (same cadence as sun alerts) and evaluates the
-        current schedule from live config so timing changes apply without a
-        full Home Assistant restart.
+        Uses Home Assistant's minute clock listener for exact slot timing and
+        re-reads the live schedule on each tick so config changes apply after
+        the trigger manager reloads.
         """
         minute_offset = _safe_int(tts_config.get("minute_offset"), 3, minimum=0)
         start_time = tts_config.get("start_time", "08:00")
@@ -474,28 +493,34 @@ class TTSTriggerManager:
         trigger_hours = compute_trigger_hours(start_h, end_h, hour_pattern)
 
         @callback
-        def _tick(now: datetime) -> None:
+        def _check_and_fire(now: datetime) -> None:
             self.hass.async_create_task(self._check_scheduled_forecast_tick(now))
 
-        unsub = async_track_time_interval(
+        unsub = async_track_time_change(
             self.hass,
-            _tick,
-            timedelta(minutes=1),
+            _check_and_fire,
+            minute=minute_offset,
+            second=0,
         )
         self._unsub_callbacks.append(unsub)
         _LOGGER.info(
-            "Time-based trigger set up: hours=%s at minute :%02d, window %s-%s (1 min poll)",
+            "Time-based trigger set up: hours=%s at minute :%02d, window %s-%s",
             trigger_hours,
             minute_offset,
             start_time,
             end_time,
         )
 
-    async def _check_scheduled_forecast_tick(self, now: datetime) -> None:
+    async def _check_scheduled_forecast_tick(
+        self,
+        now: datetime,
+        *,
+        check_minute: bool = False,
+    ) -> None:
         """Evaluate the live schedule and fire a forecast when the slot matches."""
         config = self._get_config()
         tts_config = config.get("tts") or {}
-        if not should_fire_scheduled_forecast(now, tts_config):
+        if not should_fire_scheduled_forecast(now, tts_config, check_minute=check_minute):
             return
 
         fire_key = now.strftime("%Y-%m-%d-%H-%M")
@@ -556,7 +581,7 @@ class TTSTriggerManager:
 
     async def fire_test_scheduled_forecast(self, *, request_id: str | None = None) -> None:
         """Play a scheduled forecast on all configured media players."""
-        await self._fire_scheduled_forecast(refresh_weather=False, request_id=request_id)
+        await self._fire_scheduled_forecast(refresh_weather=True, request_id=request_id)
 
     async def fire_test_current_change(self, *, request_id: str | None = None) -> None:
         """Play a sample current-change alert on all configured media players."""
@@ -1560,7 +1585,10 @@ class TTSTriggerManager:
         config = self._get_config()
         weather_data = await self._resolve_weather_data(refresh=refresh_weather)
         tts_config = config.get("tts", {})
-        media_players = media_players_with_tts(config.get("media_players", []))
+        media_players = media_players_with_tts(
+            config.get("media_players", []),
+            fallback_tts_entity=tts_config.get("engine"),
+        )
 
         if not media_players:
             _LOGGER.warning("No media players with TTS configured, skipping scheduled TTS")
@@ -1572,13 +1600,17 @@ class TTSTriggerManager:
             return
 
         if not _weather_data_usable(weather_data):
-            _LOGGER.warning("Weather data unavailable, skipping scheduled TTS")
-            _fire_tts_status(
-                self.hass, "skipped",
-                request_id=request_id, reason="Weather data unavailable",
-                alert_kind="scheduled_forecast",
-            )
-            return
+            weather_entity = config.get("weather_entity")
+            if weather_entity:
+                weather_data = build_weather_data_from_state(self.hass, weather_entity)
+            if not _weather_data_usable(weather_data):
+                _LOGGER.warning("Weather data unavailable, skipping scheduled TTS")
+                _fire_tts_status(
+                    self.hass, "skipped",
+                    request_id=request_id, reason="Weather data unavailable",
+                    alert_kind="scheduled_forecast",
+                )
+                return
 
         # Filter to specific media player if specified
         if target_media_player:
@@ -1591,8 +1623,33 @@ class TTSTriggerManager:
                     alert_kind="scheduled_forecast",
                 )
                 return
+
+        from .tts_notifications import resolve_announcement_players
+
+        resolved_players = resolve_announcement_players(
+            config, "scheduled_forecast", media_players
+        )
+        if not resolved_players:
+            _LOGGER.warning(
+                "All media players bypassed for scheduled_forecast, skipping scheduled TTS"
+            )
+            _fire_tts_status(
+                self.hass, "skipped",
+                request_id=request_id,
+                reason="All speakers bypassed for scheduled forecast",
+                alert_kind="scheduled_forecast",
+            )
+            return
         
         message = build_scheduled_forecast(weather_data, config)
+        if not message or not message.strip():
+            _LOGGER.warning("Scheduled forecast message was empty, skipping TTS")
+            _fire_tts_status(
+                self.hass, "skipped",
+                request_id=request_id, reason="Forecast message was empty",
+                alert_kind="scheduled_forecast",
+            )
+            return
         _LOGGER.debug(
             "Scheduled forecast TTS: len=%d, preview=%s",
             len(message),
@@ -1600,17 +1657,21 @@ class TTSTriggerManager:
         )
         await dispatch_tts_and_wait(
             self.hass,
-            media_players,
+            resolved_players,
             tts_config,
             message,
             request_id=request_id,
             alert_kind="scheduled_forecast",
             config=config, type_id="scheduled_forecast",
         )
-        _LOGGER.info("Scheduled forecast TTS sent to %s", target_media_player or "all players")
+        _LOGGER.info(
+            "Scheduled forecast TTS sent to %s (%d speaker(s))",
+            target_media_player or "all players",
+            len(resolved_players),
+        )
 
         await self._maybe_replay_nws_alerts_after_forecast(
-            config, media_players, request_id=request_id
+            config, resolved_players, request_id=request_id
         )
 
     async def _maybe_replay_nws_alerts_after_forecast(

@@ -157,6 +157,34 @@ def test_media_players_with_tts_filters_incomplete_entries():
     ]
 
 
+def test_media_players_with_tts_uses_fallback_engine():
+    players = [
+        {"entity_id": "media_player.kitchen", "tts_entity_id": ""},
+    ]
+    assert media_players_with_tts(
+        players,
+        fallback_tts_entity="tts.piper",
+    ) == [
+        {
+            "entity_id": "media_player.kitchen",
+            "tts_entity_id": "tts.piper",
+        }
+    ]
+
+
+def test_should_fire_scheduled_forecast_ignores_minute_when_disabled():
+    now = datetime(2026, 7, 30, 11, 4)
+    config = {
+        "enable_time_based": True,
+        "hour_pattern": 3,
+        "minute_offset": 3,
+        "start_time": "08:00",
+        "end_time": "21:00",
+        "days_of_week": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    }
+    assert should_fire_scheduled_forecast(now, config, check_minute=False) is True
+
+
 def test_build_weather_data_from_state_missing_entity():
     class _Hass:
         class states:
@@ -198,6 +226,39 @@ def test_setup_registers_time_based_trigger_without_master_switch():
         asyncio.run(manager.async_setup())
 
     mock_setup.assert_awaited_once()
+
+
+def test_setup_time_based_trigger_uses_clock_listener():
+    """Scheduled forecasts should use async_track_time_change, not polling."""
+    from unittest.mock import MagicMock, patch
+    import asyncio
+
+    from custom_components.home_weather.tts_triggers import TTSTriggerManager
+
+    config = {
+        "tts": {
+            "enable_time_based": True,
+            "hour_pattern": 3,
+            "minute_offset": 7,
+            "start_time": "08:00",
+            "end_time": "21:00",
+        },
+    }
+    manager = TTSTriggerManager(
+        hass=SimpleNamespace(),
+        get_config=lambda: config,
+        get_weather_data=lambda: {"configured": True},
+        refresh_weather_data=None,
+    )
+
+    with patch(
+        "custom_components.home_weather.tts_triggers.async_track_time_change",
+        return_value=MagicMock(),
+    ) as mock_track:
+        asyncio.run(manager._setup_time_based_trigger(config["tts"]))
+
+    mock_track.assert_called_once()
+    assert mock_track.call_args.kwargs.get("minute") == 7
 
 
 def test_setup_skips_time_based_when_no_sub_toggle_even_if_enabled_true():

@@ -348,6 +348,13 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
                     _LOGGER.info("Test forecast TTS queued successfully (request_id=%s)", request_id)
                 except Exception as err:
                     _LOGGER.error("Test forecast background task failed: %s", err, exc_info=True)
+                    _fire_tts_status(
+                        hass,
+                        "failed",
+                        request_id=request_id,
+                        reason=str(err) or type(err).__name__,
+                        alert_kind="scheduled_forecast",
+                    )
 
             hass.async_create_task(_run_test())
             connection.send_result(msg["id"], {"success": True, "status": "started", "request_id": request_id})

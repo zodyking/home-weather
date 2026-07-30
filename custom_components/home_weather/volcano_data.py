@@ -43,7 +43,9 @@ CATALOG_TTL = timedelta(hours=24)
 GDACS_QUERY_DAYS = 7
 GDACS_STALE_DAYS = 7
 GDACS_WARNING_COOLDOWN = timedelta(hours=1)
+GDACS_BACKOFF = timedelta(hours=6)
 _gdacs_last_warning_at: datetime | None = None
+_gdacs_backoff_until: datetime | None = None
 # Max distance for matching a GDACS alert to a catalog volcano when names differ.
 ACTIVITY_MATCH_MILES = 35.0
 
@@ -622,20 +624,52 @@ def _extract_xml_service_exception(text: str) -> str | None:
     return " ".join(match.group(1).split())
 
 
+def _format_fetch_error(err: BaseException) -> str:
+    """Return a useful fetch error string even when ``str(err)`` is empty."""
+    text = str(err).strip()
+    if text:
+        return f"{type(err).__name__}: {text}"
+    return type(err).__name__
+
+
+def _gdacs_in_backoff(now: datetime) -> bool:
+    """Return True when GDACS requests should be skipped after a recent outage."""
+    return _gdacs_backoff_until is not None and now < _gdacs_backoff_until
+
+
+def _mark_gdacs_backoff(now: datetime) -> None:
+    """Pause GDACS polling after repeated upstream failures."""
+    global _gdacs_backoff_until
+    _gdacs_backoff_until = now + GDACS_BACKOFF
+
+
 async def _fetch_json(session: Any, url: str, label: str, *, params: dict | None = None) -> Any:
     """Fetch JSON from a source, returning None on failure."""
     global _gdacs_last_warning_at
+    is_gdacs = label == "GDACS volcano alerts"
+    now = dt_util.utcnow()
+    if is_gdacs and _gdacs_in_backoff(now):
+        _LOGGER.debug("%s fetch skipped during backoff", label)
+        return None
     try:
         async with session.get(url, params=params, timeout=30) as resp:
             if resp.status != 200:
-                if label == "GDACS volcano alerts":
-                    now = dt_util.utcnow()
+                if is_gdacs:
+                    if resp.status in (400, 429, 502, 503, 504):
+                        _mark_gdacs_backoff(now)
                     if (
                         _gdacs_last_warning_at is None
                         or now - _gdacs_last_warning_at >= GDACS_WARNING_COOLDOWN
                     ):
                         _gdacs_last_warning_at = now
-                        _LOGGER.warning("%s returned HTTP %s", label, resp.status)
+                        if resp.status in (502, 503, 504):
+                            _LOGGER.debug(
+                                "%s returned HTTP %s (service unavailable; using other volcano sources)",
+                                label,
+                                resp.status,
+                            )
+                        else:
+                            _LOGGER.warning("%s returned HTTP %s", label, resp.status)
                 else:
                     _LOGGER.warning("%s returned HTTP %s", label, resp.status)
                 return None
@@ -647,14 +681,36 @@ async def _fetch_json(session: Any, url: str, label: str, *, params: dict | None
             content_type = (resp.headers.get("Content-Type") or "").lower()
             if stripped.startswith("<?xml") or "xml" in content_type:
                 detail = _extract_xml_service_exception(text) or "non-JSON XML response"
+                if is_gdacs:
+                    _mark_gdacs_backoff(now)
                 _LOGGER.warning("%s fetch failed: %s", label, detail)
                 return None
             return json.loads(text)
     except json.JSONDecodeError as err:
-        _LOGGER.warning("%s fetch failed: invalid JSON (%s)", label, err)
+        _LOGGER.warning("%s fetch failed: invalid JSON (%s)", label, _format_fetch_error(err))
         return None
     except Exception as err:
-        _LOGGER.warning("%s fetch failed: %s", label, err)
+        detail = _format_fetch_error(err)
+        if is_gdacs:
+            _mark_gdacs_backoff(now)
+            if _gdacs_in_backoff(now):
+                if (
+                    _gdacs_last_warning_at is None
+                    or now - _gdacs_last_warning_at >= GDACS_WARNING_COOLDOWN
+                ):
+                    _gdacs_last_warning_at = now
+                    _LOGGER.warning(
+                        "%s fetch failed: %s (backing off for %d hours)",
+                        label,
+                        detail,
+                        int(GDACS_BACKOFF.total_seconds() // 3600),
+                    )
+                else:
+                    _LOGGER.debug("%s fetch failed during backoff: %s", label, detail)
+            else:
+                _LOGGER.warning("%s fetch failed: %s", label, detail)
+        else:
+            _LOGGER.warning("%s fetch failed: %s", label, detail)
         return None
 
 

@@ -1195,10 +1195,10 @@ async def dispatch_tts_and_wait(
     players = media_players_config
     if config is not None and type_id:
         players = resolve_announcement_players(config, type_id, media_players_config)
-    
+
     await dispatch_tts(
         hass,
-        media_players_config,
+        players,
         tts_config,
         message,
         volume_override,
