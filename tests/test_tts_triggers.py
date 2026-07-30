@@ -447,3 +447,79 @@ def test_maybe_replay_refreshes_active_alerts_before_replay():
     replay_alerts = mock_replay.await_args.args[3]
     assert replay_alerts == refreshed
 
+
+def test_resolve_announcement_players_treats_string_false_as_not_bypassed():
+    from custom_components.home_weather.tts_notifications import resolve_announcement_players
+
+    config = {
+        "announcement_players": {
+            "scheduled_forecast": {
+                "media_player.kitchen": {"volume": 0.6, "bypass": "false"},
+            }
+        }
+    }
+    players = [
+        {"entity_id": "media_player.kitchen", "tts_entity_id": "tts.google", "volume": 0.5},
+    ]
+    resolved = resolve_announcement_players(config, "scheduled_forecast", players)
+    assert len(resolved) == 1
+    assert resolved[0]["entity_id"] == "media_player.kitchen"
+
+
+def test_fire_scheduled_forecast_skips_when_all_speakers_bypassed():
+    from unittest.mock import AsyncMock, patch
+    import asyncio
+
+    from custom_components.home_weather.tts_triggers import TTSTriggerManager
+
+    config = {
+        "weather_entity": "weather.home",
+        "tts": {},
+        "announcement_players": {
+            "scheduled_forecast": {
+                "media_player.kitchen": {"volume": 0.6, "bypass": True},
+            }
+        },
+        "media_players": [
+            {"entity_id": "media_player.kitchen", "tts_entity_id": "tts.google"},
+        ],
+    }
+    weather = {"configured": True, "current": {"condition": "sunny"}}
+    manager = TTSTriggerManager(
+        hass=SimpleNamespace(),
+        get_config=lambda: config,
+        get_weather_data=lambda: weather,
+        refresh_weather_data=None,
+    )
+
+    with patch(
+        "custom_components.home_weather.tts_triggers.dispatch_tts_and_wait",
+        new=AsyncMock(),
+    ) as mock_dispatch, patch(
+        "custom_components.home_weather.tts_triggers._fire_tts_status",
+    ) as mock_status:
+        asyncio.run(manager._fire_scheduled_forecast(refresh_weather=False, request_id="abc"))
+
+    mock_dispatch.assert_not_awaited()
+    mock_status.assert_called()
+    assert mock_status.call_args.args[1] == "skipped"
+
+
+def test_migrate_announcement_players_merges_missing_scheduled_forecast_entries():
+    from custom_components.home_weather.config_migration import migrate_config
+
+    raw = {
+        "media_players": [
+            {"entity_id": "media_player.kitchen", "tts_entity_id": "tts.google", "volume": 0.7},
+        ],
+        "announcement_players": {
+            "nws_alerts": {
+                "media_player.kitchen": {"volume": 0.9, "bypass": False},
+            }
+        },
+    }
+    merged = migrate_config(raw)
+    scheduled = merged["announcement_players"]["scheduled_forecast"]["media_player.kitchen"]
+    assert scheduled["bypass"] is False
+    assert scheduled["volume"] == 0.7
+
