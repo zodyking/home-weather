@@ -17,7 +17,7 @@ SERVICE_SPEAK_SCHEDULED_FORECAST = "speak_scheduled_forecast"
 
 SPEAK_SCHEDULED_FORECAST_SCHEMA = vol.Schema(
     {
-        vol.Optional("config_entry_id"): cv.config_entry_id(DOMAIN),
+        vol.Optional("config_entry_id"): cv.string,
         vol.Optional("media_player"): cv.entity_id,
         vol.Optional("refresh_weather", default=True): cv.boolean,
     }
