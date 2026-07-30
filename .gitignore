@@ -32,3 +32,6 @@ htmlcov/
 
 # HACS
 .hacs.json
+
+# Agent scratch / helper docs (local only)
+Agent-Files/
