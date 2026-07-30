@@ -1,6 +1,7 @@
 """Unit tests for TTS trigger helpers."""
 from __future__ import annotations
 
+from datetime import datetime
 from types import SimpleNamespace
 
 from custom_components.home_weather.tts_triggers import (
@@ -10,6 +11,8 @@ from custom_components.home_weather.tts_triggers import (
     compute_trigger_hours,
     extract_weather_condition,
     media_players_with_tts,
+    normalize_days_of_week,
+    should_fire_scheduled_forecast,
 )
 
 
@@ -69,6 +72,66 @@ def test_compute_trigger_hours_anchors_to_start():
 
 def test_compute_trigger_hours_every_hour():
     assert compute_trigger_hours(8, 10, 1) == [8, 9, 10]
+
+
+def test_compute_trigger_hours_supports_overnight_window():
+    assert compute_trigger_hours(22, 6, 2) == [0, 2, 4, 6, 22]
+
+
+def test_normalize_days_of_week_accepts_numeric_values():
+    assert normalize_days_of_week([0, 2, 4]) == {0, 2, 4}
+
+
+def test_should_fire_scheduled_forecast_matches_configured_slot():
+    now = datetime(2026, 7, 30, 11, 3)
+    config = {
+        "enable_time_based": True,
+        "hour_pattern": 3,
+        "minute_offset": 3,
+        "start_time": "08:00",
+        "end_time": "21:00",
+        "days_of_week": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    }
+    assert should_fire_scheduled_forecast(now, config) is True
+
+
+def test_should_fire_scheduled_forecast_skips_wrong_minute():
+    now = datetime(2026, 7, 30, 11, 4)
+    config = {
+        "enable_time_based": True,
+        "hour_pattern": 3,
+        "minute_offset": 3,
+        "start_time": "08:00",
+        "end_time": "21:00",
+        "days_of_week": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    }
+    assert should_fire_scheduled_forecast(now, config) is False
+
+
+def test_should_fire_scheduled_forecast_skips_when_disabled():
+    now = datetime(2026, 7, 30, 11, 3)
+    config = {
+        "enable_time_based": False,
+        "hour_pattern": 3,
+        "minute_offset": 3,
+        "start_time": "08:00",
+        "end_time": "21:00",
+        "days_of_week": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    }
+    assert should_fire_scheduled_forecast(now, config) is False
+
+
+def test_should_fire_scheduled_forecast_tolerates_null_offsets():
+    now = datetime(2026, 7, 30, 8, 3)
+    config = {
+        "enable_time_based": True,
+        "hour_pattern": None,
+        "minute_offset": None,
+        "start_time": "08:00",
+        "end_time": "21:00",
+        "days_of_week": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    }
+    assert should_fire_scheduled_forecast(now, config) is True
 
 
 def test_extract_weather_condition_prefers_attribute():
@@ -197,6 +260,42 @@ def test_sun_alerts_setup_uses_filtered_player_list():
 
     # No time interval registered because no player has TTS configured.
     mock_track.assert_not_called()
+
+
+def test_scheduled_forecast_tick_fires_once_per_minute():
+    """Regression: minute polling should fire exactly once per matched slot."""
+    from unittest.mock import AsyncMock, patch
+    import asyncio
+
+    from custom_components.home_weather.tts_triggers import TTSTriggerManager
+
+    config = {
+        "weather_entity": "weather.home",
+        "tts": {
+            "enable_time_based": True,
+            "hour_pattern": 3,
+            "minute_offset": 3,
+            "start_time": "08:00",
+            "end_time": "21:00",
+            "days_of_week": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+        },
+        "media_players": [
+            {"entity_id": "media_player.kitchen", "tts_entity_id": "tts.google"},
+        ],
+    }
+    manager = TTSTriggerManager(
+        hass=SimpleNamespace(),
+        get_config=lambda: config,
+        get_weather_data=lambda: {"configured": True, "current": {"condition": "sunny"}},
+        refresh_weather_data=None,
+    )
+    now = datetime(2026, 7, 30, 11, 3)
+
+    with patch.object(manager, "_fire_scheduled_forecast", new=AsyncMock()) as mock_fire:
+        asyncio.run(manager._check_scheduled_forecast_tick(now))
+        asyncio.run(manager._check_scheduled_forecast_tick(now))
+
+    mock_fire.assert_awaited_once()
 
 
 def test_scheduled_forecast_waits_for_tts_before_nws_replay():

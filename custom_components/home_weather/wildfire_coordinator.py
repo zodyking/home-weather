@@ -48,6 +48,25 @@ class WildfireCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if self.data:
                     return self.data
                 return empty_payload()
+            if (
+                "ContentLengthError" in err_text
+                or "payload is not completed" in err_text
+                or "Not enough data to satisfy content length" in err_text
+            ):
+                _LOGGER.warning(
+                    "Wildfire data response truncated; keeping previous data: %s",
+                    err,
+                )
+                if self.data:
+                    return self.data
+                return empty_payload()
+            if not err_text.strip():
+                _LOGGER.warning(
+                    "Wildfire data fetch failed with an empty error; keeping previous data"
+                )
+                if self.data:
+                    return self.data
+                return empty_payload()
             _LOGGER.error("Error updating wildfire data: %s", err)
             raise UpdateFailed(f"Error updating wildfire data: {err}") from err
 

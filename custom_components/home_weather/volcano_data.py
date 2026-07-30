@@ -40,8 +40,10 @@ HANS_ELEVATED_URL = "https://volcanoes.usgs.gov/vsc/api/volcanoApi/elevated"
 # How long the GVP catalog stays fresh before re-fetching (it changes ~monthly).
 CATALOG_TTL = timedelta(hours=24)
 # GDACS query window and staleness cutoff for events without iscurrent.
-GDACS_QUERY_DAYS = 30
+GDACS_QUERY_DAYS = 7
 GDACS_STALE_DAYS = 7
+GDACS_WARNING_COOLDOWN = timedelta(hours=1)
+_gdacs_last_warning_at: datetime | None = None
 # Max distance for matching a GDACS alert to a catalog volcano when names differ.
 ACTIVITY_MATCH_MILES = 35.0
 
@@ -622,10 +624,20 @@ def _extract_xml_service_exception(text: str) -> str | None:
 
 async def _fetch_json(session: Any, url: str, label: str, *, params: dict | None = None) -> Any:
     """Fetch JSON from a source, returning None on failure."""
+    global _gdacs_last_warning_at
     try:
         async with session.get(url, params=params, timeout=30) as resp:
             if resp.status != 200:
-                _LOGGER.warning("%s returned HTTP %s", label, resp.status)
+                if label == "GDACS volcano alerts":
+                    now = dt_util.utcnow()
+                    if (
+                        _gdacs_last_warning_at is None
+                        or now - _gdacs_last_warning_at >= GDACS_WARNING_COOLDOWN
+                    ):
+                        _gdacs_last_warning_at = now
+                        _LOGGER.warning("%s returned HTTP %s", label, resp.status)
+                else:
+                    _LOGGER.warning("%s returned HTTP %s", label, resp.status)
                 return None
             text = await resp.text()
             if not text.strip():
@@ -658,12 +670,17 @@ async def _fetch_gvp_catalog(session: Any, home: dict[str, float]) -> list[dict[
 
 async def _fetch_gdacs_activity(session: Any) -> list[dict[str, Any]]:
     now = dt_util.utcnow()
-    params = {
-        "eventlist": "VO",
-        "fromdate": (now - timedelta(days=GDACS_QUERY_DAYS)).date().isoformat(),
-        "todate": now.date().isoformat(),
-    }
-    data = await _fetch_json(session, GDACS_EVENTS_URL, "GDACS volcano alerts", params=params)
+    from_date = (now - timedelta(days=GDACS_QUERY_DAYS)).date().isoformat()
+    to_date = now.date().isoformat()
+    param_sets = (
+        {"eventlist": "VO", "fromdate": from_date, "todate": to_date},
+        {"eventlist": "VO", "fromDate": from_date, "toDate": to_date},
+    )
+    data = None
+    for params in param_sets:
+        data = await _fetch_json(session, GDACS_EVENTS_URL, "GDACS volcano alerts", params=params)
+        if isinstance(data, dict):
+            break
     if not isinstance(data, dict):
         return []
     features = data.get("features")

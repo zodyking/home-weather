@@ -121,7 +121,7 @@
       this._baseLayers = null;
       this._statusCollapsed = true;
       this._showZones = false;
-      this._zoneConfig = [];
+      this._zoneConfig = Array.isArray(options.zoneConfig) ? options.zoneConfig : [];
       this._theme = "dark";
       this._userChoseBasemap = false;
       this._layersMenuOpen = false;
@@ -2970,7 +2970,12 @@
       // Establish a valid initial view immediately. Without a center/zoom the
       // map has no view and tiles never load (blank map); fitBounds runs later
       // once the container has a real size.
-      this._safe(() => this._map.setView([39.8283, -98.5795], 4));
+      const home = this._resolveHome();
+      if (home) {
+        this._safe(() => this._map.setView([home.lat, home.lon], 8));
+      } else {
+        this._safe(() => this._map.setView([39.8283, -98.5795], 4));
+      }
 
       const baseLayers = {
         Dark: L.tileLayer(DARK_TILE_URL, { maxZoom: 19, subdomains: "abcd", attribution: CARTO_ATTR }),
@@ -3504,10 +3509,47 @@
       });
     }
 
+    _milesToLatOffset(miles) {
+      return Number(miles) / 69.0;
+    }
+
+    _milesToLonOffset(miles, lat) {
+      const cos = Math.cos((Number(lat) * Math.PI) / 180);
+      return Number(miles) / (69.0 * Math.max(0.15, Math.abs(cos)));
+    }
+
+    /**
+     * Bounds covering home plus the largest configured alert-zone radius.
+     * Used for the initial map view when no hazard geometry is in frame yet.
+     */
+    _getConfiguredZoneFitBounds() {
+      const L = global.L;
+      const home = this._resolveHome();
+      if (!home || !L) return null;
+
+      const zones = Array.isArray(this._zoneConfig) ? this._zoneConfig : [];
+      let maxRadius = 0;
+      zones.forEach((zone) => {
+        if (!zone || zone.enabled === false) return;
+        const miles = Number(zone.radius_miles);
+        if (Number.isFinite(miles) && miles > 0) {
+          maxRadius = Math.max(maxRadius, miles);
+        }
+      });
+      if (maxRadius <= 0) maxRadius = 75;
+
+      const dLat = this._milesToLatOffset(maxRadius);
+      const dLon = this._milesToLonOffset(maxRadius, home.lat);
+      return L.latLngBounds(
+        [home.lat - dLat, home.lon - dLon],
+        [home.lat + dLat, home.lon + dLon],
+      );
+    }
+
     _fitMapView(stormBounds) {
       const L = global.L;
       const usa = this._getUsaBounds();
-      if (!this._map || !usa || !L) return;
+      if (!this._map || !L) return;
       if (this._userViewLocked) return;
 
       // Remember the requested bounds so we can retry once the container is
@@ -3519,24 +3561,32 @@
         return;
       }
 
-      const fitOpts = { padding: [48, 48], maxZoom: 8 };
-      const points = this._collectFitPoints(stormBounds);
+      const fitOpts = { padding: [48, 48], maxZoom: 10 };
+      const hazardPoints = this._collectFitPoints(stormBounds);
+      const zoneBounds = this._getConfiguredZoneFitBounds();
+      let targetBounds = null;
 
-      if (points.length > 0) {
-        const combined = L.latLngBounds(points).extend(usa);
-        // Guard against antimeridian / bad coordinates blowing the fit out to
-        // the entire tiled world (zoom 1). If the span is near-global, a hazard
-        // is on the far side of the planet — stay anchored on the USA instead.
-        const lngSpan = combined.getEast() - combined.getWest();
-        const latSpan = combined.getNorth() - combined.getSouth();
-        if (lngSpan <= 170 && latSpan <= 120) {
-          this._map.fitBounds(combined, fitOpts);
-        } else {
-          this._map.fitBounds(usa, { padding: [24, 24], maxZoom: 8 });
-        }
-      } else {
-        this._map.fitBounds(usa, { padding: [24, 24], maxZoom: 8 });
+      if (hazardPoints.length > 0) {
+        targetBounds = L.latLngBounds(hazardPoints);
+        if (zoneBounds) targetBounds = targetBounds.extend(zoneBounds);
+      } else if (zoneBounds) {
+        targetBounds = zoneBounds;
+      } else if (usa) {
+        targetBounds = usa;
       }
+
+      if (!targetBounds) return;
+
+      const lngSpan = targetBounds.getEast() - targetBounds.getWest();
+      const latSpan = targetBounds.getNorth() - targetBounds.getSouth();
+      if (lngSpan > 170 || latSpan > 120) {
+        // Guard against antimeridian / bad coordinates blowing the fit out to
+        // the entire tiled world. Prefer the configured home zones, then USA.
+        targetBounds = zoneBounds || usa;
+        if (!targetBounds) return;
+      }
+
+      this._map.fitBounds(targetBounds, fitOpts);
       this._hasInitialFit = true;
     }
 
