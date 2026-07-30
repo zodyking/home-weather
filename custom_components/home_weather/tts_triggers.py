@@ -579,9 +579,23 @@ class TTSTriggerManager:
         self._unsub_callbacks.append(unsub)
         _LOGGER.info("Current change trigger set up for %s", weather_entity)
 
+    async def speak_scheduled_forecast(
+        self,
+        target_media_player: str = "",
+        *,
+        refresh_weather: bool = True,
+        request_id: str | None = None,
+    ) -> None:
+        """Manually speak a scheduled forecast outside the automatic schedule."""
+        await self._fire_scheduled_forecast(
+            target_media_player,
+            refresh_weather=refresh_weather,
+            request_id=request_id,
+        )
+
     async def fire_test_scheduled_forecast(self, *, request_id: str | None = None) -> None:
         """Play a scheduled forecast on all configured media players."""
-        await self._fire_scheduled_forecast(refresh_weather=True, request_id=request_id)
+        await self.speak_scheduled_forecast(request_id=request_id)
 
     async def fire_test_current_change(self, *, request_id: str | None = None) -> None:
         """Play a sample current-change alert on all configured media players."""

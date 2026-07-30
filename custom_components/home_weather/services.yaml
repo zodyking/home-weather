@@ -1,0 +1,28 @@
+speak_scheduled_forecast:
+  name: Speak scheduled forecast
+  description: >-
+    Speak the full scheduled weather forecast on configured media players.
+    Ignores the automatic schedule window and can be used from automations or scripts.
+  fields:
+    config_entry_id:
+      name: Config entry
+      description: >-
+        Home Weather config entry to use. Optional when only one entry is configured.
+      advanced: true
+      selector:
+        config_entry:
+          integration: home_weather
+    media_player:
+      name: Media player
+      description: >-
+        Optional media player to announce on. When omitted, all configured
+        non-skipped speakers are used.
+      selector:
+        entity:
+          domain: media_player
+    refresh_weather:
+      name: Refresh weather
+      description: Refresh weather data before building the forecast message.
+      default: true
+      selector:
+        boolean:

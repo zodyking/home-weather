@@ -15,6 +15,9 @@ _LOGGER = logging.getLogger(__name__)
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up the Home Weather integration."""
     hass.data.setdefault(DOMAIN, {})
+    from .ha_services import async_setup_services
+
+    async_setup_services(hass)
     return True
 
 
