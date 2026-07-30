@@ -425,13 +425,18 @@ class TTSTriggerManager:
         
         _LOGGER.info("TTS triggers unloaded")
 
-    async def _resolve_weather_data(self, *, refresh: bool = True) -> dict[str, Any]:
+    async def _resolve_weather_data(
+        self,
+        *,
+        refresh: bool = True,
+        allow_live_fallback: bool = True,
+    ) -> dict[str, Any]:
         """Refresh and return the best available weather data for TTS.
 
         Coordinator data may be empty/stale (configured: False) when the
-        weather entity is mid-refresh or hasn't run yet. We always attempt a
-        live-state fallback so TTS for non-sunrise alerts isn't silently
-        dropped just because the coordinator cache is cold.
+        weather entity is mid-refresh or hasn't run yet. When
+        ``allow_live_fallback`` is True, a live entity-state read is used as a
+        last resort for non-scheduled alert paths.
         """
         if refresh and self._refresh_weather_data:
             try:
@@ -452,9 +457,16 @@ class TTSTriggerManager:
         if configured and has_payload:
             return weather_data
 
+        if not allow_live_fallback:
+            _LOGGER.warning(
+                "Weather data unavailable (configured=%s, has_payload=%s)",
+                configured,
+                has_payload,
+            )
+            return weather_data
+
         # Coordinator cache is cold/empty: fall back to live entity state so
-        # alerts still play. Sunrise/sunset don't need this, but every other
-        # alert path does.
+        # alerts still play. Scheduled forecasts intentionally skip this path.
         weather_entity = self._get_config().get("weather_entity")
         if not weather_entity:
             _LOGGER.warning(
@@ -1583,7 +1595,10 @@ class TTSTriggerManager:
             request_id: Optional correlation id for TTS status events.
         """
         config = self._get_config()
-        weather_data = await self._resolve_weather_data(refresh=refresh_weather)
+        weather_data = await self._resolve_weather_data(
+            refresh=refresh_weather,
+            allow_live_fallback=False,
+        )
         tts_config = config.get("tts", {})
         media_players = media_players_with_tts(
             config.get("media_players", []),
@@ -1600,17 +1615,13 @@ class TTSTriggerManager:
             return
 
         if not _weather_data_usable(weather_data):
-            weather_entity = config.get("weather_entity")
-            if weather_entity:
-                weather_data = build_weather_data_from_state(self.hass, weather_entity)
-            if not _weather_data_usable(weather_data):
-                _LOGGER.warning("Weather data unavailable, skipping scheduled TTS")
-                _fire_tts_status(
-                    self.hass, "skipped",
-                    request_id=request_id, reason="Weather data unavailable",
-                    alert_kind="scheduled_forecast",
-                )
-                return
+            _LOGGER.warning("Weather data unavailable, skipping scheduled TTS")
+            _fire_tts_status(
+                self.hass, "skipped",
+                request_id=request_id, reason="Weather data unavailable",
+                alert_kind="scheduled_forecast",
+            )
+            return
 
         # Filter to specific media player if specified
         if target_media_player:
