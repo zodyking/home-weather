@@ -205,41 +205,42 @@ _WEATHER_ALERT_TYPES = (
 def _migrate_announcement_players(
     merged: dict[str, Any], raw: dict[str, Any]
 ) -> None:
-    """Seed announcement_players from legacy per-type volumes for existing installs.
+    """Seed and merge announcement_players per-speaker volume/bypass settings.
 
-    When upgrading from a config without announcement_players, set each player's
-    volume per alert type from the legacy tts_volume (hazards) or the player's
-    default volume (weather types), with bypass=false so behavior is unchanged.
+    Legacy installs without announcement_players get a full seed. Partial configs
+    (for example only hazard types present) are merged so weather types such as
+    scheduled_forecast always have entries for every configured media player.
     """
-    raw_ap = raw.get("announcement_players")
-    # Only seed if announcement_players was absent or empty in stored config
-    if raw_ap and isinstance(raw_ap, dict) and any(raw_ap.values()):
-        return
-
     media_players = merged.get("media_players") or []
     if not media_players:
         return
 
+    raw_ap = raw.get("announcement_players")
     announcement_players: dict[str, dict[str, dict[str, Any]]] = {}
+    if isinstance(raw_ap, dict):
+        for type_id, players in raw_ap.items():
+            if isinstance(players, dict):
+                announcement_players[type_id] = dict(players)
 
-    # Hazard alert types: use the legacy tts_volume from each alert block
+    if not raw_ap or not isinstance(raw_ap, dict) or not any(raw_ap.values()):
+        announcement_players = {}
+
     for type_id in _HAZARD_ALERT_TYPES:
         alert_block = merged.get(type_id) or {}
         tts_vol = alert_block.get("tts_volume", 0.9)
-        type_map: dict[str, dict[str, Any]] = {}
+        type_map = dict(announcement_players.get(type_id) or {})
         for mp in media_players:
             entity_id = mp.get("entity_id")
-            if entity_id:
+            if entity_id and entity_id not in type_map:
                 type_map[entity_id] = {"volume": tts_vol, "bypass": False}
         if type_map:
             announcement_players[type_id] = type_map
 
-    # Weather/sun alert types: use each player's own default volume
     for type_id in _WEATHER_ALERT_TYPES:
-        type_map = {}
+        type_map = dict(announcement_players.get(type_id) or {})
         for mp in media_players:
             entity_id = mp.get("entity_id")
-            if entity_id:
+            if entity_id and entity_id not in type_map:
                 vol = mp.get("volume", 0.6)
                 type_map[entity_id] = {"volume": vol, "bypass": False}
         if type_map:

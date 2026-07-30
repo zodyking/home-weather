@@ -743,6 +743,21 @@ def _schedule_volume_restore(
 # ============================================================================
 
 
+def _coerce_bool(value: Any, default: bool = False) -> bool:
+    """Parse bool-like values from stored config or UI payloads."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off", ""}:
+            return False
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return default
+
+
 def resolve_announcement_players(
     config: dict[str, Any],
     type_id: str,
@@ -772,7 +787,7 @@ def resolve_announcement_players(
         override = type_overrides.get(entity_id) or {}
         
         # Skip bypassed players
-        if override.get("bypass", False):
+        if _coerce_bool(override.get("bypass"), False):
             continue
         
         # Copy player config and apply volume override
