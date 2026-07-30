@@ -7289,6 +7289,7 @@ class HomeWeatherPanel extends HTMLElement {
       ai_rewrite_prompt: "You are a friendly meteorologist. Rewrite this weather forecast in a natural, conversational way.",
     };
     const tts = { ...defaultTts, ...(this._settings.tts || {}) };
+    const hourPattern = Number(tts.hour_pattern ?? 3);
     // Ensure arrays
     if (!Array.isArray(tts.sensor_triggers)) tts.sensor_triggers = [];
     if (!Array.isArray(tts.webhooks)) tts.webhooks = [];
@@ -8078,12 +8079,12 @@ class HomeWeatherPanel extends HTMLElement {
               <div class="form-group">
                 <label>Announce Every</label>
                 <select id="hour-pattern">
-                  <option value="1" ${tts.hour_pattern === 1 ? "selected" : ""}>1 hour</option>
-                  <option value="2" ${tts.hour_pattern === 2 ? "selected" : ""}>2 hours</option>
-                  <option value="3" ${tts.hour_pattern === 3 ? "selected" : ""}>3 hours</option>
-                  <option value="4" ${tts.hour_pattern === 4 ? "selected" : ""}>4 hours</option>
-                  <option value="6" ${tts.hour_pattern === 6 ? "selected" : ""}>6 hours</option>
-                  <option value="12" ${tts.hour_pattern === 12 ? "selected" : ""}>12 hours</option>
+                  <option value="1" ${hourPattern === 1 ? "selected" : ""}>1 hour</option>
+                  <option value="2" ${hourPattern === 2 ? "selected" : ""}>2 hours</option>
+                  <option value="3" ${hourPattern === 3 ? "selected" : ""}>3 hours</option>
+                  <option value="4" ${hourPattern === 4 ? "selected" : ""}>4 hours</option>
+                  <option value="6" ${hourPattern === 6 ? "selected" : ""}>6 hours</option>
+                  <option value="12" ${hourPattern === 12 ? "selected" : ""}>12 hours</option>
                 </select>
               </div>
               <div class="form-group">
@@ -8996,8 +8997,8 @@ class HomeWeatherPanel extends HTMLElement {
     return {
       ...existing,
       enable_time_based: s.getElementById("enable-time-based")?.checked ?? existing.enable_time_based ?? false,
-      hour_pattern: parseInt(s.getElementById("hour-pattern")?.value || existing.hour_pattern || 3, 10),
-      minute_offset: parseInt(s.getElementById("minute-offset")?.value || existing.minute_offset || 3, 10),
+      hour_pattern: Math.min(12, Math.max(1, parseInt(s.getElementById("hour-pattern")?.value || existing.hour_pattern || 3, 10) || 3)),
+      minute_offset: Math.min(59, Math.max(0, parseInt(s.getElementById("minute-offset")?.value || existing.minute_offset || 3, 10) || 3)),
       start_time: s.getElementById("start-time")?.value || existing.start_time || "08:00",
       end_time: s.getElementById("end-time")?.value || existing.end_time || "21:00",
       days_of_week: daysOfWeek.length > 0 ? daysOfWeek : (existing.days_of_week || ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]),

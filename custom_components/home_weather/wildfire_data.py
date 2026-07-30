@@ -514,7 +514,7 @@ async def _fetch_arcgis_features(
         "returnGeometry": "true",
         "outSR": "4326",
         "f": "json",
-        "resultRecordCount": 2000,
+        "resultRecordCount": 1000,
     }
     if envelope is not None:
         params["geometry"] = json.dumps(envelope)

@@ -18,7 +18,6 @@ from typing import Any, Callable
 from homeassistant.core import HomeAssistant, Event, callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.event import (
-    async_track_time_change,
     async_track_time_interval,
     async_track_state_change_event,
 )
@@ -128,19 +127,109 @@ def extract_weather_condition(state: Any) -> str:
     return normalize_weather_condition(raw)
 
 
+def _safe_int(value: Any, default: int, *, minimum: int | None = None) -> int:
+    """Parse an int from config/UI values, falling back when missing or invalid."""
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    if minimum is not None and parsed < minimum:
+        return default
+    return parsed
+
+
+def parse_time_hm(value: Any, default_h: int, default_m: int) -> tuple[int, int]:
+    """Parse an HH:MM string into hour/minute components."""
+    if not value or not isinstance(value, str):
+        return default_h, default_m
+    try:
+        hour_str, minute_str = value.split(":", 1)
+        hour = int(hour_str)
+        minute = int(minute_str)
+    except (TypeError, ValueError):
+        return default_h, default_m
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        return default_h, default_m
+    return hour, minute
+
+
+def normalize_days_of_week(days_of_week: Any) -> set[int]:
+    """Normalize configured days to weekday numbers (Mon=0 .. Sun=6)."""
+    day_map = {
+        "mon": 0,
+        "tue": 1,
+        "wed": 2,
+        "thu": 3,
+        "fri": 4,
+        "sat": 5,
+        "sun": 6,
+    }
+    if not days_of_week:
+        return set(range(7))
+
+    allowed: set[int] = set()
+    for day in days_of_week:
+        if isinstance(day, int) and 0 <= day <= 6:
+            allowed.add(day)
+            continue
+        if isinstance(day, str):
+            mapped = day_map.get(day.lower()[:3], -1)
+            if mapped >= 0:
+                allowed.add(mapped)
+    return allowed or set(range(7))
+
+
 def compute_trigger_hours(start_h: int, end_h: int, hour_pattern: int) -> list[int]:
     """Compute clock hours for time-based forecasts anchored to start_h."""
     hour_pattern = int(hour_pattern)
     start_h = int(start_h)
     end_h = int(end_h)
-    if hour_pattern <= 0 or start_h > end_h:
+    if hour_pattern <= 0:
         return []
-    hours: list[int] = []
-    hour = start_h
-    while hour <= end_h:
-        hours.append(hour)
-        hour += hour_pattern
-    return hours
+    if start_h <= end_h:
+        hours: list[int] = []
+        hour = start_h
+        while hour <= end_h:
+            hours.append(hour)
+            hour += hour_pattern
+        return hours
+
+    # Overnight window (e.g. 22:00-06:00): anchor from start_h through midnight,
+    # then continue from midnight through end_h.
+    hours = list(range(start_h, 24, hour_pattern))
+    hours.extend(range(0, end_h + 1, hour_pattern))
+    return sorted(set(hours))
+
+
+def should_fire_scheduled_forecast(now: datetime, tts_config: dict[str, Any]) -> bool:
+    """Return True when ``now`` matches the configured scheduled forecast slot."""
+    if not tts_config.get("enable_time_based", False):
+        return False
+
+    minute_offset = _safe_int(tts_config.get("minute_offset"), 3, minimum=0)
+    if now.minute != minute_offset:
+        return False
+
+    hour_pattern = max(1, _safe_int(tts_config.get("hour_pattern"), 3, minimum=1))
+    start_h, start_m = parse_time_hm(tts_config.get("start_time"), 8, 0)
+    end_h, end_m = parse_time_hm(tts_config.get("end_time"), 21, 0)
+
+    if now.weekday() not in normalize_days_of_week(tts_config.get("days_of_week")):
+        return False
+
+    current_minutes = now.hour * 60 + now.minute
+    start_minutes = start_h * 60 + start_m
+    end_minutes = end_h * 60 + end_m
+    if start_minutes <= end_minutes:
+        if not (start_minutes <= current_minutes <= end_minutes):
+            return False
+        trigger_hours = compute_trigger_hours(start_h, end_h, hour_pattern)
+    elif not (current_minutes >= start_minutes or current_minutes <= end_minutes):
+        return False
+    else:
+        trigger_hours = compute_trigger_hours(start_h, end_h, hour_pattern)
+
+    return now.hour in trigger_hours
 
 
 def build_weather_data_from_state(hass: HomeAssistant, weather_entity: str) -> dict[str, Any]:
@@ -231,6 +320,7 @@ class TTSTriggerManager:
         self._nws_bootstrapped: bool = False
         self._tropical_snapshot: dict[str, Any] | None = None
         self._tropical_bootstrapped: bool = False
+        self._scheduled_forecast_last_fire_key: str | None = None
 
     async def async_setup(self) -> None:
         """Set up all enabled triggers based on config.
@@ -370,70 +460,55 @@ class TTSTriggerManager:
 
     async def _setup_time_based_trigger(self, tts_config: dict[str, Any]) -> None:
         """Set up time-based forecast triggers.
-        
-        Triggers at regular intervals (hour_pattern) with minute offset,
-        filtered by start/end time and days of week.
+
+        Polls once per minute (same cadence as sun alerts) and evaluates the
+        current schedule from live config so timing changes apply without a
+        full Home Assistant restart.
         """
-        hour_pattern = int(tts_config.get("hour_pattern", 3))
-        minute_offset = int(tts_config.get("minute_offset", 3))
+        minute_offset = _safe_int(tts_config.get("minute_offset"), 3, minimum=0)
         start_time = tts_config.get("start_time", "08:00")
         end_time = tts_config.get("end_time", "21:00")
-        days_of_week = tts_config.get("days_of_week", [])
-        
-        # Parse start/end times
-        try:
-            start_h, start_m = map(int, start_time.split(":"))
-            end_h, end_m = map(int, end_time.split(":"))
-        except:
-            start_h, start_m = 8, 0
-            end_h, end_m = 21, 0
-        
-        # Day abbreviations to weekday numbers
-        day_map = {"mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6}
-        allowed_days = {day_map.get(d.lower()[:3], -1) for d in days_of_week}
-        allowed_days.discard(-1)
-        if not allowed_days:
-            allowed_days = set(range(7))  # Default to all days
-        
+        hour_pattern = max(1, _safe_int(tts_config.get("hour_pattern"), 3, minimum=1))
+        start_h, _ = parse_time_hm(start_time, 8, 0)
+        end_h, _ = parse_time_hm(end_time, 21, 0)
         trigger_hours = compute_trigger_hours(start_h, end_h, hour_pattern)
-        
+
         @callback
-        def _check_and_fire(now: datetime) -> None:
-            """Check if conditions are met and fire forecast."""
-            # Check day of week
-            if now.weekday() not in allowed_days:
-                return
-            
-            # Check time window
-            current_minutes = now.hour * 60 + now.minute
-            start_minutes = start_h * 60 + start_m
-            end_minutes = end_h * 60 + end_m
-            
-            if not (start_minutes <= current_minutes <= end_minutes):
-                return
-            
-            # Check if this hour matches pattern
-            if now.hour not in trigger_hours:
-                return
-            
-            # Fire scheduled forecast
-            self.hass.async_create_task(self._fire_scheduled_forecast())
-        
-        # Register time change listener for the minute offset
-        unsub = async_track_time_change(
+        def _tick(now: datetime) -> None:
+            self.hass.async_create_task(self._check_scheduled_forecast_tick(now))
+
+        unsub = async_track_time_interval(
             self.hass,
-            _check_and_fire,
-            minute=minute_offset,
-            second=0,
+            _tick,
+            timedelta(minutes=1),
         )
         self._unsub_callbacks.append(unsub)
         _LOGGER.info(
-            "Time-based trigger set up: hours=%s at minute %d, window %s-%s",
+            "Time-based trigger set up: hours=%s at minute :%02d, window %s-%s (1 min poll)",
             trigger_hours,
             minute_offset,
             start_time,
             end_time,
         )
+
+    async def _check_scheduled_forecast_tick(self, now: datetime) -> None:
+        """Evaluate the live schedule and fire a forecast when the slot matches."""
+        config = self._get_config()
+        tts_config = config.get("tts") or {}
+        if not should_fire_scheduled_forecast(now, tts_config):
+            return
+
+        fire_key = now.strftime("%Y-%m-%d-%H-%M")
+        if self._scheduled_forecast_last_fire_key == fire_key:
+            return
+
+        self._scheduled_forecast_last_fire_key = fire_key
+        _LOGGER.info("Scheduled forecast slot matched (%s); firing TTS", fire_key)
+        try:
+            await self._fire_scheduled_forecast()
+        except Exception as err:
+            _LOGGER.exception("Scheduled forecast TTS failed: %s", err)
+            self._scheduled_forecast_last_fire_key = None
 
     async def _setup_current_change_trigger(self, config: dict[str, Any]) -> None:
         """Set up trigger for when current weather conditions change."""

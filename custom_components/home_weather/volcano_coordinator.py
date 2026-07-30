@@ -6,11 +6,11 @@ from datetime import timedelta
 from typing import Any
 
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .const import DOMAIN, UPDATE_INTERVAL
 from .storage import HomeWeatherStorage
-from .volcano_data import async_fetch_volcanoes, detect_volcano_events
+from .volcano_data import async_fetch_volcanoes, detect_volcano_events, empty_coordinator_payload
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -46,8 +46,16 @@ class VolcanoCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self._fire_change_events(payload.get("alert_events") or [])
             return payload
         except Exception as err:
-            _LOGGER.error("Error updating volcano data: %s", err)
-            raise UpdateFailed(f"Error updating volcano data: {err}") from err
+            err_text = str(err)
+            if not err_text.strip():
+                _LOGGER.warning(
+                    "Volcano data fetch failed with an empty error; keeping previous data"
+                )
+            else:
+                _LOGGER.warning("Volcano data fetch failed; keeping previous data: %s", err)
+            if self.data:
+                return self.data
+            return empty_coordinator_payload()
 
     async def _fire_change_events(self, events: list[dict[str, Any]]) -> None:
         """Fire HA bus events when volcano activity is detected, updated, or cleared."""
