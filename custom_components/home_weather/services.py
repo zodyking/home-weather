@@ -21,6 +21,14 @@ from .tts_triggers import media_players_with_tts
 _LOGGER = logging.getLogger(__name__)
 
 
+def _ws_test_type(command_type: str) -> dict:
+    """WebSocket schema for test commands that accept a client request_id."""
+    return {
+        vol.Required("type"): command_type,
+        vol.Optional("request_id"): str,
+    }
+
+
 def _get_entry_data(hass: HomeAssistant) -> dict[str, Any] | None:
     """Return the first loaded integration entry data dict."""
     if DOMAIN not in hass.data:
@@ -316,9 +324,7 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
             connection.send_error(msg["id"], "tts_failed", str(e))
 
     @websocket_api.websocket_command(
-        {
-            "type": "home_weather/test_forecast",
-        }
+        _ws_test_type("home_weather/test_forecast")
     )
     @websocket_api.async_response
     async def handle_test_forecast(
@@ -378,9 +384,7 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
             connection.send_error(msg["id"], "forecast_failed", str(e))
 
     @websocket_api.websocket_command(
-        {
-            "type": "home_weather/test_current_change",
-        }
+        _ws_test_type("home_weather/test_current_change")
     )
     @websocket_api.async_response
     async def handle_test_current_change(
@@ -478,111 +482,111 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
         return _handler
 
     handle_test_upcoming_change = websocket_api.websocket_command(
-        {"type": "home_weather/test_upcoming_change"}
+        _ws_test_type("home_weather/test_upcoming_change")
     )(_make_alert_test_handler("fire_test_upcoming_change", "upcoming_change_failed"))
 
     handle_test_sensor_triggered = websocket_api.websocket_command(
-        {"type": "home_weather/test_sensor_triggered"}
+        _ws_test_type("home_weather/test_sensor_triggered")
     )(_make_alert_test_handler("fire_test_sensor_triggered", "sensor_test_failed"))
 
     handle_test_webhook = websocket_api.websocket_command(
-        {"type": "home_weather/test_webhook"}
+        _ws_test_type("home_weather/test_webhook")
     )(_make_alert_test_handler("fire_test_webhook", "webhook_test_failed"))
 
     handle_test_sunrise = websocket_api.websocket_command(
-        {"type": "home_weather/test_sunrise"}
+        _ws_test_type("home_weather/test_sunrise")
     )(_make_alert_test_handler("fire_test_sunrise", "sunrise_test_failed", require_weather=False))
 
     handle_test_sunset = websocket_api.websocket_command(
-        {"type": "home_weather/test_sunset"}
+        _ws_test_type("home_weather/test_sunset")
     )(_make_alert_test_handler("fire_test_sunset", "sunset_test_failed", require_weather=False))
 
     handle_test_nws_alert = websocket_api.websocket_command(
-        {"type": "home_weather/test_nws_alert"}
+        _ws_test_type("home_weather/test_nws_alert")
     )(_make_alert_test_handler("fire_test_nws_alert", "nws_test_failed", require_weather=False))
 
     handle_test_nws_siren = websocket_api.websocket_command(
-        {"type": "home_weather/test_nws_siren"}
+        _ws_test_type("home_weather/test_nws_siren")
     )(_make_alert_test_handler("fire_test_nws_siren", "nws_siren_test_failed", require_weather=False))
 
     handle_test_tropical_siren = websocket_api.websocket_command(
-        {"type": "home_weather/test_tropical_siren"}
+        _ws_test_type("home_weather/test_tropical_siren")
     )(_make_alert_test_handler("fire_test_tropical_siren", "tropical_siren_test_failed", require_weather=False))
 
     handle_test_tornado_siren = websocket_api.websocket_command(
-        {"type": "home_weather/test_tornado_siren"}
+        _ws_test_type("home_weather/test_tornado_siren")
     )(_make_alert_test_handler("fire_test_tornado_siren", "tornado_siren_test_failed", require_weather=False))
 
     handle_test_earthquake_siren = websocket_api.websocket_command(
-        {"type": "home_weather/test_earthquake_siren"}
+        _ws_test_type("home_weather/test_earthquake_siren")
     )(_make_alert_test_handler("fire_test_earthquake_siren", "earthquake_siren_test_failed", require_weather=False))
 
     handle_test_volcano_siren = websocket_api.websocket_command(
-        {"type": "home_weather/test_volcano_siren"}
+        _ws_test_type("home_weather/test_volcano_siren")
     )(_make_alert_test_handler("fire_test_volcano_siren", "volcano_siren_test_failed", require_weather=False))
 
     handle_test_tropical_alert = websocket_api.websocket_command(
-        {"type": "home_weather/test_tropical_alert"}
+        _ws_test_type("home_weather/test_tropical_alert")
     )(_make_alert_test_handler("fire_test_tropical_alert", "tropical_test_failed", require_weather=False))
 
     handle_test_tornado_alert = websocket_api.websocket_command(
-        {"type": "home_weather/test_tornado_alert"}
+        _ws_test_type("home_weather/test_tornado_alert")
     )(_make_alert_test_handler("fire_test_tornado_alert", "tornado_test_failed", require_weather=False))
 
     handle_test_earthquake_alert = websocket_api.websocket_command(
-        {"type": "home_weather/test_earthquake_alert"}
+        _ws_test_type("home_weather/test_earthquake_alert")
     )(_make_alert_test_handler("fire_test_earthquake_alert", "earthquake_test_failed", require_weather=False))
 
     handle_test_volcano_alert = websocket_api.websocket_command(
-        {"type": "home_weather/test_volcano_alert"}
+        _ws_test_type("home_weather/test_volcano_alert")
     )(_make_alert_test_handler("fire_test_volcano_alert", "volcano_test_failed", require_weather=False))
 
     handle_test_wildfire_siren = websocket_api.websocket_command(
-        {"type": "home_weather/test_wildfire_siren"}
+        _ws_test_type("home_weather/test_wildfire_siren")
     )(_make_alert_test_handler("fire_test_wildfire_siren", "wildfire_siren_test_failed", require_weather=False))
 
     handle_test_air_quality_siren = websocket_api.websocket_command(
-        {"type": "home_weather/test_air_quality_siren"}
+        _ws_test_type("home_weather/test_air_quality_siren")
     )(_make_alert_test_handler("fire_test_air_quality_siren", "air_quality_siren_test_failed", require_weather=False))
 
     handle_test_wildfire_alert = websocket_api.websocket_command(
-        {"type": "home_weather/test_wildfire_alert"}
+        _ws_test_type("home_weather/test_wildfire_alert")
     )(_make_alert_test_handler("fire_test_wildfire_alert", "wildfire_test_failed", require_weather=False))
 
     handle_test_air_quality_alert = websocket_api.websocket_command(
-        {"type": "home_weather/test_air_quality_alert"}
+        _ws_test_type("home_weather/test_air_quality_alert")
     )(_make_alert_test_handler("fire_test_air_quality_alert", "air_quality_test_failed", require_weather=False))
 
     handle_test_travel_alert = websocket_api.websocket_command(
-        {"type": "home_weather/test_travel_alert"}
+        _ws_test_type("home_weather/test_travel_alert")
     )(_make_alert_test_handler("fire_test_travel_alert", "travel_test_failed", require_weather=False))
 
     handle_test_travel_siren = websocket_api.websocket_command(
-        {"type": "home_weather/test_travel_siren"}
+        _ws_test_type("home_weather/test_travel_siren")
     )(_make_alert_test_handler("fire_test_travel_siren", "travel_siren_test_failed", require_weather=False))
 
     handle_test_spacecraft_alert = websocket_api.websocket_command(
-        {"type": "home_weather/test_spacecraft_alert"}
+        _ws_test_type("home_weather/test_spacecraft_alert")
     )(_make_alert_test_handler("fire_test_spacecraft_alert", "spacecraft_test_failed", require_weather=False))
 
     handle_test_spacecraft_siren = websocket_api.websocket_command(
-        {"type": "home_weather/test_spacecraft_siren"}
+        _ws_test_type("home_weather/test_spacecraft_siren")
     )(_make_alert_test_handler("fire_test_spacecraft_siren", "spacecraft_siren_test_failed", require_weather=False))
 
     handle_test_solar_weather_alert = websocket_api.websocket_command(
-        {"type": "home_weather/test_solar_weather_alert"}
+        _ws_test_type("home_weather/test_solar_weather_alert")
     )(_make_alert_test_handler("fire_test_solar_weather_alert", "solar_weather_test_failed", require_weather=False))
 
     handle_test_solar_weather_siren = websocket_api.websocket_command(
-        {"type": "home_weather/test_solar_weather_siren"}
+        _ws_test_type("home_weather/test_solar_weather_siren")
     )(_make_alert_test_handler("fire_test_solar_weather_siren", "solar_weather_siren_test_failed", require_weather=False))
 
     handle_test_neo_alert = websocket_api.websocket_command(
-        {"type": "home_weather/test_neo_alert"}
+        _ws_test_type("home_weather/test_neo_alert")
     )(_make_alert_test_handler("fire_test_neo_alert", "neo_test_failed", require_weather=False))
 
     handle_test_neo_siren = websocket_api.websocket_command(
-        {"type": "home_weather/test_neo_siren"}
+        _ws_test_type("home_weather/test_neo_siren")
     )(_make_alert_test_handler("fire_test_neo_siren", "neo_siren_test_failed", require_weather=False))
 
     @websocket_api.websocket_command(
