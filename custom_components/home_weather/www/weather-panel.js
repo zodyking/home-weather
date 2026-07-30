@@ -702,6 +702,10 @@ class HomeWeatherPanel extends HTMLElement {
     }, 3200);
   }
 
+  _formatInstalledVersionLabel() {
+    return this._version ? `v${this._version}` : "Version unknown";
+  }
+
   /** Update the inline save-status pill in place (no re-render). */
   _setSaveStatus(state, message) {
     const el = this.shadowRoot?.getElementById("settings-save-status");
@@ -3724,15 +3728,25 @@ class HomeWeatherPanel extends HTMLElement {
           bottom: 0;
           z-index: 10;
           display: flex;
-          gap: 12px;
-          justify-content: flex-end;
-          margin-top: 8px;
-          padding: 16px 0 calc(16px + var(--safe-bottom));
+          align-items: center;
+          justify-content: space-between;
+          gap: 16px;
+          margin-top: 12px;
+          padding: 14px 18px calc(14px + var(--safe-bottom));
           background: var(--hw-surface);
-          border-top: 1px solid var(--hw-border-strong);
+          border: 1px solid var(--hw-border);
+          border-radius: var(--radius-md);
+          box-sizing: border-box;
+        }
+        .settings-footer-version {
+          margin-left: auto;
+          font-size: 12.5px;
+          font-weight: 500;
+          color: var(--hw-muted);
+          white-space: nowrap;
+          flex-shrink: 0;
         }
         .settings-save-status {
-          margin-right: auto;
           align-self: center;
           display: inline-flex;
           align-items: center;
@@ -3762,7 +3776,7 @@ class HomeWeatherPanel extends HTMLElement {
         .settings-save-status[data-state="error"]::before { background: var(--hw-danger); }
         @keyframes hwSavePulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
         @media (max-width: 560px) {
-          .settings-save-status { width: 100%; margin-right: 0; order: -1; }
+          .settings-save-status { width: 100%; }
         }
         .settings-toast {
           position: fixed;
@@ -4643,8 +4657,11 @@ class HomeWeatherPanel extends HTMLElement {
           .settings-form-grid { grid-template-columns: 1fr; }
           .settings-card { padding: 16px; }
           .form-row-inline { flex-direction: column; }
-          .settings-form-footer { flex-wrap: wrap; }
-          .settings-form-footer .btn { flex: 1 1 auto; min-height: 44px; }
+          .settings-form-footer {
+            flex-wrap: wrap;
+            padding: 12px 14px calc(12px + var(--safe-bottom));
+          }
+          .settings-footer-version { margin-left: 0; }
         }
 
         /* Alert zone cards + hazard monitoring collapsibles */
@@ -5611,17 +5628,6 @@ class HomeWeatherPanel extends HTMLElement {
       });
     }
     
-    // Save and Cancel (explicit)
-    const saveBtn = s.getElementById("save-btn");
-    const cancelBtn = s.getElementById("cancel-btn");
-    if (saveBtn) saveBtn.addEventListener("click", () => this._saveSettings());
-    if (cancelBtn) cancelBtn.addEventListener("click", () => {
-      if (this._autoSaveTimer) { clearTimeout(this._autoSaveTimer); this._autoSaveTimer = null; }
-      this._settings = JSON.parse(JSON.stringify(this._config || {}));
-      this._clearSettingsNotice();
-      this._render();
-    });
-
     // Auto-save: debounced background save on any settings edit. Applied
     // optimistically so the form never blocks. The theme controls persist
     // separately (instantly) via _persistAppearance, so we skip them here.
@@ -6501,8 +6507,10 @@ class HomeWeatherPanel extends HTMLElement {
         shadowRoot: s,
         embedded: true,
         home: this._getHomeCoordinates(),
+        zoneConfig: this._getZoneOverlayConfig(),
         lightningSettings: this._settings.lightning_monitoring || this._settings.lightning || { enabled: true, show_on_map: true, max_age_minutes: 60, max_strikes: 500 },
       });
+      this._hurricaneTracker.setShowZones?.(this._mapsShowZones, this._getZoneOverlayConfig());
       await this._hurricaneTracker.init(root);
       this._hurricaneTracker.setShowWindRadii(this._mapsWindRadii);
       this._hurricaneTracker.setMapLayers(this._mapsLayers);
@@ -8546,8 +8554,7 @@ class HomeWeatherPanel extends HTMLElement {
 
             <div class="settings-form-footer">
               <span class="settings-save-status" id="settings-save-status" role="status" aria-live="polite" data-state="idle"></span>
-              <button class="btn btn-secondary" id="cancel-btn">Revert</button>
-              <button class="btn btn-primary" id="save-btn">Save now</button>
+              <span class="settings-footer-version" id="settings-footer-version">${this._formatInstalledVersionLabel()}</span>
             </div>
           </div>
         </div>
