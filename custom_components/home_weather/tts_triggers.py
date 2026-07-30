@@ -581,7 +581,7 @@ class TTSTriggerManager:
 
     async def fire_test_scheduled_forecast(self, *, request_id: str | None = None) -> None:
         """Play a scheduled forecast on all configured media players."""
-        await self._fire_scheduled_forecast(refresh_weather=False, request_id=request_id)
+        await self._fire_scheduled_forecast(refresh_weather=True, request_id=request_id)
 
     async def fire_test_current_change(self, *, request_id: str | None = None) -> None:
         """Play a sample current-change alert on all configured media players."""
@@ -1668,11 +1668,13 @@ class TTSTriggerManager:
         )
         await dispatch_tts_and_wait(
             self.hass,
-            resolved_players,
+            media_players,
             tts_config,
             message,
             request_id=request_id,
             alert_kind="scheduled_forecast",
+            config=config,
+            type_id="scheduled_forecast",
         )
         _LOGGER.info(
             "Scheduled forecast TTS sent to %s (%d speaker(s))",

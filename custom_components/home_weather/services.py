@@ -31,6 +31,21 @@ def _get_entry_data(hass: HomeAssistant) -> dict[str, Any] | None:
     return None
 
 
+def _parse_request_id(msg: dict[str, Any]) -> str:
+    """Return a client-supplied request id or generate a new one.
+
+    The frontend registers TTS status listeners before the WS round-trip
+    completes, so it can pass a correlation id to avoid missing fast
+    skipped/failed status events.
+    """
+    raw = msg.get("request_id")
+    if isinstance(raw, str):
+        cleaned = raw.strip()
+        if len(cleaned) >= 8 and cleaned.isalnum():
+            return cleaned[:64]
+    return uuid.uuid4().hex
+
+
 @callback
 def async_setup_websocket_api(hass: HomeAssistant) -> None:
     """Set up WebSocket API handlers."""
@@ -340,7 +355,7 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
                 connection.send_error(msg["id"], "not_configured", "Weather not configured")
                 return
 
-            request_id = uuid.uuid4().hex
+            request_id = _parse_request_id(msg)
 
             async def _run_test() -> None:
                 try:
@@ -401,7 +416,7 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
                 connection.send_error(msg["id"], "not_configured", "Weather not configured")
                 return
 
-            request_id = uuid.uuid4().hex
+            request_id = _parse_request_id(msg)
 
             async def _run_test() -> None:
                 try:
@@ -448,7 +463,7 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
                 connection.send_error(msg["id"], "method_missing", method_name)
                 return
 
-            request_id = uuid.uuid4().hex
+            request_id = _parse_request_id(msg)
 
             async def _run() -> None:
                 try:

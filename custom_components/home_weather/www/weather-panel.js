@@ -220,6 +220,55 @@ class HomeWeatherPanel extends HTMLElement {
     this._pendingTtsRequests.set(request_id, { btn, originalLabel, resetTimer: null });
   }
 
+  _newTtsRequestId() {
+    if (typeof crypto !== "undefined" && crypto.randomUUID) {
+      return crypto.randomUUID().replace(/-/g, "");
+    }
+    return `${Date.now().toString(16)}${Math.random().toString(16).slice(2, 10)}`;
+  }
+
+  /** Persist unsaved settings edits before a test so speaker skip/volume match the form. */
+  async _flushSettingsSave() {
+    if (!this._hass || this._currentView !== "settings") return;
+    if (this._autoSaveTimer) {
+      clearTimeout(this._autoSaveTimer);
+      this._autoSaveTimer = null;
+    }
+    this._syncSettingsFromForm();
+    const snapshot = JSON.parse(JSON.stringify(this._settings));
+    this._config = JSON.parse(JSON.stringify(snapshot));
+    try {
+      await this._hass.callWS({ type: "home_weather/set_config", config: snapshot });
+    } catch (e) {
+      console.warn("Pre-test settings flush failed:", e);
+    }
+  }
+
+  /** Return a skip label when every speaker is muted for an announcement type. */
+  _allSpeakersSkippedMessage(typeId) {
+    const s = this.shadowRoot;
+    if (!s || !typeId) return "";
+    const rows = s.querySelectorAll(`.per-speaker-list[data-type-id="${typeId}"] .per-speaker-row`);
+    if (!rows.length) return "";
+    let allSkipped = true;
+    rows.forEach((row) => {
+      const chk = row.querySelector(".per-speaker-bypass-input");
+      if (!chk?.checked) allSkipped = false;
+    });
+    return allSkipped
+      ? "Skipped: all speakers muted for this type"
+      : "";
+  }
+
+  _resetTestButton(btn, originalLabel, delayMs = 4000) {
+    setTimeout(() => {
+      if (btn && this.shadowRoot && this.shadowRoot.contains(btn)) {
+        btn.textContent = originalLabel;
+        btn.disabled = false;
+      }
+    }, delayMs);
+  }
+
   _handleWebhookTriggered(event) {
     const { webhook_id, timestamp } = event.data || {};
     if (!webhook_id) return;
@@ -5508,39 +5557,57 @@ class HomeWeatherPanel extends HTMLElement {
     // Shared helper: wire a test button to a WS command and reflect real TTS
     // playback status (sent/failed/skipped) via the home_weather_tts_status
     // event instead of a blind "Queued" label.
-    const wireStatusTestButton = (btn, wsType, busyLabel = "Sending\u2026") => {
+    const wireStatusTestButton = (btn, wsType, busyLabel = "Sending\u2026", options = {}) => {
       if (!btn) return;
       btn.addEventListener("click", async () => {
         const originalLabel = btn.textContent;
         btn.textContent = busyLabel;
         btn.disabled = true;
         try {
-          const result = await this._hass.callWS({ type: wsType });
-          const requestId = (result && result.request_id) || "";
-          if (requestId) {
-            this._trackTtsRequest(requestId, btn, originalLabel);
-            // Fallback: if no status event arrives in 12s, reset label.
-            const fallback = setTimeout(() => {
-              if (this._pendingTtsRequests && this._pendingTtsRequests.has(requestId)) {
-                this._pendingTtsRequests.delete(requestId);
-                if (this.shadowRoot && this.shadowRoot.contains(btn)) {
-                  btn.textContent = originalLabel;
-                  btn.disabled = false;
-                }
-              }
-            }, 12000);
-            const pending = this._pendingTtsRequests.get(requestId);
-            if (pending) pending.fallbackTimer = fallback;
-          } else {
-            // No correlation id: keep old behavior as a safe fallback.
-            btn.textContent = "Queued";
-            setTimeout(() => {
-              if (this.shadowRoot && this.shadowRoot.contains(btn) && btn.textContent === "Queued") {
-                btn.textContent = originalLabel;
-                btn.disabled = false;
-              }
-            }, 2500);
+          if (options.flushSave) {
+            await this._flushSettingsSave();
           }
+          if (options.typeId) {
+            const skipMsg = this._allSpeakersSkippedMessage(options.typeId);
+            if (skipMsg) {
+              btn.textContent = skipMsg;
+              this._resetTestButton(btn, originalLabel);
+              return;
+            }
+          }
+
+          const requestId = this._newTtsRequestId();
+          // Register before the WS call so fast skipped/failed events are not missed.
+          this._trackTtsRequest(requestId, btn, originalLabel);
+
+          const result = await this._hass.callWS({ type: wsType, request_id: requestId });
+          const echoedId = (result && result.request_id) || requestId;
+          if (echoedId !== requestId) {
+            const pending = this._pendingTtsRequests.get(requestId);
+            if (pending) {
+              this._pendingTtsRequests.delete(requestId);
+              this._trackTtsRequest(echoedId, btn, originalLabel);
+            }
+          }
+          if (!echoedId) {
+            this._pendingTtsRequests.delete(requestId);
+            btn.textContent = "Queued";
+            this._resetTestButton(btn, originalLabel, 2500);
+            return;
+          }
+
+          const trackedId = echoedId || requestId;
+          const fallback = setTimeout(() => {
+            if (this._pendingTtsRequests && this._pendingTtsRequests.has(trackedId)) {
+              this._pendingTtsRequests.delete(trackedId);
+              if (this.shadowRoot && this.shadowRoot.contains(btn)) {
+                btn.textContent = "No response from speaker";
+                this._resetTestButton(btn, originalLabel);
+              }
+            }
+          }, 12000);
+          const pending = this._pendingTtsRequests.get(trackedId);
+          if (pending) pending.fallbackTimer = fallback;
         } catch (e) {
           console.error(`${wsType} failed:`, e);
           alert(`${originalLabel} failed: ${(e && e.message) || e}`);
@@ -5552,7 +5619,10 @@ class HomeWeatherPanel extends HTMLElement {
 
     // Test Forecast button
     const testForecastBtn = s.getElementById("test-forecast-btn");
-    wireStatusTestButton(testForecastBtn, "home_weather/test_forecast", "Starting\u2026");
+    wireStatusTestButton(testForecastBtn, "home_weather/test_forecast", "Starting\u2026", {
+      flushSave: true,
+      typeId: "scheduled_forecast",
+    });
 
     // Generic helper to wire any test-trigger button to a WebSocket command.
     const wireTestButton = (btnId, wsType, busyLabel = "Sending\u2026") => {
@@ -7487,7 +7557,7 @@ class HomeWeatherPanel extends HTMLElement {
                          ${bypass ? 'disabled' : ''}
                   />
                   <span class="per-speaker-volume-val">${Math.round(volume * 100)}%</span>
-                  <label class="toggle-switch per-speaker-bypass">
+                  <label class="toggle-switch per-speaker-bypass" title="When on, this speaker is muted for this announcement type">
                     <input type="checkbox" 
                            class="per-speaker-bypass-input"
                            data-type-id="${typeId}"
@@ -7496,7 +7566,7 @@ class HomeWeatherPanel extends HTMLElement {
                     />
                     <span class="toggle-slider"></span>
                   </label>
-                  <span class="per-speaker-bypass-label">Skip</span>
+                  <span class="per-speaker-bypass-label" title="When on, this speaker is muted for this announcement type">Skip</span>
                 </div>
               </div>
             `;
