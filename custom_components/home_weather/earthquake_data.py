@@ -10,6 +10,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.util import dt as dt_util
 
+from .http_retry import fetch_json_with_retry
 from .hurricane_data import get_home_coordinates
 from .hurricane_geo import haversine_distance_miles
 from .sensor_scope import pick_nearest_by_distance
@@ -485,11 +486,17 @@ async def _fetch_usgs_feed(session: Any, feed_type: str) -> list[dict[str, Any]]
 
 async def _fetch_usgs_url(session: Any, url: str) -> list[dict[str, Any]]:
     """Fetch a USGS summary GeoJSON URL and return its feature list."""
-    async with session.get(url, timeout=30) as resp:
-        if resp.status != 200:
-            _LOGGER.warning("USGS earthquake feed returned %s for %s", resp.status, url)
-            return []
-        data = await resp.json()
+    data, from_fallback = await fetch_json_with_retry(
+        session,
+        url,
+        timeout=30,
+        fallback=EMPTY_GEOJSON,
+        source_name="USGS earthquake",
+    )
+
+    if from_fallback:
+        return []
+
     features = data.get("features") if isinstance(data, dict) else []
     if not isinstance(features, list):
         return []

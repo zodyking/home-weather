@@ -295,13 +295,41 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
 
             _LOGGER.debug("Test TTS service data: %s", service_data)
 
-            await hass.services.async_call(
-                "tts",
-                "speak",
-                service_data,
-                target={"entity_id": tts_entity},
-                blocking=False,
-            )
+            # Try modern tts.speak service first (HA 2023.8+)
+            tts_success = False
+            try:
+                await hass.services.async_call(
+                    "tts",
+                    "speak",
+                    service_data,
+                    target={"entity_id": tts_entity},
+                    blocking=False,
+                )
+                tts_success = True
+            except Exception as speak_err:
+                _LOGGER.warning(
+                    "Modern tts.speak failed for test, trying legacy service: %s",
+                    speak_err
+                )
+            
+            # Fallback to legacy TTS service format (tts.<platform>_say)
+            if not tts_success:
+                tts_service = tts_entity.replace("tts.", "") if tts_entity.startswith("tts.") else tts_entity
+                legacy_data: dict[str, Any] = {
+                    "entity_id": media_player,
+                    "message": message,
+                }
+                if language and isinstance(language, str) and language.strip():
+                    legacy_data["language"] = language.strip()
+                
+                _LOGGER.debug("Legacy TTS service data: %s, service: tts.%s", legacy_data, tts_service)
+                
+                await hass.services.async_call(
+                    "tts",
+                    tts_service,
+                    legacy_data,
+                    blocking=False,
+                )
 
             _fire_tts_status(
                 hass, "sent",

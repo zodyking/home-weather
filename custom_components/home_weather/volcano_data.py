@@ -18,10 +18,13 @@ import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from aiohttp import ClientTimeout
+
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.util import dt as dt_util
 
+from .http_retry import DEFAULT_BACKOFF_BASE, DEFAULT_BACKOFF_MAX
 from .hurricane_data import get_home_coordinates
 from .sensor_scope import is_sensor_bypass, pick_nearest_by_distance
 from .hurricane_geo import haversine_distance_miles
@@ -643,75 +646,107 @@ def _mark_gdacs_backoff(now: datetime) -> None:
     _gdacs_backoff_until = now + GDACS_BACKOFF
 
 
-async def _fetch_json(session: Any, url: str, label: str, *, params: dict | None = None) -> Any:
-    """Fetch JSON from a source, returning None on failure."""
+async def _fetch_json(
+    session: Any,
+    url: str,
+    label: str,
+    *,
+    params: dict | None = None,
+    retries: int = 3,
+) -> Any:
+    """Fetch JSON from a source with retry logic, returning None on failure."""
     global _gdacs_last_warning_at
     is_gdacs = label == "GDACS volcano alerts"
     now = dt_util.utcnow()
     if is_gdacs and _gdacs_in_backoff(now):
         _LOGGER.debug("%s fetch skipped during backoff", label)
         return None
-    try:
-        async with session.get(url, params=params, timeout=30) as resp:
-            if resp.status != 200:
-                if is_gdacs:
-                    if resp.status in (400, 429, 502, 503, 504):
+
+    last_error: str | None = None
+    for attempt in range(retries):
+        try:
+            client_timeout = ClientTimeout(total=30)
+            async with session.get(url, params=params, timeout=client_timeout) as resp:
+                if resp.status != 200:
+                    if is_gdacs:
+                        if resp.status in (400, 429, 502, 503, 504):
+                            _mark_gdacs_backoff(now)
+                        if (
+                            _gdacs_last_warning_at is None
+                            or now - _gdacs_last_warning_at >= GDACS_WARNING_COOLDOWN
+                        ):
+                            _gdacs_last_warning_at = now
+                            if resp.status in (502, 503, 504):
+                                _LOGGER.debug(
+                                    "%s returned HTTP %s (service unavailable; using other volcano sources)",
+                                    label,
+                                    resp.status,
+                                )
+                            else:
+                                _LOGGER.warning("%s returned HTTP %s", label, resp.status)
+                    else:
+                        _LOGGER.warning(
+                            "%s returned HTTP %s (attempt %d/%d)",
+                            label, resp.status, attempt + 1, retries
+                        )
+                    last_error = f"HTTP {resp.status}"
+                    if attempt < retries - 1:
+                        delay = min(DEFAULT_BACKOFF_BASE * (2 ** attempt), DEFAULT_BACKOFF_MAX)
+                        await asyncio.sleep(delay)
+                        continue
+                    return None
+                text = await resp.text()
+                if not text.strip():
+                    _LOGGER.warning("%s returned an empty response", label)
+                    return None
+                stripped = text.lstrip()
+                content_type = (resp.headers.get("Content-Type") or "").lower()
+                if stripped.startswith("<?xml") or "xml" in content_type:
+                    detail = _extract_xml_service_exception(text) or "non-JSON XML response"
+                    if is_gdacs:
                         _mark_gdacs_backoff(now)
+                    _LOGGER.warning("%s fetch failed: %s", label, detail)
+                    return None
+                if attempt > 0:
+                    _LOGGER.info("%s fetch succeeded on attempt %d", label, attempt + 1)
+                return json.loads(text)
+        except json.JSONDecodeError as err:
+            _LOGGER.warning("%s fetch failed: invalid JSON (%s)", label, _format_fetch_error(err))
+            return None
+        except Exception as err:
+            detail = _format_fetch_error(err)
+            last_error = detail
+            if is_gdacs:
+                _mark_gdacs_backoff(now)
+                if _gdacs_in_backoff(now):
                     if (
                         _gdacs_last_warning_at is None
                         or now - _gdacs_last_warning_at >= GDACS_WARNING_COOLDOWN
                     ):
                         _gdacs_last_warning_at = now
-                        if resp.status in (502, 503, 504):
-                            _LOGGER.debug(
-                                "%s returned HTTP %s (service unavailable; using other volcano sources)",
-                                label,
-                                resp.status,
-                            )
-                        else:
-                            _LOGGER.warning("%s returned HTTP %s", label, resp.status)
+                        _LOGGER.warning(
+                            "%s fetch failed: %s (backing off for %d hours)",
+                            label,
+                            detail,
+                            int(GDACS_BACKOFF.total_seconds() // 3600),
+                        )
+                    else:
+                        _LOGGER.debug("%s fetch failed during backoff: %s", label, detail)
                 else:
-                    _LOGGER.warning("%s returned HTTP %s", label, resp.status)
+                    _LOGGER.warning("%s fetch failed: %s", label, detail)
                 return None
-            text = await resp.text()
-            if not text.strip():
-                _LOGGER.warning("%s returned an empty response", label)
-                return None
-            stripped = text.lstrip()
-            content_type = (resp.headers.get("Content-Type") or "").lower()
-            if stripped.startswith("<?xml") or "xml" in content_type:
-                detail = _extract_xml_service_exception(text) or "non-JSON XML response"
-                if is_gdacs:
-                    _mark_gdacs_backoff(now)
-                _LOGGER.warning("%s fetch failed: %s", label, detail)
-                return None
-            return json.loads(text)
-    except json.JSONDecodeError as err:
-        _LOGGER.warning("%s fetch failed: invalid JSON (%s)", label, _format_fetch_error(err))
-        return None
-    except Exception as err:
-        detail = _format_fetch_error(err)
-        if is_gdacs:
-            _mark_gdacs_backoff(now)
-            if _gdacs_in_backoff(now):
-                if (
-                    _gdacs_last_warning_at is None
-                    or now - _gdacs_last_warning_at >= GDACS_WARNING_COOLDOWN
-                ):
-                    _gdacs_last_warning_at = now
-                    _LOGGER.warning(
-                        "%s fetch failed: %s (backing off for %d hours)",
-                        label,
-                        detail,
-                        int(GDACS_BACKOFF.total_seconds() // 3600),
-                    )
-                else:
-                    _LOGGER.debug("%s fetch failed during backoff: %s", label, detail)
             else:
-                _LOGGER.warning("%s fetch failed: %s", label, detail)
-        else:
-            _LOGGER.warning("%s fetch failed: %s", label, detail)
-        return None
+                _LOGGER.warning(
+                    "%s fetch failed: %s (attempt %d/%d)",
+                    label, detail, attempt + 1, retries
+                )
+                if attempt < retries - 1:
+                    delay = min(DEFAULT_BACKOFF_BASE * (2 ** attempt), DEFAULT_BACKOFF_MAX)
+                    await asyncio.sleep(delay)
+                    continue
+
+    _LOGGER.warning("%s all %d attempts failed: %s", label, retries, last_error)
+    return None
 
 
 async def _fetch_gvp_catalog(session: Any, home: dict[str, float]) -> list[dict[str, Any]] | None:

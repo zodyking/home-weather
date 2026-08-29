@@ -9,6 +9,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.util import dt as dt_util
 
+from .http_retry import fetch_json_with_retry
 from .hurricane_data import get_home_coordinates
 from .sensor_scope import is_sensor_bypass, pick_nearest_by_distance
 from .tornado_geo import (
@@ -379,16 +380,18 @@ async def async_fetch_tornado_alerts(
         url = NWS_TORNADO_EVENT_URL
 
     headers = {"Accept": "application/geo+json", "User-Agent": "Home-Weather/1.0"}
+    session = async_get_clientsession(hass)
 
-    try:
-        session = async_get_clientsession(hass)
-        async with session.get(url, headers=headers, timeout=30) as resp:
-            if resp.status != 200:
-                _LOGGER.warning("NWS tornado alerts API returned %s for %s", resp.status, url)
-                return build_coordinator_payload([], config)
-            data = await resp.json()
-    except Exception as err:
-        _LOGGER.warning("NWS tornado alerts fetch failed: %s", err)
+    data, from_fallback = await fetch_json_with_retry(
+        session,
+        url,
+        headers=headers,
+        timeout=30,
+        fallback={"features": []},
+        source_name="NWS tornado alerts",
+    )
+
+    if from_fallback:
         return build_coordinator_payload([], config)
 
     features = data.get("features") if isinstance(data, dict) else None

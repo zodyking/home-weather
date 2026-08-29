@@ -24,6 +24,7 @@ from homeassistant.helpers.event import (
 )
 from homeassistant.util import dt as dt_util
 
+from .http_retry import fetch_json_with_retry
 from .condition_labels import (
     find_upcoming_precip_alert,
     is_significant_condition_change,
@@ -607,6 +608,7 @@ class TTSTriggerManager:
             new_condition,
             refresh_weather=False,
             request_id=request_id,
+            respect_quiet_hours=False,
         )
 
     async def fire_test_upcoming_change(self, *, request_id: str | None = None) -> None:
@@ -656,8 +658,7 @@ class TTSTriggerManager:
         await dispatch_tts(
             self.hass, media_players, tts_config, message,
             request_id=request_id, alert_kind="upcoming_change",
-            config=config, type_id="upcoming_change",
-        )
+            config=config, type_id="upcoming_change", respect_quiet_hours=False)
         _LOGGER.info("Test upcoming-change TTS dispatched")
 
     async def fire_test_sensor_triggered(self, *, request_id: str | None = None) -> None:
@@ -705,6 +706,7 @@ class TTSTriggerManager:
             self.hass, media_players, tts_config, msg,
             request_id=request_id, alert_kind="sunrise",
             config=config, type_id="sun_alerts",
+            respect_quiet_hours=False,
         )
         _LOGGER.info("Test sunrise TTS dispatched")
 
@@ -727,6 +729,7 @@ class TTSTriggerManager:
             self.hass, media_players, tts_config, msg,
             request_id=request_id, alert_kind="sunset",
             config=config, type_id="sun_alerts",
+            respect_quiet_hours=False,
         )
         _LOGGER.info("Test sunset TTS dispatched")
 
@@ -749,7 +752,7 @@ class TTSTriggerManager:
                 "* IMPACTS...No active warnings are in effect."
             ),
         }
-        await play_nws_alert_notification(self.hass, config, sample, media_players, request_id=request_id)
+        await play_nws_alert_notification(self.hass, config, sample, media_players, request_id=request_id, respect_quiet_hours=False)
         _LOGGER.info("Test NWS alert dispatched")
 
     async def _fire_test_section_siren(
@@ -846,6 +849,7 @@ class TTSTriggerManager:
         await play_hazard_alert_notification(
             self.hass, config, "tropical_alerts", msg, media_players,
             request_id=request_id, alert_kind="tropical_alert",
+            respect_quiet_hours=False,
         )
 
     async def fire_test_tornado_alert(self, *, request_id: str | None = None) -> None:
@@ -867,6 +871,7 @@ class TTSTriggerManager:
         await play_hazard_alert_notification(
             self.hass, config, "tornado_alerts", msg, media_players,
             request_id=request_id, alert_kind="tornado_alert",
+            respect_quiet_hours=False,
         )
 
     async def fire_test_earthquake_alert(self, *, request_id: str | None = None) -> None:
@@ -890,6 +895,7 @@ class TTSTriggerManager:
         await play_hazard_alert_notification(
             self.hass, config, "earthquake_alerts", msg, media_players,
             request_id=request_id, alert_kind="earthquake_alert",
+            respect_quiet_hours=False,
         )
 
     async def fire_test_volcano_alert(self, *, request_id: str | None = None) -> None:
@@ -912,6 +918,7 @@ class TTSTriggerManager:
         await play_hazard_alert_notification(
             self.hass, config, "volcano_alerts", msg, media_players,
             request_id=request_id, alert_kind="volcano_alert",
+            respect_quiet_hours=False,
         )
 
     async def fire_test_wildfire_alert(self, *, request_id: str | None = None) -> None:
@@ -936,6 +943,7 @@ class TTSTriggerManager:
         await play_hazard_alert_notification(
             self.hass, config, "wildfire_alerts", msg, media_players,
             request_id=request_id, alert_kind="wildfire_alert",
+            respect_quiet_hours=False,
         )
 
     async def fire_test_air_quality_alert(self, *, request_id: str | None = None) -> None:
@@ -960,6 +968,7 @@ class TTSTriggerManager:
         await play_hazard_alert_notification(
             self.hass, config, "air_quality_alerts", msg, media_players,
             request_id=request_id, alert_kind="air_quality_alert",
+            respect_quiet_hours=False,
         )
 
     async def fire_test_travel_alert(self, *, request_id: str | None = None) -> None:
@@ -982,6 +991,7 @@ class TTSTriggerManager:
         await play_hazard_alert_notification(
             self.hass, config, "travel_alerts", msg, media_players,
             request_id=request_id, alert_kind="travel_alert",
+            respect_quiet_hours=False,
         )
 
     async def fire_test_travel_siren(self, *, request_id: str | None = None) -> None:
@@ -1007,6 +1017,7 @@ class TTSTriggerManager:
         await play_hazard_alert_notification(
             self.hass, config, "spacecraft_alerts", msg, media_players,
             request_id=request_id, alert_kind="spacecraft_alert",
+            respect_quiet_hours=False,
         )
 
     async def fire_test_spacecraft_siren(self, *, request_id: str | None = None) -> None:
@@ -1030,6 +1041,7 @@ class TTSTriggerManager:
         await play_hazard_alert_notification(
             self.hass, config, "solar_weather_alerts", msg, media_players,
             request_id=request_id, alert_kind="solar_weather_alert",
+            respect_quiet_hours=False,
         )
 
     async def fire_test_solar_weather_siren(self, *, request_id: str | None = None) -> None:
@@ -1057,6 +1069,7 @@ class TTSTriggerManager:
         await play_hazard_alert_notification(
             self.hass, config, "neo_alerts", msg, media_players,
             request_id=request_id, alert_kind="neo_alert",
+            respect_quiet_hours=False,
         )
 
     async def fire_test_neo_siren(self, *, request_id: str | None = None) -> None:
@@ -1528,15 +1541,16 @@ class TTSTriggerManager:
         url = f"https://api.weather.gov/alerts/active?point={lat},{lon}"
         known = getattr(self, "_nws_known_alert_ids", set())
 
-        try:
-            session = async_get_clientsession(self.hass)
-            async with session.get(url) as resp:
-                if resp.status != 200:
-                    _LOGGER.warning("NWS API returned %s", resp.status)
-                    return
-                data = await resp.json()
-        except Exception as e:
-            _LOGGER.warning("NWS alerts fetch failed: %s", e)
+        session = async_get_clientsession(self.hass)
+        data, from_fallback = await fetch_json_with_retry(
+            session,
+            url,
+            timeout=30,
+            fallback={"features": []},
+            source_name="NWS alerts",
+        )
+
+        if from_fallback:
             return
 
         features = data.get("features") or []
@@ -1739,6 +1753,7 @@ class TTSTriggerManager:
         *,
         refresh_weather: bool = True,
         request_id: str | None = None,
+        respect_quiet_hours: bool = True,
     ) -> None:
         """Fire a current change alert TTS."""
         config = self._get_config()
@@ -1775,6 +1790,7 @@ class TTSTriggerManager:
             request_id=request_id,
             alert_kind="current_change",
             config=config, type_id="current_change",
+            respect_quiet_hours=respect_quiet_hours,
         )
         _LOGGER.info("Current change TTS sent: %s -> %s", old_condition, new_condition)
 

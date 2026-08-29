@@ -12,6 +12,7 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
+from .http_retry import fetch_text_with_retry
 from .hurricane_data import get_home_coordinates
 from .sensor_scope import is_sensor_bypass, pick_nearest_by_distance
 from .hurricane_geo import haversine_distance_miles
@@ -420,9 +421,17 @@ async def async_fetch_air_quality(
     home = get_home_coordinates(hass, config)
     session = async_get_clientsession(hass)
 
-    async with session.get(AIRNOW_REPORTING_AREA_URL, timeout=60) as resp:
-        resp.raise_for_status()
-        text = await resp.text()
+    text, from_fallback = await fetch_text_with_retry(
+        session,
+        AIRNOW_REPORTING_AREA_URL,
+        timeout=60,
+        fallback="",
+        source_name="EPA AirNow",
+    )
+
+    if from_fallback or not text:
+        _LOGGER.warning("EPA AirNow data unavailable, returning empty payload")
+        return empty_payload()
 
     areas = parse_reporting_area_dat(text)
     _LOGGER.debug("Parsed %d EPA AirNow reporting areas", len(areas))

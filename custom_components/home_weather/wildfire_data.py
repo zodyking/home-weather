@@ -13,10 +13,13 @@ import math
 import re
 from typing import Any
 
+from aiohttp import ClientError, ClientTimeout
+
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.util import dt as dt_util
 
+from .http_retry import DEFAULT_BACKOFF_BASE, DEFAULT_BACKOFF_MAX
 from .hurricane_data import get_home_coordinates
 from .hurricane_geo import haversine_distance_miles
 from .sensor_scope import is_sensor_bypass, pick_nearest_by_distance
@@ -528,25 +531,46 @@ async def _fetch_arcgis_features(
     while True:
         params["resultOffset"] = offset
         payload: dict[str, Any] | None = None
+        last_error: Exception | None = None
         for attempt in range(max_attempts):
-            async with session.get(url, params=params, timeout=60) as resp:
-                resp.raise_for_status()
-                payload = await resp.json(content_type=None)
-            error = payload.get("error")
-            if not error:
-                break
-            if error.get("code") == 429 and attempt < max_attempts - 1:
-                delay = _arcgis_retry_delay_seconds(error)
+            try:
+                client_timeout = ClientTimeout(total=60)
+                async with session.get(url, params=params, timeout=client_timeout) as resp:
+                    resp.raise_for_status()
+                    payload = await resp.json(content_type=None)
+                error = payload.get("error")
+                if not error:
+                    if attempt > 0:
+                        _LOGGER.info(
+                            "WFIGS %s fetch succeeded on attempt %d",
+                            geometry_type, attempt + 1
+                        )
+                    break
+                if error.get("code") == 429 and attempt < max_attempts - 1:
+                    delay = _arcgis_retry_delay_seconds(error)
+                    _LOGGER.warning(
+                        "WFIGS rate limited (429) for %s; retrying in %ss",
+                        geometry_type,
+                        delay,
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                raise RuntimeError(str(error))
+            except (ClientError, asyncio.TimeoutError) as err:
+                last_error = err
                 _LOGGER.warning(
-                    "WFIGS rate limited (429) for %s; retrying in %ss",
-                    geometry_type,
-                    delay,
+                    "WFIGS %s fetch failed: %s (attempt %d/%d)",
+                    geometry_type, err, attempt + 1, max_attempts
                 )
-                await asyncio.sleep(delay)
-                continue
-            raise RuntimeError(str(error))
+                if attempt < max_attempts - 1:
+                    delay = min(DEFAULT_BACKOFF_BASE * (2 ** attempt), DEFAULT_BACKOFF_MAX)
+                    await asyncio.sleep(delay)
+                    continue
+                raise
 
-        assert payload is not None
+        if payload is None:
+            raise last_error or RuntimeError("Failed to fetch WFIGS data")
+
         batch = payload.get("features") or []
         features.extend(batch)
         if not payload.get("exceededTransferLimit") or not batch:

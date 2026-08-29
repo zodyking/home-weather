@@ -28,7 +28,24 @@ def migrate_config(data: dict[str, Any]) -> dict[str, Any]:
     _migrate_announcement_players(merged, data)
     _migrate_media_player_cache(merged, data)
     _migrate_iss_horizons_id(merged)
+    _migrate_quiet_hours_apply_to(merged)
     return merged
+
+
+def _migrate_quiet_hours_apply_to(merged: dict[str, Any]) -> None:
+    """Deep-merge quiet_hours.apply_to so new alert keys get defaults."""
+    defaults = DEFAULT_CONFIG.get("quiet_hours") or {}
+    default_apply = defaults.get("apply_to") if isinstance(defaults, dict) else None
+    if not isinstance(default_apply, dict):
+        return
+    quiet = merged.get("quiet_hours")
+    if not isinstance(quiet, dict):
+        merged["quiet_hours"] = {**defaults}
+        return
+    stored_apply = quiet.get("apply_to")
+    if not isinstance(stored_apply, dict):
+        stored_apply = {}
+    quiet["apply_to"] = {**default_apply, **stored_apply}
 
 
 # Old (invalid) ISS Horizons ID that returns "No such record", so no overhead

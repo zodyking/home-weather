@@ -31,15 +31,20 @@ class TravelCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         self.storage = storage
         self._tracked_advisories: dict[str, dict[str, Any]] = {}
+        self._last_good_payload: dict[str, Any] | None = None
 
     async def _async_update_data(self) -> dict[str, Any]:
         try:
             config = await self.storage.async_get()
             payload = await async_fetch_travel_advisories(self.hass, config)
             await self._fire_change_events(payload.get("advisories") or [], config)
+            self._last_good_payload = payload
             return payload
         except Exception as err:
             _LOGGER.error("Error updating travel advisories: %s", err)
+            if self._last_good_payload is not None:
+                _LOGGER.warning("Using cached travel advisories due to fetch failure")
+                return self._last_good_payload
             raise UpdateFailed(f"Error updating travel advisories: {err}") from err
 
     async def _fire_change_events(
