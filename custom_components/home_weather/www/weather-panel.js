@@ -87,6 +87,14 @@ class HomeWeatherPanel extends HTMLElement {
     if (hass && !this._ttsStatusUnsub) {
       this._subscribeToTtsStatus();
     }
+    // Update child components with fresh hass reference and coordinates
+    if (hass && this._hurricaneTracker) {
+      this._hurricaneTracker.setHass(hass);
+      const home = this._getHomeCoordinates();
+      if (home.lat != null && home.lon != null) {
+        this._hurricaneTracker.setHomeCoords(home);
+      }
+    }
     // Do NOT call _render() here - hass updates on every HA state change, causing constant re-renders.
     // Rendering happens on: loadConfig, loadWeatherData, user actions, media query.
   }
@@ -5140,7 +5148,7 @@ class HomeWeatherPanel extends HTMLElement {
     const appearanceNested = ["appearance-overview", "appearance-theme", "appearance-colors"];
     if (appearanceNested.includes(sectionId)) return { type: "list", ids: appearanceNested };
     const alertsNested = [
-      "general", "media-players", "time-based", "current-change", "upcoming-change",
+      "general", "media-players", "quiet-hours", "time-based", "current-change", "upcoming-change",
       "sun-alerts", "nws-alerts", "tropical-alerts", "tornado-alerts", "earthquake-alerts",
       "volcano-alerts", "wildfire-alerts", "air-quality-alerts", "travel-alerts",
       "spacecraft-alerts", "solar-weather-alerts", "neo-alerts",
@@ -7379,6 +7387,19 @@ class HomeWeatherPanel extends HTMLElement {
     const sunAlerts = { ...defaultSunAlerts, ...(this._settings.sun_alerts || {}) };
     const defaultNwsAlerts = { enabled: false, sound_file: "", sound_volume: 0.8, tts_volume: 0.9, replay_on_time_based_forecast: true };
     const nwsAlerts = { ...defaultNwsAlerts, ...(this._settings.nws_alerts || {}) };
+    const defaultQuietHoursApply = {
+      nws_alerts: true, tropical_alerts: false, tornado_alerts: false, earthquake_alerts: false,
+      volcano_alerts: false, wildfire_alerts: true, air_quality_alerts: true, travel_alerts: true,
+      spacecraft_alerts: true, solar_weather_alerts: true, neo_alerts: true,
+      current_change: true, upcoming_change: true, scheduled_forecast: false, sun_alerts: true,
+    };
+    const quietHoursStored = this._settings.quiet_hours || {};
+    const quietHours = {
+      enabled: !!quietHoursStored.enabled,
+      start_time: quietHoursStored.start_time || "22:00",
+      end_time: quietHoursStored.end_time || "07:00",
+      apply_to: { ...defaultQuietHoursApply, ...(quietHoursStored.apply_to || {}) },
+    };
     const defaultTropicalAlerts = {
       enabled: false, sound_file: "", sound_volume: 0.8, tts_volume: 0.9,
       min_threat_level: "watch", max_distance_miles: 500,
@@ -8149,6 +8170,50 @@ class HomeWeatherPanel extends HTMLElement {
                 ${availableMediaPlayers.map((e) => `<option value="${e}">${e}</option>`).join("")}
               </select>
               <button type="button" class="btn btn-secondary" id="add-media-btn">Add</button>
+            </div>
+          `)}
+
+          ${renderNestedSection("quiet-hours", "Quiet Hours", quietHours.enabled ? `${quietHours.start_time} – ${quietHours.end_time}` : "Off", `
+            <p class="form-hint">Suppress selected announcements during overnight quiet hours (supports wrapping past midnight). Life-safety alerts like tornado and tropical default to still speaking.</p>
+            ${renderToggle("quiet-hours-enabled", quietHours.enabled, "Enable quiet hours")}
+            <div class="form-group">
+              <label>Quiet window</label>
+              <div class="time-input-group">
+                <input type="time" id="quiet-hours-start" value="${quietHours.start_time}"/>
+                <span>to</span>
+                <input type="time" id="quiet-hours-end" value="${quietHours.end_time}"/>
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Respect quiet hours for</label>
+              <p class="form-hint">Checked types stay silent during the quiet window. Unchecked types always announce.</p>
+              <div class="days-of-week-grid" id="quiet-hours-apply">
+                ${[
+                  ["nws_alerts", "NWS weather alerts"],
+                  ["tropical_alerts", "Tropical / hurricane"],
+                  ["tornado_alerts", "Tornado"],
+                  ["earthquake_alerts", "Earthquake"],
+                  ["volcano_alerts", "Volcano"],
+                  ["wildfire_alerts", "Wildfire"],
+                  ["air_quality_alerts", "Air quality"],
+                  ["travel_alerts", "Travel advisories"],
+                  ["spacecraft_alerts", "Spacecraft overhead"],
+                  ["solar_weather_alerts", "Solar weather"],
+                  ["neo_alerts", "Near-Earth objects"],
+                  ["current_change", "Current condition change"],
+                  ["upcoming_change", "Upcoming precip"],
+                  ["scheduled_forecast", "Scheduled forecasts"],
+                  ["sun_alerts", "Sunrise / sunset"],
+                ].map(([key, label]) => `
+                  <div class="day-toggle-row">
+                    <span class="day-label">${label}</span>
+                    <label class="toggle-switch">
+                      <input type="checkbox" data-quiet-apply="${key}" ${quietHours.apply_to[key] ? "checked" : ""}/>
+                      <span class="toggle-slider"></span>
+                    </label>
+                  </div>
+                `).join("")}
+              </div>
             </div>
           `)}
 
@@ -8965,6 +9030,7 @@ class HomeWeatherPanel extends HTMLElement {
     if (weatherEntity) this._settings.weather_entity = weatherEntity.value || null;
 
     this._settings.tts = this._collectTtsSettings();
+    this._settings.quiet_hours = this._collectQuietHoursSettings();
     this._settings.sun_alerts = this._collectSunAlertsSettings();
     this._settings.nws_alerts = this._collectNwsAlertsSettings();
     this._settings.tropical_alerts = this._collectTropicalAlertsSettings();
@@ -9141,6 +9207,35 @@ class HomeWeatherPanel extends HTMLElement {
       sound_volume: soundVol,
       tts_volume: ttsVol,
       replay_on_time_based_forecast: getChecked("nws-alerts-replay-forecast"),
+    };
+  }
+
+  _collectQuietHoursSettings() {
+    const s = this.shadowRoot;
+    const defaults = {
+      enabled: false,
+      start_time: "22:00",
+      end_time: "07:00",
+      apply_to: {
+        nws_alerts: true, tropical_alerts: false, tornado_alerts: false, earthquake_alerts: false,
+        volcano_alerts: false, wildfire_alerts: true, air_quality_alerts: true, travel_alerts: true,
+        spacecraft_alerts: true, solar_weather_alerts: true, neo_alerts: true,
+        current_change: true, upcoming_change: true, scheduled_forecast: false, sun_alerts: true,
+      },
+    };
+    if (!s) return { ...(this._settings.quiet_hours || {}), ...defaults, apply_to: { ...defaults.apply_to, ...((this._settings.quiet_hours || {}).apply_to || {}) } };
+    const getVal = (id, def) => (s.getElementById(id)?.value ?? def);
+    const getChecked = (id) => !!s.getElementById(id)?.checked;
+    const applyTo = { ...defaults.apply_to, ...((this._settings.quiet_hours || {}).apply_to || {}) };
+    s.querySelectorAll("[data-quiet-apply]").forEach((el) => {
+      const key = el.getAttribute("data-quiet-apply");
+      if (key) applyTo[key] = !!el.checked;
+    });
+    return {
+      enabled: getChecked("quiet-hours-enabled"),
+      start_time: getVal("quiet-hours-start", "22:00") || "22:00",
+      end_time: getVal("quiet-hours-end", "07:00") || "07:00",
+      apply_to: applyTo,
     };
   }
 

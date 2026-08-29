@@ -46,6 +46,67 @@ _LOGGER = logging.getLogger(__name__)
 TTS_STATUS_EVENT = "home_weather_tts_status"
 
 
+def _parse_quiet_hm(value: Any, default_h: int, default_m: int) -> tuple[int, int]:
+    """Parse HH:MM for quiet-hours windows."""
+    if not value or not isinstance(value, str):
+        return default_h, default_m
+    try:
+        hour_str, minute_str = value.split(":", 1)
+        hour = int(hour_str)
+        minute = int(minute_str)
+    except (TypeError, ValueError):
+        return default_h, default_m
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        return default_h, default_m
+    return hour, minute
+
+
+def is_within_quiet_hours(
+    config: dict[str, Any] | None,
+    *,
+    now: datetime | None = None,
+) -> bool:
+    """Return True when the current local time falls inside the quiet window.
+
+    Supports overnight ranges (e.g. 22:00–07:00).
+    """
+    quiet = (config or {}).get("quiet_hours") or {}
+    if not quiet.get("enabled"):
+        return False
+    current = now or dt_util.now()
+    start_h, start_m = _parse_quiet_hm(quiet.get("start_time"), 22, 0)
+    end_h, end_m = _parse_quiet_hm(quiet.get("end_time"), 7, 0)
+    current_minutes = current.hour * 60 + current.minute
+    start_minutes = start_h * 60 + start_m
+    end_minutes = end_h * 60 + end_m
+    if start_minutes == end_minutes:
+        # Identical start/end means 24h quiet (edge case).
+        return True
+    if start_minutes < end_minutes:
+        return start_minutes <= current_minutes < end_minutes
+    # Overnight wrap: quiet from start through midnight, then until end.
+    return current_minutes >= start_minutes or current_minutes < end_minutes
+
+
+def should_suppress_for_quiet_hours(
+    config: dict[str, Any] | None,
+    type_id: str | None,
+    *,
+    now: datetime | None = None,
+    respect_quiet_hours: bool = True,
+) -> bool:
+    """Return True when this announcement type should stay silent right now."""
+    if not respect_quiet_hours or not type_id or not config:
+        return False
+    if not is_within_quiet_hours(config, now=now):
+        return False
+    quiet = config.get("quiet_hours") or {}
+    apply_to = quiet.get("apply_to") or {}
+    if not isinstance(apply_to, dict):
+        return False
+    return bool(apply_to.get(type_id, False))
+
+
 def _fire_tts_status(
     hass: HomeAssistant,
     status: str,
@@ -903,13 +964,50 @@ async def send_tts(
             
             _LOGGER.debug("TTS service data: %s", service_data)
             
-            await hass.services.async_call(
-                "tts",
-                "speak",
-                service_data,
-                target={"entity_id": tts_entity},
-                blocking=False,
-            )
+            # Try modern tts.speak service first (HA 2023.8+)
+            tts_success = False
+            try:
+                await hass.services.async_call(
+                    "tts",
+                    "speak",
+                    service_data,
+                    target={"entity_id": tts_entity},
+                    blocking=False,
+                )
+                tts_success = True
+            except Exception as speak_err:
+                _LOGGER.warning(
+                    "Modern tts.speak failed for %s, trying legacy service: %s",
+                    entity_id, speak_err
+                )
+            
+            # Fallback to legacy TTS service format (tts.<platform>_say)
+            # This pattern matches Home-Delivery's working implementation
+            if not tts_success:
+                tts_service = tts_entity.replace("tts.", "") if tts_entity.startswith("tts.") else tts_entity
+                legacy_data: dict[str, Any] = {
+                    "entity_id": entity_id,
+                    "message": message,
+                }
+                if language and isinstance(language, str) and language.strip():
+                    legacy_data["language"] = language.strip()
+                
+                _LOGGER.debug("Legacy TTS service data: %s, service: tts.%s", legacy_data, tts_service)
+                
+                try:
+                    await hass.services.async_call(
+                        "tts",
+                        tts_service,
+                        legacy_data,
+                        blocking=False,
+                    )
+                    tts_success = True
+                except Exception as legacy_err:
+                    _LOGGER.error(
+                        "Legacy TTS service tts.%s also failed for %s: %s",
+                        tts_service, entity_id, legacy_err
+                    )
+                    raise legacy_err
             
             _LOGGER.info("TTS sent successfully to %s", entity_id)
             _fire_tts_status(
@@ -1152,12 +1250,27 @@ async def dispatch_tts(
     alert_kind: str = "",
     config: dict[str, Any] | None = None,
     type_id: str | None = None,
+    respect_quiet_hours: bool = True,
 ) -> None:
     """Apply optional AI rewrite, then send TTS to configured media players.
     
     When config and type_id are provided, resolves per-player volumes and
     filters out bypassed players via resolve_announcement_players.
     """
+    if should_suppress_for_quiet_hours(
+        config, type_id, respect_quiet_hours=respect_quiet_hours
+    ):
+        _LOGGER.info(
+            "Quiet hours: suppressed %s announcement", type_id or alert_kind or "tts"
+        )
+        _fire_tts_status(
+            hass, "skipped",
+            request_id=request_id,
+            reason="Quiet hours",
+            alert_kind=alert_kind or type_id or "",
+        )
+        return
+
     final_message = await apply_ai_rewrite(
         hass, tts_config, message,
         request_id=request_id, alert_kind=alert_kind,
@@ -1200,6 +1313,7 @@ async def dispatch_tts_and_wait(
     alert_kind: str = "",
     config: dict[str, Any] | None = None,
     type_id: str | None = None,
+    respect_quiet_hours: bool = True,
 ) -> None:
     """Send TTS and wait for playback to finish on all target speakers.
     
@@ -1221,6 +1335,7 @@ async def dispatch_tts_and_wait(
         alert_kind=alert_kind,
         config=config,
         type_id=type_id,
+        respect_quiet_hours=respect_quiet_hours,
     )
     await wait_for_media_players_after_tts(
         hass, media_player_entity_ids(players),
@@ -1530,6 +1645,7 @@ async def replay_active_nws_alerts(
     alerts: list[dict[str, Any]],
     *,
     request_id: str | None = None,
+    respect_quiet_hours: bool = True,
 ) -> None:
     """Replay active alerts: siren once, then combined TTS summary.
 
@@ -1541,6 +1657,11 @@ async def replay_active_nws_alerts(
     if not nws.get("enabled") or not alerts or not media_players_config:
         return
     if not nws.get("replay_on_time_based_forecast", True):
+        return
+    if should_suppress_for_quiet_hours(
+        config, "nws_alerts", respect_quiet_hours=respect_quiet_hours
+    ):
+        _LOGGER.info("Quiet hours: suppressed NWS alert replay")
         return
 
     msg = format_active_nws_alerts_for_tts(alerts)
@@ -1765,6 +1886,7 @@ async def play_nws_alert_notification(
     media_players_config: list[dict[str, Any]],
     *,
     request_id: str | None = None,
+    respect_quiet_hours: bool = True,
 ) -> None:
     """Play siren sound (if configured) then TTS for an NWS weather alert.
 
@@ -1772,6 +1894,20 @@ async def play_nws_alert_notification(
     use_chime_tts is enabled and Chime TTS is installed, combines the
     siren audio and TTS into a single seamless playback.
     """
+    if should_suppress_for_quiet_hours(
+        config, "nws_alerts", respect_quiet_hours=respect_quiet_hours
+    ):
+        _LOGGER.info(
+            "Quiet hours: suppressed NWS alert (%s)",
+            (alert_properties or {}).get("event", "alert"),
+        )
+        _fire_tts_status(
+            hass, "skipped",
+            request_id=request_id, reason="Quiet hours",
+            alert_kind="nws_alert",
+        )
+        return
+
     nws = config.get("nws_alerts", {})
     # Fallback volume for legacy configs
     default_vol = max(0, min(1, float(nws.get("tts_volume", 0.9))))
@@ -2274,6 +2410,7 @@ async def play_hazard_alert_notification(
     *,
     request_id: str | None = None,
     alert_kind: str = "",
+    respect_quiet_hours: bool = True,
 ) -> None:
     """Play optional siren then TTS for a hazard alert section.
 
@@ -2282,6 +2419,17 @@ async def play_hazard_alert_notification(
     siren audio and TTS into a single seamless playback. Otherwise
     falls back to the legacy two-call method.
     """
+    if should_suppress_for_quiet_hours(
+        config, section_key, respect_quiet_hours=respect_quiet_hours
+    ):
+        _LOGGER.info("Quiet hours: suppressed %s announcement", section_key)
+        _fire_tts_status(
+            hass, "skipped",
+            request_id=request_id, reason="Quiet hours",
+            alert_kind=alert_kind or section_key,
+        )
+        return
+
     section = config.get(section_key) or {}
     # Fallback tts_volume for legacy configs without announcement_players
     default_vol = max(0, min(1, float(section.get("tts_volume", 0.9))))

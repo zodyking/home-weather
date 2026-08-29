@@ -528,6 +528,9 @@ async def _fetch_horizons_observer(
     stop = now + timedelta(hours=max(1, lookahead_hours))
     total_hours = lookback_hours + lookahead_hours
     step = "5 m" if total_hours > 12 else "2 m"
+    # SITE_COORD is east-longitude, latitude, altitude-km (not lat,lon).
+    # See https://ssd.jpl.nasa.gov/horizons/manual.html — swapping axes yields
+    # empty/wrong ephemerides and the UI "Could not load pass data" error (#5).
     params = {
         "format": "text",
         "COMMAND": f"'{body_id}'",
@@ -536,7 +539,7 @@ async def _fetch_horizons_observer(
         "EPHEM_TYPE": "OBSERVER",
         "CENTER": "'coord@399'",
         "COORD_TYPE": "GEODETIC",
-        "SITE_COORD": f"'{lat},{lon},0'",
+        "SITE_COORD": f"'{lon},{lat},0'",
         "START_TIME": f"'{_horizons_time(start)}'",
         "STOP_TIME": f"'{_horizons_time(stop)}'",
         "STEP_SIZE": f"'{step}'",
@@ -545,8 +548,27 @@ async def _fetch_horizons_observer(
     try:
         text = await _fetch_text(session, HORIZONS_API, params, timeout=120)
         samples = _parse_observer_alt_az(text)
-        if not samples and "No ephemeris" in text:
-            _LOGGER.debug("Horizons returned no ephemeris for craft %s", body_id)
+        if not samples:
+            head = (text or "")[:400].replace("\n", " ")
+            if "No such record" in (text or "") or "Cannot find" in (text or ""):
+                _LOGGER.warning(
+                    "Horizons has no record for craft %s — check craft ID "
+                    "(default ISS is -125544). Response: %s",
+                    body_id,
+                    head,
+                )
+            elif "No ephemeris" in (text or ""):
+                _LOGGER.debug("Horizons returned no ephemeris for craft %s", body_id)
+            elif "$$SOE" not in (text or ""):
+                _LOGGER.warning(
+                    "Horizons observer for %s returned no ephemeris block. Response: %s",
+                    body_id,
+                    head,
+                )
+            else:
+                _LOGGER.debug(
+                    "Horizons observer for %s parsed 0 alt/az samples", body_id
+                )
         return samples
     except Exception as err:
         _LOGGER.warning("Horizons observer fetch failed for %s: %s", body_id, err)

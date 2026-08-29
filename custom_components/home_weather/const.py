@@ -71,6 +71,31 @@ DEFAULT_CONFIG: Final = {
         "tts_volume": 0.9,
         "replay_on_time_based_forecast": True,
     },
+    # Global quiet hours: suppress selected announcement types overnight.
+    # Critical hazards (tornado/tropical/earthquake/volcano) default off so
+    # life-safety alerts still speak; NWS advisories default on.
+    "quiet_hours": {
+        "enabled": False,
+        "start_time": "22:00",
+        "end_time": "07:00",
+        "apply_to": {
+            "nws_alerts": True,
+            "tropical_alerts": False,
+            "tornado_alerts": False,
+            "earthquake_alerts": False,
+            "volcano_alerts": False,
+            "wildfire_alerts": True,
+            "air_quality_alerts": True,
+            "travel_alerts": True,
+            "spacecraft_alerts": True,
+            "solar_weather_alerts": True,
+            "neo_alerts": True,
+            "current_change": True,
+            "upcoming_change": True,
+            "scheduled_forecast": False,
+            "sun_alerts": True,
+        },
+    },
     "tropical_alerts": {
         "enabled": False,
         "sound_file": "",

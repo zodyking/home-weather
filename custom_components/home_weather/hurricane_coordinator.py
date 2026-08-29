@@ -30,12 +30,18 @@ class HurricaneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             update_interval=timedelta(seconds=UPDATE_INTERVAL),
         )
         self.storage = storage
+        self._last_good_payload: dict[str, Any] | None = None
 
     async def _async_update_data(self) -> dict[str, Any]:
         try:
             config = await self.storage.async_get()
             raw = await async_get_hurricane_data(self.hass, config)
-            return build_hurricane_sensor_payload(raw, config)
+            payload = build_hurricane_sensor_payload(raw, config)
+            self._last_good_payload = payload
+            return payload
         except Exception as err:
             _LOGGER.error("Error updating hurricane data: %s", err)
+            if self._last_good_payload is not None:
+                _LOGGER.warning("Using cached hurricane data due to fetch failure")
+                return self._last_good_payload
             raise UpdateFailed(f"Error updating hurricane data: {err}") from err

@@ -1,15 +1,20 @@
 """Fetch and normalize NOAA/NHC hurricane GIS data."""
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from aiohttp import ClientError, ClientTimeout
+
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.util import dt as dt_util
+
+from .http_retry import DEFAULT_BACKOFF_BASE, DEFAULT_BACKOFF_MAX
 
 from .hurricane_geo import (
     THREAT_RANK,
@@ -264,10 +269,32 @@ def _empty_payload(warning: str | None = None, stale: bool = False) -> dict[str,
     }
 
 
-async def _fetch_from_arcgis(session: Any) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    async with session.get(f"{ARCGIS_MAPSERVER}?f=json", timeout=30) as resp:
-        resp.raise_for_status()
-        metadata = await resp.json()
+async def _fetch_from_arcgis(session: Any, retries: int = 3) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    last_error: Exception | None = None
+    metadata = None
+    for attempt in range(retries):
+        try:
+            client_timeout = ClientTimeout(total=30)
+            async with session.get(f"{ARCGIS_MAPSERVER}?f=json", timeout=client_timeout) as resp:
+                resp.raise_for_status()
+                metadata = await resp.json()
+                if attempt > 0:
+                    _LOGGER.info("ArcGIS hurricane metadata fetch succeeded on attempt %d", attempt + 1)
+                break
+        except (ClientError, asyncio.TimeoutError) as err:
+            last_error = err
+            _LOGGER.debug(
+                "ArcGIS hurricane metadata fetch failed: %s (attempt %d/%d)",
+                err, attempt + 1, retries
+            )
+            if attempt < retries - 1:
+                delay = min(DEFAULT_BACKOFF_BASE * (2 ** attempt), DEFAULT_BACKOFF_MAX)
+                await asyncio.sleep(delay)
+                continue
+            raise
+
+    if metadata is None:
+        raise last_error or RuntimeError("Failed to fetch ArcGIS metadata")
 
     layers = metadata.get("layers") or []
     wallets = _discover_storm_wallets(layers)
@@ -366,14 +393,38 @@ async def _query_layer_geojson(
     session: Any,
     layer_id: int | None,
     mapserver: str = ARCGIS_MAPSERVER,
+    retries: int = 3,
 ) -> dict[str, Any]:
     if layer_id is None:
         return {"type": "FeatureCollection", "features": []}
     url = f"{mapserver}/{layer_id}/query"
     params = {"where": "1=1", "outFields": "*", "f": "geojson", "returnGeometry": "true"}
-    async with session.get(url, params=params, timeout=30) as resp:
-        resp.raise_for_status()
-        return await resp.json()
+
+    last_error: Exception | None = None
+    for attempt in range(retries):
+        try:
+            client_timeout = ClientTimeout(total=30)
+            async with session.get(url, params=params, timeout=client_timeout) as resp:
+                resp.raise_for_status()
+                if attempt > 0:
+                    _LOGGER.info(
+                        "Hurricane layer %s fetch succeeded on attempt %d",
+                        layer_id, attempt + 1
+                    )
+                return await resp.json()
+        except (ClientError, asyncio.TimeoutError) as err:
+            last_error = err
+            _LOGGER.debug(
+                "Hurricane layer %s fetch failed: %s (attempt %d/%d)",
+                layer_id, err, attempt + 1, retries
+            )
+            if attempt < retries - 1:
+                delay = min(DEFAULT_BACKOFF_BASE * (2 ** attempt), DEFAULT_BACKOFF_MAX)
+                await asyncio.sleep(delay)
+                continue
+            raise
+
+    raise last_error or RuntimeError("Failed to fetch hurricane layer")
 
 
 async def _fetch_outlook_from_summary(session: Any) -> dict[str, Any]:
@@ -665,10 +716,32 @@ def _to_int(value: Any) -> int | None:
         return None
 
 
-async def _fetch_from_kml(session: Any) -> list[dict[str, Any]]:
-    async with session.get(NHC_ACTIVE_KML, timeout=30) as resp:
-        resp.raise_for_status()
-        text = await resp.text()
+async def _fetch_from_kml(session: Any, retries: int = 3) -> list[dict[str, Any]]:
+    text = None
+    last_error: Exception | None = None
+    for attempt in range(retries):
+        try:
+            client_timeout = ClientTimeout(total=30)
+            async with session.get(NHC_ACTIVE_KML, timeout=client_timeout) as resp:
+                resp.raise_for_status()
+                text = await resp.text()
+                if attempt > 0:
+                    _LOGGER.info("KML hurricane fetch succeeded on attempt %d", attempt + 1)
+                break
+        except (ClientError, asyncio.TimeoutError) as err:
+            last_error = err
+            _LOGGER.debug(
+                "KML hurricane fetch failed: %s (attempt %d/%d)",
+                err, attempt + 1, retries
+            )
+            if attempt < retries - 1:
+                delay = min(DEFAULT_BACKOFF_BASE * (2 ** attempt), DEFAULT_BACKOFF_MAX)
+                await asyncio.sleep(delay)
+                continue
+            raise
+
+    if text is None:
+        raise last_error or RuntimeError("Failed to fetch KML data")
 
     root = ET.fromstring(text)
     placemarks = root.findall(".//kml:Placemark", KML_NS)

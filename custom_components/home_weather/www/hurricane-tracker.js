@@ -15,12 +15,11 @@
 
   const STORM_COLORS = ["#e53935", "#fb8c00", "#8e24aa", "#1e88e5", "#43a047"];
   const REFRESH_MS = 15 * 60 * 1000;
-  const DARK_TILE_URL = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
-  const LIGHT_TILE_URL = "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png";
+  const DARK_TILE_URL = "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}";
+  const LIGHT_TILE_URL = "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}";
   const SAT_TILE_URL = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
   const OCEAN_TILE_URL = "https://server.arcgisonline.com/ArcGIS/rest/services/Ocean/World_Ocean_Base/MapServer/tile/{z}/{y}/{x}";
-  const CARTO_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>';
-  const ESRI_ATTR = 'Tiles &copy; <a href="https://www.esri.com/">Esri</a>';
+  const ESRI_ATTR = 'Tiles &copy; <a href="https://www.esri.com/">Esri</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
   // Saffir-Simpson scale colors keyed by category (0 = TD/TS).
   const CATEGORY_COLORS = Object.freeze({
     0: "#5ebaff", // tropical depression / storm
@@ -201,6 +200,14 @@
     setHomeCoords(home) {
       this._homeCoords = home || null;
       if (this._map) this._renderHomeMarker();
+    }
+
+    setHass(hass) {
+      const prev = this._hass;
+      this._hass = hass;
+      if (this._map && prev !== hass) {
+        this._renderHomeMarker();
+      }
     }
 
     /** Theme hook called by weather-panel when the user switches themes. */
@@ -2237,9 +2244,28 @@
       return true;
     }
 
+    _getHassHomeCoords() {
+      const h = this._hass;
+      if (!h) return null;
+      const zoneHome = h.states?.["zone.home"];
+      if (zoneHome?.attributes?.latitude != null && zoneHome?.attributes?.longitude != null) {
+        const lat = Number(zoneHome.attributes.latitude);
+        const lon = Number(zoneHome.attributes.longitude);
+        if (Number.isFinite(lat) && Number.isFinite(lon)) {
+          return { lat, lon, label: "Home" };
+        }
+      }
+      if (h.config?.latitude != null && h.config?.longitude != null) {
+        const lat = Number(h.config.latitude);
+        const lon = Number(h.config.longitude);
+        if (Number.isFinite(lat) && Number.isFinite(lon)) {
+          return { lat, lon, label: "Home" };
+        }
+      }
+      return null;
+    }
+
     _resolveHome() {
-      const fromData = this._data?.home;
-      if (this._isValidHomeCoords(fromData)) return fromData;
       if (this._isValidHomeCoords(this._homeCoords)) {
         return {
           lat: Number(this._homeCoords.lat),
@@ -2247,6 +2273,13 @@
           label: this._homeCoords.label || "Home",
         };
       }
+      const fromHass = this._getHassHomeCoords();
+      if (this._isValidHomeCoords(fromHass)) {
+        this._homeCoords = fromHass;
+        return fromHass;
+      }
+      const fromData = this._data?.home;
+      if (this._isValidHomeCoords(fromData)) return fromData;
       return null;
     }
 
@@ -2978,8 +3011,8 @@
       }
 
       const baseLayers = {
-        Dark: L.tileLayer(DARK_TILE_URL, { maxZoom: 19, subdomains: "abcd", attribution: CARTO_ATTR }),
-        Light: L.tileLayer(LIGHT_TILE_URL, { maxZoom: 19, subdomains: "abcd", attribution: CARTO_ATTR }),
+        Dark: L.tileLayer(DARK_TILE_URL, { maxZoom: 16, attribution: ESRI_ATTR }),
+        Light: L.tileLayer(LIGHT_TILE_URL, { maxZoom: 16, attribution: ESRI_ATTR }),
         Satellite: L.tileLayer(SAT_TILE_URL, { maxZoom: 19, attribution: ESRI_ATTR }),
         Ocean: L.tileLayer(OCEAN_TILE_URL, { maxZoom: 13, attribution: ESRI_ATTR }),
       };
@@ -3564,9 +3597,14 @@
       const fitOpts = { padding: [48, 48], maxZoom: 10 };
       const hazardPoints = this._collectFitPoints(stormBounds);
       const zoneBounds = this._getConfiguredZoneFitBounds();
+      const isInitial = !this._hasInitialFit;
       let targetBounds = null;
 
-      if (hazardPoints.length > 0) {
+      // Issue #3: on first open, centre on configured alert zones around home —
+      // not the full USA / hemisphere spanned by worldwide hazard layers.
+      if (isInitial && zoneBounds) {
+        targetBounds = zoneBounds;
+      } else if (hazardPoints.length > 0) {
         targetBounds = L.latLngBounds(hazardPoints);
         if (zoneBounds) targetBounds = targetBounds.extend(zoneBounds);
       } else if (zoneBounds) {

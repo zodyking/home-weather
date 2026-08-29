@@ -31,15 +31,20 @@ class EarthquakeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         self.storage = storage
         self._tracked_events: dict[str, dict[str, Any]] = {}
+        self._last_good_payload: dict[str, Any] | None = None
 
     async def _async_update_data(self) -> dict[str, Any]:
         try:
             config = await self.storage.async_get()
             payload = await async_fetch_earthquakes(self.hass, config)
             await self._fire_change_events(payload.get("alert_events") or [])
+            self._last_good_payload = payload
             return payload
         except Exception as err:
             _LOGGER.error("Error updating earthquake data: %s", err)
+            if self._last_good_payload is not None:
+                _LOGGER.warning("Using cached earthquake data due to fetch failure")
+                return self._last_good_payload
             raise UpdateFailed(f"Error updating earthquake data: {err}") from err
 
     async def _fire_change_events(self, events: list[dict[str, Any]]) -> None:
