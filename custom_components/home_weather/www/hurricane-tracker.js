@@ -718,23 +718,29 @@
           font-family: inherit;
           background: var(--hz-bg);
         }
-        /* Global border-box (from the panel) collapses Leaflet SVG/tile boxes.
-           Keep map panes on content-box, and pin the basemap under advisories. */
+        /* The panel's `* { box-sizing: border-box }` shrinks Leaflet SVG
+           overlays. Leaflet only opts the default overlay pane out of
+           max-width, so a custom pane's country shapes disappear while
+           storm lines on the overlay pane still show. */
         .leaflet-container .leaflet-pane,
+        .leaflet-container .leaflet-pane svg,
+        .leaflet-container .leaflet-pane canvas,
         .leaflet-container .leaflet-tile,
         .leaflet-container .leaflet-tile-container,
         .leaflet-container .leaflet-marker-icon,
         .leaflet-container svg,
         .leaflet-container svg * {
-          box-sizing: content-box;
+          box-sizing: content-box !important;
+          max-width: none !important;
+          max-height: none !important;
         }
-        .leaflet-basemap-pane { z-index: 200 !important; }
-        .leaflet-travelAdvisory-pane {
-          z-index: 350 !important;
-          pointer-events: none;
-        }
-        .leaflet-travelAdvisory-pane .hw-travel-advisory {
-          pointer-events: auto;
+        .leaflet-container .leaflet-tile-pane,
+        .leaflet-container .leaflet-basemap-pane { z-index: 200 !important; }
+        .leaflet-container .leaflet-overlay-pane { z-index: 450 !important; }
+        .leaflet-container path.hw-travel-advisory {
+          stroke: rgba(255, 255, 255, 0.8) !important;
+          stroke-width: 1.25px !important;
+          stroke-linejoin: round;
         }
 
         /* ---- loading / empty / error ------------------------------------ */
@@ -4818,11 +4824,6 @@
       }
       if (!L || !geojson?.features?.length || !this._layerGroup || !this._map) return;
       this._ensureOverlayPanes();
-      const pane = this._map.getPane("travelAdvisory") ? "travelAdvisory" : "overlayPane";
-      if (!this._travelRenderer || this._travelRenderer._paneName !== pane) {
-        this._travelRenderer = L.svg({ pane });
-        this._travelRenderer._paneName = pane;
-      }
 
       const paint = (featureLayer, feature) => {
         const props = feature?.properties || featureLayer.feature?.properties || {};
@@ -4830,9 +4831,10 @@
         const color = props.color || "#9e9e9e";
         const fillOpacity = this._travelFillOpacity(level);
         featureLayer.setStyle({
+          pane: "overlayPane",
           stroke: true,
-          color: "rgba(255,255,255,0.55)",
-          weight: 1,
+          color: "rgba(255,255,255,0.8)",
+          weight: 1.25,
           opacity: 1,
           fill: true,
           fillColor: color,
@@ -4841,25 +4843,24 @@
         });
         const path = featureLayer._path;
         if (!path?.style) return;
-        // Inline fill beats a stylesheet that would hide the choropleth on the
-        // dark canvas tiles. Opacity stays on fill-opacity so it is not doubled.
-        path.style.setProperty("fill", color);
-        path.style.setProperty("fill-opacity", String(fillOpacity));
-        path.style.setProperty("stroke", "rgba(255,255,255,0.55)");
+        path.style.setProperty("fill", color, "important");
+        path.style.setProperty("fill-opacity", String(fillOpacity), "important");
+        path.style.setProperty("stroke", "rgba(255,255,255,0.8)", "important");
+        path.style.setProperty("stroke-width", "1.25px", "important");
         path.style.setProperty("pointer-events", "auto");
       };
 
-      L.geoJSON(geojson, {
-        pane,
-        renderer: this._travelRenderer,
+      const layer = L.geoJSON(geojson, {
+        pane: "overlayPane",
         interactive: true,
         bubblingMouseEvents: true,
         style: (feature) => {
           const level = Number(feature?.properties?.level) || 1;
           const color = feature?.properties?.color || "#9e9e9e";
           return {
-            color: "rgba(255,255,255,0.55)",
-            weight: 1,
+            pane: "overlayPane",
+            color: "rgba(255,255,255,0.8)",
+            weight: 1.25,
             opacity: 1,
             fill: true,
             fillColor: color,
@@ -4867,16 +4868,19 @@
             className: `hw-travel-advisory level-${level}`,
           };
         },
-        onEachFeature: (feature, layer) => {
+        onEachFeature: (feature, featureLayer) => {
           const props = feature.properties || {};
-          layer.bindPopup(this._travelPopup(props));
-          layer.on("add", () => paint(layer, feature));
+          featureLayer.bindPopup(this._travelPopup(props));
+          featureLayer.on("add", () => paint(featureLayer, feature));
           try {
-            const center = layer.getBounds?.().getCenter?.();
+            const center = featureLayer.getBounds?.().getCenter?.();
             if (center) bounds.push([center.lat, center.lng]);
           } catch (_) { /* ignore */ }
         },
-      }).addTo(this._layerGroup).eachLayer((layer) => paint(layer, layer.feature));
+      });
+      layer.addTo(this._layerGroup);
+      if (layer.bringToBack) layer.bringToBack();
+      layer.eachLayer((featureLayer) => paint(featureLayer, featureLayer.feature));
     }
   }
 
