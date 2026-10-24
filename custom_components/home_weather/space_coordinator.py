@@ -27,6 +27,9 @@ class SpaceCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             hass,
             _LOGGER,
             name=f"{DOMAIN}_space",
+            # NOAA SWPC solar weather shares this coordinator and stays on the
+            # 5-minute scan. Horizons/CAD is cached for SPACE_UPDATE_INTERVAL
+            # inside async_fetch_space.
             update_interval=timedelta(seconds=UPDATE_INTERVAL),
         )
         self.storage = storage

@@ -1,4 +1,5 @@
 """Constants for Home Weather integration."""
+from datetime import timedelta
 from typing import Final
 
 DOMAIN: Final = "home_weather"
@@ -313,6 +314,11 @@ NWS_SOUNDS_SUBPATH: Final = "home_weather/sounds"
 UPDATE_INTERVAL: Final = 300
 # Wildfire ArcGIS queries are heavier; poll less often to avoid rate limits.
 WILDFIRE_UPDATE_INTERVAL: Final = 600
+# JPL Horizons and the CAD close-approach list. This does not change
+# SpaceCoordinator's poll: that coordinator also refreshes NOAA SWPC solar
+# weather and stays on UPDATE_INTERVAL. The space fetch caches Horizons/CAD
+# for this long.
+SPACE_UPDATE_INTERVAL: Final = timedelta(hours=6)
 
 # Panel configuration
 PANEL_URL_PATH: Final = "home-weather"

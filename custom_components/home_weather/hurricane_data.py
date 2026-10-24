@@ -589,7 +589,7 @@ def _normalize_arcgis_storm(
                 "lat": float(lat) if lat is not None else None,
                 "lon": float(lon) if lon is not None else None,
                 "maxWindMph": knots_to_mph(props.get("maxwind")),
-                "pressureMb": _to_int(props.get("mslp")),
+                "pressureMb": normalize_pressure_mb(props.get("mslp")),
                 "validTime": props.get("validtime") or props.get("fldatelbl"),
             }
         )
@@ -629,7 +629,7 @@ def _normalize_arcgis_storm(
         "maxWindMph": knots_to_mph(
             (current_attrs or attrs).get("maxwind")
         ),
-        "pressureMb": _to_int((current_attrs or attrs).get("mslp")),
+        "pressureMb": normalize_pressure_mb((current_attrs or attrs).get("mslp")),
         "movement": movement,
         "category": _to_int((current_attrs or attrs).get("ssnum")),
         "track": track,
@@ -714,6 +714,22 @@ def _to_int(value: Any) -> int | None:
         return int(float(value))
     except (TypeError, ValueError):
         return None
+
+
+def normalize_pressure_mb(value: Any) -> int | None:
+    """Return central pressure in mb, or None when the source left it blank.
+
+    NHC uses 0 and 9999 (and nearby sentinels) when mean sea-level pressure
+    was not reported. Those must not be shown as a real pressure.
+    """
+    if isinstance(value, str):
+        value = value.strip().lower().replace("mb", "").strip()
+        if not value:
+            return None
+    number = _to_int(value)
+    if number is None or number <= 0 or number >= 1100:
+        return None
+    return number
 
 
 async def _fetch_from_kml(session: Any, retries: int = 3) -> list[dict[str, Any]]:

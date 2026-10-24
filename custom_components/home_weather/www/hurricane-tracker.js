@@ -2,8 +2,8 @@
  * Hurricane Tracker - Leaflet map for NOAA/NHC storm data plus multi-hazard
  * overlays (tornado, earthquake, volcano, wildfire, air quality, travel,
  * lightning). UI/UX redesign notes:
- *  - Storm tracks: dotted muted past track, solid category-colored forecast
- *    track over a contrast casing, restrained cone, category badge markers.
+ *  - Storm tracks: one muted past line, a solid forecast line, a handful of
+ *    milestone markers, a calm motion cue, and a restrained cone.
  *  - Right-side status panel with threat hero + per-hazard cards; becomes a
  *    bottom sheet with a collapsed peek on compact layouts.
  *  - Labeled "Layers" menu (44px rows) replaces the unlabeled icon strip.
@@ -98,6 +98,8 @@
       this._lastFitBounds = null;
       this._userViewLocked = false;
       this._mapLayers = { hurricane: true, tornado: false, earthquakes: false, lightning: false, volcanoes: false, travel: false, wildfire: false, air_quality: false };
+      // Volcano layer default: active alerts only. Show all plots the catalog.
+      this._showAllVolcanoes = false;
       this._mapSort = "newest";
       this._lightningSettings = {
         enabled: true,
@@ -333,6 +335,8 @@
         document.removeEventListener("keydown", this._docKeyHandler);
         this._docKeyHandler = null;
       }
+      this._stopTrackAnimations();
+      this._travelRenderer = null;
       if (this._map) {
         this._map.remove();
         this._map = null;
@@ -713,6 +717,24 @@
         .leaflet-container {
           font-family: inherit;
           background: var(--hz-bg);
+        }
+        /* Global border-box (from the panel) collapses Leaflet SVG/tile boxes.
+           Keep map panes on content-box, and pin the basemap under advisories. */
+        .leaflet-container .leaflet-pane,
+        .leaflet-container .leaflet-tile,
+        .leaflet-container .leaflet-tile-container,
+        .leaflet-container .leaflet-marker-icon,
+        .leaflet-container svg,
+        .leaflet-container svg * {
+          box-sizing: content-box;
+        }
+        .leaflet-basemap-pane { z-index: 200 !important; }
+        .leaflet-travelAdvisory-pane {
+          z-index: 350 !important;
+          pointer-events: none;
+        }
+        .leaflet-travelAdvisory-pane .hw-travel-advisory {
+          pointer-events: auto;
         }
 
         /* ---- loading / empty / error ------------------------------------ */
@@ -1219,6 +1241,12 @@
         }
         .hw-layer-row.is-on .hw-layer-switch { background: var(--hz-accent); }
         .hw-layer-row.is-on .hw-layer-switch::after { transform: translateX(14px); }
+        /* Volcano sub-option: same switch, indented under the Volcanoes row. */
+        .hw-layer-subrow {
+          min-height: var(--hz-tap, 44px);
+          padding-left: 42px;
+        }
+        .hw-layer-subrow[hidden] { display: none; }
 
         /* ---- coords / scale readout --------------------------------------- */
         .hw-map-readout {
@@ -1543,6 +1571,10 @@
           box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
           white-space: nowrap;
         }
+        .leaflet-tooltip.hw-tip.hw-tip-when {
+          white-space: normal;
+          max-width: 240px;
+        }
         .leaflet-tooltip.hw-tip::before { display: none; }
         .hw-tip .hw-tip-line1 { font-weight: 700; }
         .hw-tip .hw-tip-line2 { color: var(--hw-muted, #9aa5b1); }
@@ -1704,13 +1736,13 @@
           fill: rgba(224, 64, 251, 0.18);
         }
         .hw-travel-advisory {
-          stroke: rgba(255, 255, 255, 0.35);
+          stroke: rgba(255, 255, 255, 0.55);
           stroke-width: 1;
         }
-        .hw-travel-advisory.level-1 { fill: rgba(76, 175, 80, 0.42); }
-        .hw-travel-advisory.level-2 { fill: rgba(255, 241, 118, 0.48); }
-        .hw-travel-advisory.level-3 { fill: rgba(255, 152, 0, 0.5); }
-        .hw-travel-advisory.level-4 { fill: rgba(244, 67, 54, 0.55); }
+        .hw-travel-advisory.level-1 { fill: #4caf50; fill-opacity: 0.48; }
+        .hw-travel-advisory.level-2 { fill: #fff176; fill-opacity: 0.55; }
+        .hw-travel-advisory.level-3 { fill: #ff9800; fill-opacity: 0.55; }
+        .hw-travel-advisory.level-4 { fill: #f44336; fill-opacity: 0.58; }
         .hw-travel-popup strong { display: block; margin-bottom: 4px; }
         .hw-travel-popup .hw-travel-level {
           display: inline-block;
@@ -1846,6 +1878,12 @@
           width: 26px;
           height: 26px;
           filter: brightness(0) invert(1);
+        }
+        .hw-track-runner {
+          filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.85));
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .hw-track-runner { display: none !important; }
         }
         .hw-hurricane-marker .hw-hurricane-cat {
           position: absolute;
@@ -2109,20 +2147,6 @@
       return this._stormCatInfo(category, windMph).color;
     }
 
-    /** Short human time for NHC valid-time strings; falls back to raw text. */
-    _fmtValidTime(raw) {
-      if (!raw) return "";
-      const d = new Date(raw);
-      if (!Number.isNaN(d.getTime())) {
-        try {
-          return d.toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" });
-        } catch (_) {
-          return String(raw);
-        }
-      }
-      return String(raw);
-    }
-
     _fmtClockTime(raw) {
       if (!raw) return null;
       const d = new Date(raw);
@@ -2134,6 +2158,334 @@
       }
     }
 
+    /** Page timezone when Home Assistant configured one, otherwise the viewer. */
+    _viewerTimeZone() {
+      const configured = this._hass?.config?.time_zone;
+      if (typeof configured === "string" && configured.trim()) return configured.trim();
+      try {
+        return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
+      } catch (_) {
+        return undefined;
+      }
+    }
+
+    _prefersReducedMotion() {
+      try {
+        return !!(global.matchMedia && global.matchMedia("(prefers-reduced-motion: reduce)").matches);
+      } catch (_) {
+        return false;
+      }
+    }
+
+    _bindReducedMotion() {
+      if (this._motionBound || !global.matchMedia) return;
+      this._motionBound = true;
+      try {
+        this._motionMq = global.matchMedia("(prefers-reduced-motion: reduce)");
+        this._motionHandler = () => {
+          if (this._map && this._layerGroup) this._renderMap();
+        };
+        if (this._motionMq.addEventListener) this._motionMq.addEventListener("change", this._motionHandler);
+        else if (this._motionMq.addListener) this._motionMq.addListener(this._motionHandler);
+      } catch (_) {
+        this._motionBound = false;
+      }
+    }
+
+    _stopTrackAnimations() {
+      this._trackAnimToken = (this._trackAnimToken || 0) + 1;
+    }
+
+    /**
+     * Missing, zero, and NHC sentinels (9999 mb and similar) are not a pressure.
+     * Returns millibars, or null when the value must be omitted.
+     */
+    _pressureMbOrNull(value) {
+      if (value == null || value === "") return null;
+      const text = String(value).trim().toLowerCase().replace(/mb$/, "").trim();
+      if (!text) return null;
+      const n = Number(text);
+      if (!Number.isFinite(n) || n <= 0 || n >= 1100) return null;
+      return Math.round(n);
+    }
+
+    _pressureLabel(value) {
+      const mb = this._pressureMbOrNull(value);
+      return mb == null ? "—" : `${mb} mb`;
+    }
+
+    _advisoryReferenceDate(storm) {
+      const raw = storm?.advisoryTime;
+      if (!raw) return null;
+      const parsed = new Date(raw);
+      return Number.isNaN(parsed.getTime()) ? null : parsed;
+    }
+
+    /** UTC date whose day-of-month and clock match an NHC "28/0600" stamp, nearest to anchor. */
+    _dateAtUtcDayClock(anchor, day, hour, minute) {
+      if (!anchor || !Number.isFinite(day)) return null;
+      let best = null;
+      let bestAbs = Infinity;
+      const year = anchor.getUTCFullYear();
+      const month = anchor.getUTCMonth();
+      for (let delta = -1; delta <= 2; delta += 1) {
+        const candidate = new Date(Date.UTC(year, month + delta, day, hour || 0, minute || 0, 0));
+        if (candidate.getUTCDate() !== day) continue;
+        const diff = Math.abs(candidate.getTime() - anchor.getTime());
+        if (diff < bestAbs) {
+          best = candidate;
+          bestAbs = diff;
+        }
+      }
+      return best;
+    }
+
+    /**
+     * Forecast time for a point. Accepts ISO timestamps and NHC "DD/HHMM"
+     * (day of month and UTC hour-minute), using the hour offset when present.
+     */
+    _resolvePointDate(pt, storm) {
+      if (!pt) return null;
+      const raw = pt.validTime != null ? String(pt.validTime).trim() : "";
+      const hour = pt.hour != null && pt.hour !== "" ? Number(pt.hour) : null;
+      const ref = this._advisoryReferenceDate(storm) || new Date();
+      const nhc = raw.match(/^(\d{1,2})\/(\d{3,4})Z?$/i);
+      if (nhc) {
+        const day = Number(nhc[1]);
+        const hhmm = nhc[2].padStart(4, "0");
+        const hh = Number(hhmm.slice(0, 2));
+        const mm = Number(hhmm.slice(2));
+        if (hh <= 23 && mm <= 59) {
+          const anchor = hour != null && Number.isFinite(hour)
+            ? new Date(ref.getTime() + hour * 3600000)
+            : ref;
+          const snapped = this._dateAtUtcDayClock(anchor, day, hh, mm);
+          if (snapped) return snapped;
+        }
+      }
+      if (raw) {
+        const iso = new Date(raw);
+        if (!Number.isNaN(iso.getTime()) && !nhc) return iso;
+      }
+      if (hour != null && Number.isFinite(hour)) {
+        return new Date(ref.getTime() + hour * 3600000);
+      }
+      return null;
+    }
+
+    _relativePhrase(target, now) {
+      if (!target || !now) return "";
+      const hours = Math.round((target.getTime() - now.getTime()) / 3600000);
+      if (Math.abs(hours) < 2) return "now";
+      if (Math.abs(hours) < 36) {
+        const h = Math.abs(hours);
+        const unit = h === 1 ? "hour" : "hours";
+        return hours < 0 ? `${h} ${unit} ago` : `in ${h} ${unit}`;
+      }
+      const days = Math.max(1, Math.round(Math.abs(hours) / 24));
+      const unit = days === 1 ? "day" : "days";
+      return hours < 0 ? `${days} ${unit} ago` : `in ${days} ${unit}`;
+    }
+
+    _formatParts(date, options) {
+      const opts = { ...options };
+      const tz = this._viewerTimeZone();
+      if (tz) opts.timeZone = tz;
+      return new Intl.DateTimeFormat(undefined, opts).formatToParts(date);
+    }
+
+    _part(parts, type) {
+      return parts.find((p) => p.type === type)?.value || "";
+    }
+
+    /** Compact map label, e.g. "Wed 2 AM". */
+    _formatMilestoneLabel(date) {
+      if (!date) return "";
+      try {
+        const parts = this._formatParts(date, {
+          weekday: "short",
+          hour: "numeric",
+          hour12: true,
+        });
+        return `${this._part(parts, "weekday")} ${this._part(parts, "hour")} ${this._part(parts, "dayPeriod")}`
+          .replace(/\s+/g, " ")
+          .trim();
+      } catch (_) {
+        return "";
+      }
+    }
+
+    /** Full tooltip time, e.g. "Wednesday, Oct 28, 2:00 AM EDT · in 4 days". */
+    _formatViewerWhen(date, now) {
+      if (!date) return "";
+      const clockNow = now || new Date();
+      let formatted = "";
+      try {
+        const parts = this._formatParts(date, {
+          weekday: "long",
+          month: "short",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+          hour12: true,
+          timeZoneName: "short",
+        });
+        const clock = `${this._part(parts, "hour")}:${this._part(parts, "minute")} ${this._part(parts, "dayPeriod")}`
+          .replace(/\s+/g, " ")
+          .trim();
+        formatted = `${this._part(parts, "weekday")}, ${this._part(parts, "month")} ${this._part(parts, "day")}, ${clock} ${this._part(parts, "timeZoneName")}`
+          .replace(/\s+/g, " ")
+          .trim();
+      } catch (_) {
+        formatted = date.toLocaleString();
+      }
+      const rel = this._relativePhrase(date, clockNow);
+      return rel ? `${formatted} · ${rel}` : formatted;
+    }
+
+    _formatIntensity(pt) {
+      if (!pt || pt.maxWindMph == null || pt.maxWindMph === "") return "";
+      const wind = Number(pt.maxWindMph);
+      if (!Number.isFinite(wind) || wind <= 0) return "";
+      const cat = this._stormCatInfo(pt.category, wind);
+      const bits = [cat.longName, `${Math.round(wind)} mph`];
+      const pressure = this._pressureMbOrNull(pt.pressureMb);
+      if (pressure != null) bits.push(`${pressure} mb`);
+      return bits.join(" · ");
+    }
+
+    /**
+     * Forecast dots worth labeling: about +24h, +48h, +72h, and the last
+     * point. The current-position marker already stands for "now".
+     */
+    _selectForecastMilestones(points) {
+      const future = (points || []).filter((p) => {
+        if (p.lat == null || p.lon == null) return false;
+        if (p.hour == null || p.hour === "") return true;
+        return Number(p.hour) > 0;
+      });
+      if (!future.length) return [];
+      const sorted = [...future].sort((a, b) => {
+        const ah = a.hour == null || a.hour === "" ? Number.POSITIVE_INFINITY : Number(a.hour);
+        const bh = b.hour == null || b.hour === "" ? Number.POSITIVE_INFINITY : Number(b.hour);
+        return ah - bh;
+      });
+      const keyOf = (p) => `${Number(p.lat).toFixed(3)},${Number(p.lon).toFixed(3)},${p.hour ?? ""}`;
+      const chosen = [];
+      const used = new Set();
+      const take = (pt) => {
+        if (!pt) return;
+        const key = keyOf(pt);
+        if (used.has(key)) return;
+        used.add(key);
+        chosen.push(pt);
+      };
+      const withHour = sorted.filter((p) => p.hour != null && p.hour !== "" && Number.isFinite(Number(p.hour)));
+      if (withHour.length) {
+        [24, 48, 72].forEach((target) => {
+          let best = null;
+          let bestDist = Infinity;
+          withHour.forEach((p) => {
+            if (used.has(keyOf(p))) return;
+            const dist = Math.abs(Number(p.hour) - target);
+            if (dist < bestDist && dist <= 12) {
+              best = p;
+              bestDist = dist;
+            }
+          });
+          take(best);
+        });
+        take(withHour[withHour.length - 1]);
+      }
+      if (!chosen.length) {
+        const picks = new Set([0, sorted.length - 1]);
+        if (sorted.length > 4) picks.add(Math.round(sorted.length / 3));
+        if (sorted.length > 6) picks.add(Math.round((sorted.length * 2) / 3));
+        [...picks].sort((a, b) => a - b).forEach((idx) => take(sorted[idx]));
+      }
+      return chosen;
+    }
+
+    _easeInOut(t) {
+      const x = Math.max(0, Math.min(1, t));
+      return x < 0.5 ? 2 * x * x : 1 - ((-2 * x + 2) ** 2) / 2;
+    }
+
+    _sampleTrack(latlngs) {
+      const L = global.L;
+      if (!L || !latlngs || latlngs.length < 2) return null;
+      const pts = latlngs.map((ll) => L.latLng(ll[0], ll[1]));
+      const seg = [];
+      let total = 0;
+      for (let i = 1; i < pts.length; i += 1) {
+        const dist = pts[i - 1].distanceTo(pts[i]);
+        seg.push(dist);
+        total += dist;
+      }
+      if (total < 1000) return null;
+      return { pts, seg, total };
+    }
+
+    _pointAlongSample(sample, t) {
+      const dist = Math.max(0, Math.min(1, t)) * sample.total;
+      let acc = 0;
+      for (let i = 0; i < sample.seg.length; i += 1) {
+        const span = sample.seg[i];
+        if (acc + span >= dist || i === sample.seg.length - 1) {
+          const u = span === 0 ? 0 : (dist - acc) / span;
+          const a = sample.pts[i];
+          const b = sample.pts[i + 1];
+          return [a.lat + (b.lat - a.lat) * u, a.lng + (b.lng - a.lng) * u];
+        }
+        acc += span;
+      }
+      const last = sample.pts[sample.pts.length - 1];
+      return [last.lat, last.lng];
+    }
+
+    _startTrackRunner(marker, sample) {
+      if (!marker || !sample || this._prefersReducedMotion()) return;
+      const token = this._trackAnimToken || 0;
+      const duration = 16000;
+      const hold = 2800;
+      let start = null;
+      const step = (ts) => {
+        if (token !== this._trackAnimToken || !this._map) return;
+        if (start == null) start = ts;
+        const elapsed = (ts - start) % (duration + hold);
+        const t = elapsed >= duration ? 1 : this._easeInOut(elapsed / duration);
+        marker.setLatLng(this._pointAlongSample(sample, t));
+        global.requestAnimationFrame(step);
+      };
+      global.requestAnimationFrame(step);
+    }
+
+    _ensureOverlayPanes() {
+      const map = this._map;
+      if (!map?.createPane) return;
+      if (!map.getPane("basemap")) {
+        const pane = map.createPane("basemap");
+        pane.style.zIndex = "200";
+      }
+      if (!map.getPane("travelAdvisory")) {
+        const pane = map.createPane("travelAdvisory");
+        pane.style.zIndex = "350";
+        pane.style.pointerEvents = "none";
+      }
+      const tilePane = map.getPane("tilePane");
+      if (tilePane) tilePane.style.zIndex = "200";
+      const overlay = map.getPane("overlayPane");
+      if (overlay) overlay.style.zIndex = "400";
+    }
+
+    _travelFillOpacity(level) {
+      const n = Number(level) || 1;
+      if (n >= 4) return 0.58;
+      if (n >= 3) return 0.55;
+      if (n >= 2) return 0.55;
+      return 0.48;
+    }
+
     /** Nearest forecast-point approach of a storm to home (miles + hour). */
     _stormClosestApproach(storm) {
       const home = this._data?.home;
@@ -2143,7 +2495,7 @@
         if (pt.lat == null || pt.lon == null) return;
         const miles = this._haversineMiles(home.lat, home.lon, pt.lat, pt.lon);
         if (!best || miles < best.miles) {
-          best = { miles, hour: pt.hour, validTime: pt.validTime };
+          best = { miles, hour: pt.hour, validTime: pt.validTime, point: pt };
         }
       });
       return best;
@@ -2835,16 +3187,34 @@
       return LAYER_DEFS.reduce((n, def) => n + (this._isToggleActive(def) ? 1 : 0), 0);
     }
 
+    _volcanoFilterRowHtml() {
+      const showAll = !!this._showAllVolcanoes;
+      const layerOn = !!this._mapLayers.volcanoes;
+      const label = showAll ? "Show all" : "Show active";
+      return `
+          <button type="button" class="hw-layer-row hw-layer-subrow${showAll ? " is-on" : ""}" role="switch"
+            aria-checked="${showAll ? "true" : "false"}"
+            aria-label="${label} volcanoes"
+            data-layer="volcanoes_show_all" data-type="volcano-filter"${layerOn ? "" : " hidden"}>
+            <span class="hw-layer-label">${label}</span>
+            <span class="hw-layer-switch" aria-hidden="true"></span>
+          </button>`;
+    }
+
     _buildLayersControlHtml() {
       const rows = (defs) => defs.map((def) => {
         const on = this._isToggleActive(def);
-        return `
+        const button = `
           <button type="button" class="hw-layer-row${on ? " is-on" : ""}" role="switch"
             aria-checked="${on ? "true" : "false"}" data-layer="${def.key}" data-type="${def.type}">
             <img src="/local/home_weather/icons/${def.icon}.svg" alt="" draggable="false"/>
             <span class="hw-layer-label">${def.label}</span>
             <span class="hw-layer-switch" aria-hidden="true"></span>
           </button>`;
+        if (def.key === "volcanoes" && def.type === "layer") {
+          return button + this._volcanoFilterRowHtml();
+        }
+        return button;
       }).join("");
       const hazardRows = rows(LAYER_DEFS.filter((d) => d.type === "layer"));
       const overlayRows = rows(LAYER_DEFS.filter((d) => d.type === "overlay"));
@@ -2897,6 +3267,13 @@
         const type = btn.dataset.type;
         if (!key) return;
 
+        if (type === "volcano-filter") {
+          this._showAllVolcanoes = !this._showAllVolcanoes;
+          this._syncLayerControls();
+          this._renderMap();
+          return;
+        }
+
         if (type === "overlay") {
           if (key === "wind_radii") {
             this._showWindRadii = !this._showWindRadii;
@@ -2935,6 +3312,19 @@
       const ctl = this._root?.querySelector(".hw-layers-ctl");
       if (!ctl) return;
       ctl.querySelectorAll(".hw-layer-row").forEach((btn) => {
+        if (btn.dataset.type === "volcano-filter") {
+          const layerOn = !!this._mapLayers.volcanoes;
+          const showAll = !!this._showAllVolcanoes;
+          const label = showAll ? "Show all" : "Show active";
+          btn.hidden = !layerOn;
+          btn.disabled = !layerOn;
+          btn.classList.toggle("is-on", showAll);
+          btn.setAttribute("aria-checked", showAll ? "true" : "false");
+          btn.setAttribute("aria-label", `${label} volcanoes`);
+          const text = btn.querySelector(".hw-layer-label");
+          if (text) text.textContent = label;
+          return;
+        }
         const def = LAYER_DEFS.find((d) => d.key === btn.dataset.layer && d.type === btn.dataset.type);
         if (!def) return;
         const on = this._isToggleActive(def);
@@ -3010,11 +3400,17 @@
         this._safe(() => this._map.setView([39.8283, -98.5795], 4));
       }
 
+      // Basemap tiles stay in their own pane. The Esri canvas swap left the
+      // default tile pane able to paint over choropleths that shared the
+      // overlay stack; advisories use a pane between tiles and hazard markers.
+      this._ensureOverlayPanes();
+      this._bindReducedMotion();
+      const tileOpts = { pane: "basemap" };
       const baseLayers = {
-        Dark: L.tileLayer(DARK_TILE_URL, { maxZoom: 16, attribution: ESRI_ATTR }),
-        Light: L.tileLayer(LIGHT_TILE_URL, { maxZoom: 16, attribution: ESRI_ATTR }),
-        Satellite: L.tileLayer(SAT_TILE_URL, { maxZoom: 19, attribution: ESRI_ATTR }),
-        Ocean: L.tileLayer(OCEAN_TILE_URL, { maxZoom: 13, attribution: ESRI_ATTR }),
+        Dark: L.tileLayer(DARK_TILE_URL, { maxZoom: 16, attribution: ESRI_ATTR, ...tileOpts }),
+        Light: L.tileLayer(LIGHT_TILE_URL, { maxZoom: 16, attribution: ESRI_ATTR, ...tileOpts }),
+        Satellite: L.tileLayer(SAT_TILE_URL, { maxZoom: 19, attribution: ESRI_ATTR, ...tileOpts }),
+        Ocean: L.tileLayer(OCEAN_TILE_URL, { maxZoom: 13, attribution: ESRI_ATTR, ...tileOpts }),
       };
       this._baseLayers = baseLayers;
       this._activeBasemap = this._theme === "light" ? "Light" : "Dark";
@@ -3141,6 +3537,7 @@
           </div>
           <div class="hw-legend-group">
             <div class="hw-legend-group-title">Storm tracks</div>
+            <div class="hw-legend-row"><span class="hw-legend-line is-past"></span>Past track</div>
             <div class="hw-legend-row"><span class="hw-legend-line is-fcst"></span>Forecast track</div>
             <div class="hw-legend-row"><span class="hw-legend-swatch" style="background:rgba(229,57,53,0.18);border-color:rgba(229,57,53,0.8)"></span>Forecast cone (uncertainty)</div>
             <div class="hw-legend-row"><span class="hw-legend-line is-watchline"></span>Coastal watch / warning</div>
@@ -3389,6 +3786,7 @@
     /* ------------------------------------------------------------------ */
 
     _renderMap(fitView = false) {
+      this._stopTrackAnimations();
       const storms = this._data?.storms || [];
       const outlook = this._data?.outlook || {};
       const home = this._resolveHome();
@@ -3765,7 +4163,10 @@
       let approachText = "—";
       if (approach) {
         const bits = [this._fmtMiles(approach.miles)];
-        if (approach.hour != null) bits.push(`+${approach.hour}h`);
+        const when = approach.point
+          ? this._formatMilestoneLabel(this._resolvePointDate(approach.point, storm))
+          : "";
+        if (when) bits.push(when);
         approachText = bits.join(" · ");
       }
       return `
@@ -3779,7 +4180,7 @@
           </div>
           <div class="hw-storm-card-grid">
             ${cell("Max winds", storm.maxWindMph != null ? `${Math.round(Number(storm.maxWindMph))} mph` : "—")}
-            ${cell("Pressure", storm.pressureMb != null ? `${storm.pressureMb} mb` : "—")}
+            ${cell("Pressure", this._pressureLabel(storm.pressureMb))}
             ${cell("Movement", this._esc(storm.movement || "—"))}
             ${cell("From home", distNow != null ? this._fmtMiles(distNow) : "—")}
             ${cell("Closest approach", approachText)}
@@ -3789,12 +4190,12 @@
     }
 
     /**
-     * Storm rendering, redesigned for readability:
-     *  - past track: dotted muted line + small hollow dots (hover for details)
-     *  - forecast track: solid storm-colored line over a theme casing line
-     *  - forecast points: intensity-colored dots with time/cat/wind info
-     *  - cone: restrained fill + neutral outline (uncertainty area)
-     *  - current position: circular Saffir-Simpson badge (TD/TS/1–5)
+     * Storm rendering:
+     *  - past track: one muted line (no per-advisory circles)
+     *  - forecast: one line through every forecast coordinate
+     *  - milestones: now (the storm icon) plus about +24h, +48h, +72h, and the end
+     *  - a single runner moves along the forecast unless reduced motion is set
+     *  - cone: restrained fill under the track
      */
     _drawStorm(storm, color, bounds) {
       const L = global.L;
@@ -3835,7 +4236,7 @@
         }).addTo(this._layerGroup);
       }
 
-      /* Forecast track: solid storm color over a contrast casing. */
+      /* Forecast line follows every forecast coordinate, not just milestones. */
       let fcstLatLngs = null;
       if (storm.track?.coordinates?.length) {
         fcstLatLngs = storm.track.coordinates.map((c) => [c[1], c[0]]);
@@ -3843,6 +4244,39 @@
         const pts = (storm.forecastPoints || []).filter((p) => p.lat != null && p.lon != null);
         if (pts.length >= 2) fcstLatLngs = pts.map((p) => [p.lat, p.lon]);
       }
+
+      /* Past track: one continuous muted line. No circle per advisory. */
+      let pastLatLngs = null;
+      if (storm.pastTrack?.coordinates?.length) {
+        const coords = storm.pastTrack.coordinates;
+        if (storm.pastTrack.type === "MultiLineString") {
+          pastLatLngs = coords.flat().map((c) => [c[1], c[0]]);
+        } else {
+          pastLatLngs = coords.map((c) => [c[1], c[0]]);
+        }
+      } else {
+        const pastPts = (storm.pastPoints || []).filter((p) => p.lat != null && p.lon != null);
+        if (pastPts.length >= 2) pastLatLngs = pastPts.map((p) => [p.lat, p.lon]);
+      }
+      if (pastLatLngs?.length && fcstLatLngs?.length) {
+        const end = pastLatLngs[pastLatLngs.length - 1];
+        const start = fcstLatLngs[0];
+        if (Math.abs(end[0] - start[0]) > 0.02 || Math.abs(end[1] - start[1]) > 0.02) {
+          pastLatLngs = pastLatLngs.concat([start]);
+        }
+      }
+      if (pastLatLngs?.length >= 2) {
+        L.polyline(pastLatLngs, {
+          color: pastColor,
+          weight: 3,
+          opacity: 0.9,
+          lineCap: "round",
+          lineJoin: "round",
+          interactive: false,
+        }).addTo(this._layerGroup);
+        pastLatLngs.forEach((ll) => bounds.push(ll));
+      }
+
       if (fcstLatLngs?.length) {
         L.polyline(fcstLatLngs, {
           color: casingColor,
@@ -3850,6 +4284,7 @@
           opacity: 0.55,
           lineCap: "round",
           lineJoin: "round",
+          interactive: false,
         }).addTo(this._layerGroup);
         L.polyline(fcstLatLngs, {
           color,
@@ -3857,8 +4292,23 @@
           opacity: 0.95,
           lineCap: "round",
           lineJoin: "round",
+          interactive: false,
         }).addTo(this._layerGroup);
         fcstLatLngs.forEach((ll) => bounds.push(ll));
+        const sample = this._sampleTrack(fcstLatLngs);
+        if (sample && !this._prefersReducedMotion()) {
+          const runner = L.circleMarker(fcstLatLngs[0], {
+            radius: 5,
+            color: "#fff",
+            weight: 2,
+            fillColor: color,
+            fillOpacity: 1,
+            interactive: false,
+            keyboard: false,
+            className: "hw-track-runner",
+          }).addTo(this._layerGroup);
+          this._startTrackRunner(runner, sample);
+        }
       }
 
       /* Coastal watch/warning segments. */
@@ -3872,32 +4322,18 @@
         watchLatLngs.forEach((ll) => bounds.push(ll));
       }
 
-      /* Past positions: small hollow dots with hover detail. */
-      (storm.pastPoints || []).forEach((pt) => {
-        if (pt.lat == null || pt.lon == null) return;
-        const marker = L.circleMarker([pt.lat, pt.lon], {
-          radius: 3.5,
-          color: pastColor,
-          weight: 1.5,
-          fillColor: light ? "#fff" : "#1c222c",
-          fillOpacity: 0.9,
-        }).addTo(this._layerGroup);
-        const time = this._fmtValidTime(pt.validTime);
-        const info = [
-          time ? this._esc(time) : "",
-          pt.maxWindMph != null ? `${Math.round(Number(pt.maxWindMph))} mph` : "",
-        ].filter(Boolean).join(" · ");
-        marker.bindTooltip(
-          `<div class="hw-tip-line1">Past position</div>${info ? `<div class="hw-tip-line2">${info}</div>` : ""}`,
-          { direction: "top", className: "hw-tip", offset: [0, -6], sticky: false },
-        );
-        bounds.push([pt.lat, pt.lon]);
-      });
-
-      /* Forecast positions: intensity-colored dots + time/cat/wind info. */
-      (storm.forecastPoints || []).forEach((pt) => {
-        if (pt.lat == null || pt.lon == null) return;
-        const ptCat = this._stormCatInfo(null, pt.maxWindMph);
+      /* A few forecast milestones. "Now" is the hurricane marker, not another dot. */
+      const milestones = this._selectForecastMilestones(storm.forecastPoints);
+      const current = storm.currentPosition;
+      milestones.forEach((pt, index) => {
+        if (current?.lat != null && current?.lon != null) {
+          if (Math.abs(pt.lat - current.lat) < 0.05 && Math.abs(pt.lon - current.lon) < 0.05) return;
+        }
+        const whenDate = this._resolvePointDate(pt, storm);
+        const when = this._formatViewerWhen(whenDate);
+        const intensity = this._formatIntensity(pt);
+        const label = this._formatMilestoneLabel(whenDate);
+        const ptCat = this._stormCatInfo(pt.category, pt.maxWindMph);
         const marker = L.circleMarker([pt.lat, pt.lon], {
           radius: compact ? 7 : 6,
           color: casingColor,
@@ -3905,33 +4341,39 @@
           fillColor: pt.maxWindMph != null ? ptCat.color : color,
           fillOpacity: 1,
           bubblingMouseEvents: false,
+          keyboard: true,
         }).addTo(this._layerGroup);
 
-        const line1 = [
-          pt.hour != null ? `+${pt.hour}h` : "",
-          this._fmtValidTime(pt.validTime),
-        ].filter(Boolean).join(" · ");
-        const line2 = [
-          pt.maxWindMph != null ? ptCat.longName : "",
-          pt.maxWindMph != null ? `${Math.round(Number(pt.maxWindMph))} mph` : "",
-          pt.pressureMb != null ? `${pt.pressureMb} mb` : "",
-        ].filter(Boolean).join(" · ");
         const tipHtml = `
-          <div class="hw-tip-line1">${this._esc(line1 || "Forecast position")}</div>
-          ${line2 ? `<div class="hw-tip-line2">${this._esc(line2)}</div>` : ""}`;
-        marker.bindTooltip(tipHtml, { direction: "top", className: "hw-tip", offset: [0, -8] });
-        // Tap-friendly: same info as a popup for touch devices.
-        marker.bindPopup(`<strong>${this._esc(storm.name || "Storm")} forecast</strong><br/>${this._esc(line1)}${line2 ? `<br/>${this._esc(line2)}` : ""}`);
+          <div class="hw-tip-line1">${this._esc(when || "Forecast position")}</div>
+          ${intensity ? `<div class="hw-tip-line2">${this._esc(intensity)}</div>` : ""}`;
+        marker.bindTooltip(tipHtml, {
+          direction: "top",
+          className: "hw-tip hw-tip-when",
+          offset: [0, -8],
+        });
+        const popupBody = [when, intensity].filter(Boolean).map((line) => this._esc(line)).join("<br/>");
+        marker.bindPopup(
+          `<strong>${this._esc(storm.name || "Storm")} forecast</strong>${popupBody ? `<br/>${popupBody}` : ""}`,
+        );
+        const described = [storm.name || "Storm", when, intensity].filter(Boolean).join(". ");
+        const labelPath = () => {
+          const path = marker._path;
+          if (!path) return;
+          path.setAttribute("role", "button");
+          path.setAttribute("aria-label", described);
+        };
+        labelPath();
+        marker.on("add", labelPath);
 
-        // Permanent "+48h" pills live on a separate invisible anchor so they
-        // can coexist with the hover tooltip (Leaflet allows one per layer).
-        if (pt.hour != null && tier >= 2) {
+        if (label && tier >= 1) {
+          const side = index % 2 === 0 ? "right" : "left";
           L.marker([pt.lat, pt.lon], { opacity: 0, interactive: false, keyboard: false })
-            .bindTooltip(`+${pt.hour}h`, {
+            .bindTooltip(this._esc(label), {
               permanent: true,
-              direction: "right",
+              direction: side,
               className: "hw-fcst-hour",
-              offset: [10, 0],
+              offset: side === "right" ? [10, 0] : [-10, 0],
             })
             .addTo(this._layerGroup)
             .openTooltip();
@@ -3953,6 +4395,7 @@
         const marker = L.marker(latlng, {
           icon: stormIcon,
           zIndexOffset: 500,
+          keyboard: true,
           alt: `${stormLabel.name} — ${cat.longName}`,
         }).bindPopup(stormCard, { className: "hw-storm-popup", maxWidth: 300 });
         if (stormLabel.name) {
@@ -4168,6 +4611,8 @@
         const lat = coords[1];
         if (lat == null || lon == null) return;
         const popup = this._volcanoPopup(props);
+        // Same rule as select_volcano_map_features: active unless Show all.
+        if (!this._showAllVolcanoes && !props.active) return;
 
         if (props.active) {
           const color = this._volcanoLevelColor(props.activity_level);
@@ -4367,32 +4812,71 @@
 
     _drawTravelAdvisories(bounds) {
       const L = global.L;
-      const geojson = this._travelData?.geojson;
-      if (!L || !geojson?.features?.length || !this._layerGroup) return;
+      let geojson = this._travelData?.geojson;
+      if (typeof geojson === "string") {
+        try { geojson = JSON.parse(geojson); } catch (_) { geojson = null; }
+      }
+      if (!L || !geojson?.features?.length || !this._layerGroup || !this._map) return;
+      this._ensureOverlayPanes();
+      const pane = this._map.getPane("travelAdvisory") ? "travelAdvisory" : "overlayPane";
+      if (!this._travelRenderer || this._travelRenderer._paneName !== pane) {
+        this._travelRenderer = L.svg({ pane });
+        this._travelRenderer._paneName = pane;
+      }
+
+      const paint = (featureLayer, feature) => {
+        const props = feature?.properties || featureLayer.feature?.properties || {};
+        const level = Number(props.level) || 1;
+        const color = props.color || "#9e9e9e";
+        const fillOpacity = this._travelFillOpacity(level);
+        featureLayer.setStyle({
+          stroke: true,
+          color: "rgba(255,255,255,0.55)",
+          weight: 1,
+          opacity: 1,
+          fill: true,
+          fillColor: color,
+          fillOpacity,
+          className: `hw-travel-advisory level-${level}`,
+        });
+        const path = featureLayer._path;
+        if (!path?.style) return;
+        // Inline fill beats a stylesheet that would hide the choropleth on the
+        // dark canvas tiles. Opacity stays on fill-opacity so it is not doubled.
+        path.style.setProperty("fill", color);
+        path.style.setProperty("fill-opacity", String(fillOpacity));
+        path.style.setProperty("stroke", "rgba(255,255,255,0.55)");
+        path.style.setProperty("pointer-events", "auto");
+      };
 
       L.geoJSON(geojson, {
+        pane,
+        renderer: this._travelRenderer,
+        interactive: true,
+        bubblingMouseEvents: true,
         style: (feature) => {
           const level = Number(feature?.properties?.level) || 1;
           const color = feature?.properties?.color || "#9e9e9e";
           return {
-            color: "rgba(255,255,255,0.35)",
+            color: "rgba(255,255,255,0.55)",
             weight: 1,
-            opacity: 0.85,
+            opacity: 1,
+            fill: true,
             fillColor: color,
-            fillOpacity: level >= 4 ? 0.55 : level >= 3 ? 0.5 : level >= 2 ? 0.48 : 0.42,
+            fillOpacity: this._travelFillOpacity(level),
             className: `hw-travel-advisory level-${level}`,
           };
         },
         onEachFeature: (feature, layer) => {
           const props = feature.properties || {};
           layer.bindPopup(this._travelPopup(props));
+          layer.on("add", () => paint(layer, feature));
           try {
             const center = layer.getBounds?.().getCenter?.();
             if (center) bounds.push([center.lat, center.lng]);
           } catch (_) { /* ignore */ }
         },
-        pane: "overlayPane",
-      }).addTo(this._layerGroup);
+      }).addTo(this._layerGroup).eachLayer((layer) => paint(layer, layer.feature));
     }
   }
 
