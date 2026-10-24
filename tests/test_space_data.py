@@ -9,7 +9,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from custom_components.home_weather.const import SPACE_UPDATE_INTERVAL, UPDATE_INTERVAL
 from custom_components.home_weather.space_coordinator import SpaceCoordinator
 from custom_components.home_weather.space_data import (
+    _HORIZONS_REFRESH_BUDGET,
     _HORIZONS_VECTOR_CONCURRENCY,
+    _HORIZONS_VECTOR_TIMEOUT,
+    _fetch_horizons_vector,
     _detect_overhead_passes,
     _fallback_heliocentric_vector,
     _fetch_small_body_candidates,
@@ -262,6 +265,8 @@ def test_space_interval_and_horizons_concurrency():
     assert SPACE_UPDATE_INTERVAL == timedelta(hours=6)
     assert SPACE_UPDATE_INTERVAL != timedelta(seconds=UPDATE_INTERVAL)
     assert _HORIZONS_VECTOR_CONCURRENCY == 1
+    assert _HORIZONS_VECTOR_TIMEOUT <= 20
+    assert _HORIZONS_REFRESH_BUDGET <= 60
     assert not hasattr(space_data, "SCOUT_API")
     assert not hasattr(space_data, "SENTRY_API")
     assert "cad.api" in space_data.CAD_API
@@ -276,6 +281,26 @@ def test_space_interval_and_horizons_concurrency():
     coordinator = SpaceCoordinator(hass, MagicMock())
     assert coordinator.update_interval == timedelta(seconds=UPDATE_INTERVAL)
     assert coordinator.update_interval != SPACE_UPDATE_INTERVAL
+
+    import custom_components.home_weather as integration
+
+    setup_source = inspect.getsource(integration.async_setup_entry)
+    assert "_schedule_refresh" in setup_source
+    assert "await space_coordinator.async_config_entry_first_refresh" not in setup_source
+    assert "await volcano_coordinator.async_config_entry_first_refresh" not in setup_source
+
+
+def test_horizons_vector_stops_when_refresh_budget_is_spent():
+    async def run() -> None:
+        session = MagicMock()
+        session.get = MagicMock(side_effect=AssertionError("Horizons should not be called"))
+        result = await _fetch_horizons_vector(
+            session, "399", asyncio.Semaphore(1), deadline=0
+        )
+        assert result is None
+        session.get.assert_not_called()
+
+    asyncio.run(run())
 
 
 def test_horizons_cache_keeps_solar_on_the_short_poll():
