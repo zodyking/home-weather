@@ -718,10 +718,9 @@
           font-family: inherit;
           background: var(--hz-bg);
         }
-        /* The panel's `* { box-sizing: border-box }` shrinks Leaflet SVG
-           overlays. Leaflet only opts the default overlay pane out of
-           max-width, so a custom pane's country shapes disappear while
-           storm lines on the overlay pane still show. */
+        /* Country fills share the default overlay SVG with storm tracks.
+           The panel's border-box reset must not shrink that SVG, and the
+           Esri basemap pane stays under it. */
         .leaflet-container .leaflet-pane,
         .leaflet-container .leaflet-pane svg,
         .leaflet-container .leaflet-pane canvas,
@@ -1745,10 +1744,10 @@
           stroke: rgba(255, 255, 255, 0.55);
           stroke-width: 1;
         }
-        .hw-travel-advisory.level-1 { fill: #4caf50; fill-opacity: 0.48; }
-        .hw-travel-advisory.level-2 { fill: #fff176; fill-opacity: 0.55; }
-        .hw-travel-advisory.level-3 { fill: #ff9800; fill-opacity: 0.55; }
-        .hw-travel-advisory.level-4 { fill: #f44336; fill-opacity: 0.58; }
+        .hw-travel-advisory.level-1 { fill: #4caf50 !important; fill-opacity: 0.48 !important; }
+        .hw-travel-advisory.level-2 { fill: #fff176 !important; fill-opacity: 0.55 !important; }
+        .hw-travel-advisory.level-3 { fill: #ff9800 !important; fill-opacity: 0.55 !important; }
+        .hw-travel-advisory.level-4 { fill: #f44336 !important; fill-opacity: 0.58 !important; }
         .hw-travel-popup strong { display: block; margin-bottom: 4px; }
         .hw-travel-popup .hw-travel-level {
           display: inline-block;
@@ -2651,11 +2650,19 @@
       const insideCone = this._data?.summary?.insideCone;
       const insideTornado = this._tornadoData?.affecting_home;
       const eqNearby = this._earthquakeData?.nearby_active;
+      // home.svg is a 24×24 viewBox; the house glyph occupies x=4..20, y=3..20.
+      // Anchor the center of that glyph. The old [14, 28] tip sat on the empty
+      // padding under the icon, so the building drew ~15px (about a degree at
+      // the default zoom) north of the configured home.
+      const homeIconPx = 28;
       const homeIcon = L.divIcon({
         className: `hw-home-marker${insideCone || insideTornado || eqNearby ? " in-cone" : ""}`,
-        html: `<img src="/local/home_weather/icons/home.svg" width="28" height="28" alt="Home" />`,
-        iconSize: [28, 28],
-        iconAnchor: [14, 28],
+        html: `<img src="/local/home_weather/icons/home.svg" width="${homeIconPx}" height="${homeIconPx}" alt="Home" />`,
+        iconSize: [homeIconPx, homeIconPx],
+        iconAnchor: [
+          ((4 + 20) / 2) * homeIconPx / 24,
+          ((3 + 20) / 2) * homeIconPx / 24,
+        ],
       });
       this._homeMarker = L.marker([home.lat, home.lon], { icon: homeIcon, zIndexOffset: 2000 })
         .bindPopup(`<strong>${this._esc(home.label || "Home")}</strong>`)
@@ -4823,55 +4830,30 @@
         try { geojson = JSON.parse(geojson); } catch (_) { geojson = null; }
       }
       if (!L || !geojson?.features?.length || !this._layerGroup || !this._map) return;
-      this._ensureOverlayPanes();
 
-      const paint = (featureLayer, feature) => {
-        const props = feature?.properties || featureLayer.feature?.properties || {};
-        const level = Number(props.level) || 1;
-        const color = props.color || "#9e9e9e";
-        const fillOpacity = this._travelFillOpacity(level);
-        featureLayer.setStyle({
-          pane: "overlayPane",
-          stroke: true,
-          color: "rgba(255,255,255,0.8)",
-          weight: 1.25,
-          opacity: 1,
-          fill: true,
-          fillColor: color,
-          fillOpacity,
-          className: `hw-travel-advisory level-${level}`,
-        });
-        const path = featureLayer._path;
-        if (!path?.style) return;
-        path.style.setProperty("fill", color, "important");
-        path.style.setProperty("fill-opacity", String(fillOpacity), "important");
-        path.style.setProperty("stroke", "rgba(255,255,255,0.8)", "important");
-        path.style.setProperty("stroke-width", "1.25px", "important");
-        path.style.setProperty("pointer-events", "auto");
-      };
-
+      // Default overlay SVG (the same renderer as storm tracks). A separate
+      // pane/renderer is not used: its SVG sits under the Esri basemap while
+      // tracks on the default overlay stay visible.
       const layer = L.geoJSON(geojson, {
-        pane: "overlayPane",
         interactive: true,
         bubblingMouseEvents: true,
         style: (feature) => {
           const level = Number(feature?.properties?.level) || 1;
           const color = feature?.properties?.color || "#9e9e9e";
           return {
-            pane: "overlayPane",
-            color: "rgba(255,255,255,0.8)",
+            stroke: true,
+            color: "rgba(255,255,255,0.85)",
             weight: 1.25,
             opacity: 1,
             fill: true,
             fillColor: color,
             fillOpacity: this._travelFillOpacity(level),
+            fillRule: "evenodd",
             className: `hw-travel-advisory level-${level}`,
           };
         },
         onEachFeature: (feature, featureLayer) => {
-          const props = feature.properties || {};
-          featureLayer.bindPopup(this._travelPopup(props));
-          featureLayer.on("add", () => paint(featureLayer, feature));
+          featureLayer.bindPopup(this._travelPopup(feature.properties || {}));
           try {
             const center = featureLayer.getBounds?.().getCenter?.();
             if (center) bounds.push([center.lat, center.lng]);
@@ -4879,8 +4861,8 @@
         },
       });
       layer.addTo(this._layerGroup);
-      if (layer.bringToBack) layer.bringToBack();
-      layer.eachLayer((featureLayer) => paint(featureLayer, featureLayer.feature));
+      // Storm tracks are added to this same SVG afterward, so they stay above.
+      if (typeof layer.bringToBack === "function") layer.bringToBack();
     }
   }
 
