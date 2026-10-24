@@ -2959,7 +2959,7 @@
       drawer.innerHTML = `
         <h3>Near-Earth Objects <span class="sm-count">\u00B7 ${sorted.length}</span></h3>
         <div class="sm-drawer-scroll">${rowsHtml}</div>
-        <div class="sm-foot">JPL CNEOS \u00B7 Scout / Sentry / close-approach data</div>`;
+        <div class="sm-foot">JPL CNEOS \u00B7 close-approach data</div>`;
 
       drawer.querySelectorAll("[data-neo-idx]").forEach((btn) => {
         btn.addEventListener("click", () => {

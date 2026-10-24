@@ -14,6 +14,7 @@ from custom_components.home_weather.hurricane_data import (
     _normalize_arcgis_storm,
     _parse_kml_coordinates,
     get_home_coordinates,
+    normalize_pressure_mb,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -63,6 +64,15 @@ def test_forecast_points_use_lon_lat_order():
 def test_parse_kml_coordinates_lon_lat():
     coords = _parse_kml_coordinates("-74.2,25.3,0 -75.1,26.4,0", line=True)
     assert coords == [[-74.2, 25.3], [-75.1, 26.4]]
+
+
+def test_missing_pressure_sentinels_are_dropped():
+    assert normalize_pressure_mb(9999) is None
+    assert normalize_pressure_mb("9999") is None
+    assert normalize_pressure_mb("9999 mb") is None
+    assert normalize_pressure_mb(0) is None
+    assert normalize_pressure_mb(None) is None
+    assert normalize_pressure_mb(980) == 980
 
 
 def test_hurricane_cache_ttl():

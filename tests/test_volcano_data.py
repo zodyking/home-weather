@@ -1,12 +1,22 @@
 """Unit tests for volcano data parsing, activity merge, and payload build."""
 from __future__ import annotations
 
+import asyncio
+import json
+import logging
+from datetime import datetime, timezone
+
+from custom_components.home_weather import volcano_data
 from custom_components.home_weather.volcano_data import (
+    GDACS_EVENTS_URL,
+    GDACS_TIMEOUT_SECONDS,
     RING_RADIUS_MILES,
+    _fetch_gdacs_activity,
     build_coordinator_payload,
     build_volcano_geojson,
     detect_volcano_events,
     empty_coordinator_payload,
+    gdacs_volcano_search_params,
     get_volcano_config,
     merge_activity,
     normalize_activity_level,
@@ -15,6 +25,7 @@ from custom_components.home_weather.volcano_data import (
     parse_hans_records,
     passes_volcano_filters,
     pick_nearest_volcano,
+    select_volcano_map_features,
 )
 
 HOME = {"lat": 46.2, "lon": -122.2}  # near Mount St. Helens
@@ -340,3 +351,152 @@ def test_detect_volcano_events_no_change_is_silent():
     event = _active_event("watch")
     previous = {"321050": event}
     assert detect_volcano_events(previous, [dict(event)]) == []
+
+
+# ---------------------------------------------------------------------------
+# GDACS fetch + map feature filter
+# ---------------------------------------------------------------------------
+
+def _reset_gdacs_state() -> None:
+    volcano_data._gdacs_backoff_until = None
+    volcano_data._gdacs_last_warning_at = None
+
+
+class _GdacsResponse:
+    def __init__(self, status: int, body: str = "", content_type: str = "application/json"):
+        self.status = status
+        self._body = body
+        self.headers = {"Content-Type": content_type}
+
+    async def text(self) -> str:
+        return self._body
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+
+class _GdacsSession:
+    """Records SEARCH calls and replays scripted responses. No network."""
+
+    def __init__(self, responses: list):
+        self._responses = list(responses)
+        self.calls: list[dict] = []
+
+    def get(self, url, *, params=None, headers=None, timeout=None):
+        self.calls.append(
+            {
+                "url": url,
+                "params": dict(params or {}),
+                "headers": dict(headers or {}),
+                "timeout": timeout,
+            }
+        )
+        item = self._responses.pop(0)
+        if isinstance(item, BaseException):
+            raise item
+        status, body = item
+        return _GdacsResponse(status, body)
+
+
+def _warning_messages(caplog) -> list[str]:
+    return [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+
+
+def test_gdacs_volcano_search_params_match_documented_contract():
+    """Corrected SEARCH shape. Does not touch the network."""
+    now = datetime(2026, 10, 24, 15, 0, tzinfo=timezone.utc)
+    params = gdacs_volcano_search_params(now)
+    assert params == {
+        "eventlist": "VO",
+        "fromdate": "2026-10-17",
+        "todate": "2026-10-24",
+        "alertlevel": "green;orange;red",
+    }
+    assert "eventtypes" not in params
+    assert "fromDate" not in params
+    assert GDACS_EVENTS_URL.endswith("/events/geteventlist/SEARCH")
+    assert not GDACS_EVENTS_URL.rstrip("/").endswith("/MAP")
+
+
+def test_gdacs_http_204_is_empty_alerts_without_error_log(caplog):
+    _reset_gdacs_state()
+    caplog.set_level(logging.DEBUG, logger="custom_components.home_weather.volcano_data")
+    session = _GdacsSession([(204, "")])
+    records = asyncio.run(_fetch_gdacs_activity(session))
+    assert records == []
+    assert _warning_messages(caplog) == []
+    assert len(session.calls) == 1
+    call = session.calls[0]
+    assert call["url"] == GDACS_EVENTS_URL
+    assert call["params"]["eventlist"] == "VO"
+    assert call["params"]["alertlevel"] == "green;orange;red"
+    assert call["params"]["fromdate"] <= call["params"]["todate"]
+    assert call["headers"]["Accept"].startswith("application/json")
+    assert call["timeout"].total == GDACS_TIMEOUT_SECONDS
+    assert volcano_data._gdacs_backoff_until is None
+
+
+def test_gdacs_http_400_is_not_retried_and_warns_once(caplog):
+    """A malformed response is not hammered, and a dead pair backs off quietly."""
+    _reset_gdacs_state()
+    caplog.set_level(logging.DEBUG, logger="custom_components.home_weather.volcano_data")
+    session = _GdacsSession(
+        [
+            (400, "Bad date format"),
+            (400, "Bad date format"),
+        ]
+    )
+    records = asyncio.run(_fetch_gdacs_activity(session))
+    assert records == []
+    assert len(session.calls) == 2
+    assert "fromdate" in session.calls[0]["params"]
+    assert "fromDate" in session.calls[1]["params"]
+    warnings = _warning_messages(caplog)
+    assert len(warnings) == 1
+    assert "400" in warnings[0]
+    assert "Bad date format" in warnings[0]
+    # Quiet during backoff: the next poll does not call GDACS again.
+    again = asyncio.run(_fetch_gdacs_activity(session))
+    assert again == []
+    assert len(session.calls) == 2
+
+
+def test_gdacs_timeout_tries_smaller_query_instead_of_long_outage(caplog):
+    _reset_gdacs_state()
+    caplog.set_level(logging.DEBUG, logger="custom_components.home_weather.volcano_data")
+    feature = _gdacs_feature(1000152, "Kanlaon", 10.412, 123.132, "Orange")
+    body = json.dumps({"type": "FeatureCollection", "features": [feature]})
+    session = _GdacsSession([TimeoutError(), (200, body)])
+    records = asyncio.run(_fetch_gdacs_activity(session))
+    assert len(records) == 1
+    assert records[0]["name"] == "Kanlaon"
+    assert len(session.calls) == 2
+    assert session.calls[1]["params"] == {"eventlist": "VO", "alertlevel": "orange;red"}
+    warnings = _warning_messages(caplog)
+    assert len(warnings) == 1
+    assert "TimeoutError" not in warnings[0]
+    assert "smaller" in warnings[0]
+    # Compact success must not park the feed for hours.
+    assert volcano_data._gdacs_backoff_until is None
+
+
+def test_select_volcano_map_features_active_only_versus_show_all():
+    catalog = parse_gvp_catalog(GVP_FEATURES, HOME)
+    hans = parse_hans_records(
+        [_hans_record("321050", "St. Helens", 46.2, -122.18, "WATCH", "ORANGE")]
+    )
+    active = merge_activity(catalog, hans, HOME)
+    features = build_volcano_geojson(catalog, active)["features"]
+    assert len(features) == 3
+
+    active_only = select_volcano_map_features(features)
+    show_all = select_volcano_map_features(features, show_all=True)
+    assert len(active_only) == 1
+    assert active_only[0]["properties"]["active"] is True
+    assert active_only[0]["properties"]["activity_level"] == "watch"
+    assert {f["properties"]["name"] for f in active_only} == {"St. Helens"}
+    assert len(show_all) == 3
+    assert {f["properties"]["name"] for f in show_all} == {"St. Helens", "Rainier", "Merapi"}

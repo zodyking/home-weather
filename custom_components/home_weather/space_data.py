@@ -2,8 +2,10 @@
 
 Sources:
 - JPL Horizons API — heliocentric positions for planets, moons, spacecraft
-- JPL Scout / Sentry / SB Close Approach — NEOs and comets
+- JPL SBDB Close Approach (CAD) — NEOs and comets
 - NOAA SWPC JSON — solar weather (sunspots, K-index, flux, events)
+
+Horizons and CAD are cached for SPACE_UPDATE_INTERVAL. Solar weather is not.
 """
 from __future__ import annotations
 
@@ -18,15 +20,16 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.util import dt as dt_util
 
+from .const import SPACE_UPDATE_INTERVAL
 from .hurricane_data import get_home_coordinates
 
 _LOGGER = logging.getLogger(__name__)
 
 HORIZONS_API = "https://ssd.jpl.nasa.gov/api/horizons.api"
 HORIZONS_LOOKUP_API = "https://ssd-api.jpl.nasa.gov/horizons_lookup.api"
-SCOUT_API = "https://ssd-api.jpl.nasa.gov/scout.api"
-SENTRY_API = "https://ssd-api.jpl.nasa.gov/sentry.api"
 CAD_API = "https://ssd-api.jpl.nasa.gov/cad.api"
+# One Horizons vector request at a time. CAD is a few dozen objects.
+_HORIZONS_VECTOR_CONCURRENCY = 1
 SWPC_JSON_BASE = "https://services.swpc.noaa.gov/json"
 SWPC_PRODUCTS_BASE = "https://services.swpc.noaa.gov/products"
 
@@ -81,6 +84,11 @@ _catalog_cache: dict[str, list[dict[str, str]]] = {}
 _catalog_cache_time: datetime | None = None
 _CATALOG_TTL = timedelta(hours=24)
 
+# Last successful Horizons/CAD snapshot. Solar weather is not stored here.
+_horizons_cache: dict[str, Any] | None = None
+_horizons_cache_at: datetime | None = None
+_horizons_cache_key: tuple[Any, ...] | None = None
+
 _VECTOR_RE = re.compile(
     r"^\s*(\d{4}-[A-Za-z]{3}-\d{2}\s+\d{2}:\d{2})\s+"
     r"([+-]?\d+\.\d+E[+-]\d+)\s+"
@@ -114,6 +122,17 @@ _HORIZONS_MONTHS = (
 _OBS_ALT_RE = re.compile(
     r"^\s*(\d{4}-[A-Za-z]{3}-\d{2}\s+\d{2}:\d{2})\s+.*?(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s*$",
     re.MULTILINE,
+)
+
+# CAD `des` strings that Horizons accepts as a small-body COMMAND (DES=...;).
+_CAD_HORIZONS_DES_RE = re.compile(
+    r"(?:"
+    r"\d{1,7}"
+    r"|\d{4} [A-Z]{2}\d{0,4}"
+    r"|\d+[PI]"
+    r"|\d+I/[A-Z][A-Za-z0-9-]{0,24}"
+    r"|[PCDXIA]/\d{4} [A-Z]{1,2}\d{0,4}"
+    r")"
 )
 
 
@@ -611,76 +630,142 @@ async def _fetch_horizons_catalog(
         return _catalog_cache.get(cache_key, [])
 
 
+def _horizons_small_body_command(designation: str | None) -> str | None:
+    """Return a Horizons small-body COMMAND for a CAD designation.
+
+    CAD ``des`` is a designation, not a Horizons COMMAND. Unrecognized strings
+    are not sent — the object can still be listed without a position.
+    """
+    if designation is None:
+        return None
+    text = str(designation).strip()
+    if not text:
+        return None
+    if text.startswith("(") and text.endswith(")") and len(text) > 2:
+        text = text[1:-1].strip()
+    text = re.sub(r"\s*\([^)]*\)\s*$", "", text).strip()
+    text = re.sub(r"\s+", " ", text)
+    if not text or _CAD_HORIZONS_DES_RE.fullmatch(text) is None:
+        return None
+    return f"DES={text};"
+
+
+def _horizons_request_key(
+    space_cfg: dict[str, Any],
+    spacecraft_alerts_cfg: dict[str, Any],
+) -> tuple[Any, ...]:
+    """Key for the Horizons/CAD cache. Solar and NEO alert settings are omitted."""
+    try:
+        min_diam = float(space_cfg.get("small_body_min_diameter_km") or 0)
+    except (TypeError, ValueError):
+        min_diam = 0.0
+    try:
+        lookahead = int(space_cfg.get("pass_lookahead_hours") or 48)
+    except (TypeError, ValueError):
+        lookahead = 48
+    try:
+        lookback = int(space_cfg.get("pass_lookback_hours") or 2)
+    except (TypeError, ValueError):
+        lookback = 2
+    try:
+        min_elev = float(spacecraft_alerts_cfg.get("min_elevation_deg") or 10)
+    except (TypeError, ValueError):
+        min_elev = 10.0
+    craft_ids = tuple(str(c) for c in (spacecraft_alerts_cfg.get("craft_ids") or []))
+    return (
+        bool(space_cfg.get("show_planets", True)),
+        bool(space_cfg.get("show_dwarf_planets", True)),
+        bool(space_cfg.get("show_moons", True)),
+        bool(space_cfg.get("show_spacecraft", True)),
+        bool(space_cfg.get("show_asteroids", True)),
+        bool(space_cfg.get("show_comets", True)),
+        min_diam,
+        lookahead,
+        lookback,
+        craft_ids,
+        min_elev,
+    )
+
+
+def _fresh_horizons_cache(key: tuple[Any, ...]) -> dict[str, Any] | None:
+    """Return the Horizons snapshot when it is still inside SPACE_UPDATE_INTERVAL."""
+    if (
+        _horizons_cache is None
+        or _horizons_cache_at is None
+        or _horizons_cache_key != key
+    ):
+        return None
+    if dt_util.utcnow() - _horizons_cache_at >= SPACE_UPDATE_INTERVAL:
+        return None
+    return _horizons_cache
+
+
+def _horizons_snapshot(
+    bodies: list[dict[str, Any]],
+    small_bodies: list[dict[str, Any]],
+    overhead_passes: list[dict[str, Any]],
+    spacecraft_catalog: list[dict[str, str]],
+    pass_meta: dict[str, Any],
+    primary_close_approach: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Detach a Horizons payload from the lists the caller still mutates."""
+    meta = dict(pass_meta)
+    craft_ids = meta.get("craft_ids")
+    if isinstance(craft_ids, list):
+        meta["craft_ids"] = list(craft_ids)
+    return {
+        "bodies": [dict(body) for body in bodies],
+        "small_bodies": [dict(body) for body in small_bodies],
+        "overhead_passes": [dict(entry) for entry in overhead_passes],
+        "spacecraft_catalog": [dict(entry) for entry in spacecraft_catalog],
+        "pass_meta": meta,
+        "primary_close_approach": (
+            dict(primary_close_approach) if primary_close_approach else None
+        ),
+    }
+
+
+def _store_horizons_cache(key: tuple[Any, ...], snapshot: dict[str, Any]) -> None:
+    """Remember Horizons/CAD results so the 5-minute poll does not repeat them."""
+    global _horizons_cache, _horizons_cache_at, _horizons_cache_key
+    _horizons_cache = snapshot
+    _horizons_cache_at = dt_util.utcnow()
+    _horizons_cache_key = key
+
+
 async def _fetch_small_body_candidates(session: Any) -> list[dict[str, Any]]:
-    """Collect NEO/comet candidates from Scout, Sentry, and CAD."""
+    """Collect NEO/comet candidates from the CAD close-approach list."""
     candidates: dict[str, dict[str, Any]] = {}
+    try:
+        today = dt_util.utcnow().strftime("%Y-%m-%d")
+        url = (
+            f"{CAD_API}?body=Earth&date-min={today}&sort=date"
+            f"&dist-max=50&limit=500"
+        )
+        data = await _fetch_json(session, url)
+        fields = data.get("fields") or []
+        rows = data.get("data") or []
+        for row in rows:
+            if not isinstance(row, list) or len(row) < 4:
+                continue
+            record = dict(zip(fields, row)) if fields else {}
+            des = record.get("des") or record.get("fullname")
+            if not des:
+                continue
+            body_type = "comet" if str(des).startswith("C/") or str(des).startswith("P/") else "asteroid"
+            candidates[str(des)] = {
+                "id": str(record.get("des") or des),
+                "name": str(record.get("fullname") or des),
+                "type": body_type,
+                "diameter_km": _to_float(record.get("diameter")),
+                "lunar_distance": _to_float(record.get("dist")),
+                "close_approach_date": record.get("cd"),
+                "velocity_kms": _to_float(record.get("v_inf")),
+                "source": "cad",
+            }
+    except Exception as err:
+        _LOGGER.debug("CAD fetch failed: %s", err)
 
-    async def _load_scout() -> None:
-        try:
-            data = await _fetch_json(session, SCOUT_API)
-            for obj in data.get("data") or []:
-                des = obj.get("des") or obj.get("object")
-                if not des:
-                    continue
-                candidates[str(des)] = {
-                    "id": str(obj.get("spkid") or des),
-                    "name": str(des),
-                    "type": "asteroid",
-                    "diameter_km": _to_float(obj.get("diameter")),
-                    "source": "scout",
-                }
-        except Exception as err:
-            _LOGGER.debug("Scout fetch failed: %s", err)
-
-    async def _load_sentry() -> None:
-        try:
-            data = await _fetch_json(session, f"{SENTRY_API}?all=Y")
-            for obj in data.get("data") or []:
-                des = obj.get("des")
-                if not des:
-                    continue
-                candidates[str(des)] = {
-                    "id": str(obj.get("spkid") or des),
-                    "name": str(des),
-                    "type": "asteroid",
-                    "diameter_km": _to_float(obj.get("diameter")),
-                    "source": "sentry",
-                }
-        except Exception as err:
-            _LOGGER.debug("Sentry fetch failed: %s", err)
-
-    async def _load_cad() -> None:
-        try:
-            today = dt_util.utcnow().strftime("%Y-%m-%d")
-            url = (
-                f"{CAD_API}?body=Earth&date-min={today}&sort=date"
-                f"&dist-max=50&limit=500"
-            )
-            data = await _fetch_json(session, url)
-            fields = data.get("fields") or []
-            rows = data.get("data") or []
-            for row in rows:
-                if not isinstance(row, list) or len(row) < 4:
-                    continue
-                record = dict(zip(fields, row)) if fields else {}
-                des = record.get("des") or record.get("fullname")
-                if not des:
-                    continue
-                body_type = "comet" if str(des).startswith("C/") or str(des).startswith("P/") else "asteroid"
-                candidates[str(des)] = {
-                    "id": str(record.get("des") or des),
-                    "name": str(record.get("fullname") or des),
-                    "type": body_type,
-                    "diameter_km": _to_float(record.get("diameter")),
-                    "lunar_distance": _to_float(record.get("dist")),
-                    "close_approach_date": record.get("cd"),
-                    "velocity_kms": _to_float(record.get("v_inf")),
-                    "source": "cad",
-                }
-        except Exception as err:
-            _LOGGER.debug("CAD fetch failed: %s", err)
-
-    await asyncio.gather(_load_scout(), _load_sentry(), _load_cad())
     return list(candidates.values())
 
 
@@ -1204,7 +1289,6 @@ async def async_fetch_space(hass: HomeAssistant, config: dict[str, Any]) -> dict
         return empty_payload()
 
     session = async_get_clientsession(hass)
-    semaphore = asyncio.Semaphore(8)
     bodies: list[dict[str, Any]] = []
     small_bodies: list[dict[str, Any]] = []
     overhead_passes: list[dict[str, Any]] = []
@@ -1214,8 +1298,33 @@ async def async_fetch_space(hass: HomeAssistant, config: dict[str, Any]) -> dict
     solar_weather: dict[str, Any] = {}
 
     fetch_tasks: list[Any] = []
+    cache_key: tuple[Any, ...] | None = None
+    horizons_from_cache = False
 
     if space_cfg.get("enabled"):
+        # Horizons/CAD/passes honor SPACE_UPDATE_INTERVAL. A space-config change
+        # misses the cache. Solar weather is scheduled below on every poll.
+        cache_key = _horizons_request_key(space_cfg, spacecraft_alerts_cfg)
+        cached = _fresh_horizons_cache(cache_key)
+        if cached is not None:
+            horizons_from_cache = True
+            snap = _horizons_snapshot(
+                cached["bodies"],
+                cached["small_bodies"],
+                cached["overhead_passes"],
+                cached["spacecraft_catalog"],
+                cached["pass_meta"],
+                cached["primary_close_approach"],
+            )
+            bodies = snap["bodies"]
+            small_bodies = snap["small_bodies"]
+            overhead_passes = snap["overhead_passes"]
+            spacecraft_catalog = snap["spacecraft_catalog"]
+            pass_meta = snap["pass_meta"]
+            primary_close_approach = snap["primary_close_approach"]
+
+    if space_cfg.get("enabled") and not horizons_from_cache:
+        semaphore = asyncio.Semaphore(_HORIZONS_VECTOR_CONCURRENCY)
         # Planets + Sun
         planet_targets: list[tuple[str, str, str]] = []
         for body_id, name, body_type in PLANET_BODIES:
@@ -1292,8 +1401,11 @@ async def async_fetch_space(hass: HomeAssistant, config: dict[str, Any]) -> dict
                 filtered.append(cand)
 
             async def _one(cand: dict[str, Any]) -> None:
-                body_id = str(cand.get("id") or cand.get("name"))
-                vec = await _fetch_horizons_vector(session, body_id, semaphore)
+                command = _horizons_small_body_command(str(cand.get("id") or ""))
+                if not command:
+                    small_bodies.append({**cand, "position_available": False})
+                    return
+                vec = await _fetch_horizons_vector(session, command, semaphore)
                 if not vec:
                     small_bodies.append({**cand, "position_available": False})
                     return
@@ -1386,8 +1498,20 @@ async def async_fetch_space(hass: HomeAssistant, config: dict[str, Any]) -> dict
     if fetch_tasks:
         await asyncio.gather(*fetch_tasks)
 
-    if not spacecraft_catalog and space_cfg.get("show_spacecraft", True):
-        spacecraft_catalog = await _fetch_horizons_catalog(session, "sct")
+    if space_cfg.get("enabled") and not horizons_from_cache and cache_key is not None:
+        if not spacecraft_catalog and space_cfg.get("show_spacecraft", True):
+            spacecraft_catalog = await _fetch_horizons_catalog(session, "sct")
+        _store_horizons_cache(
+            cache_key,
+            _horizons_snapshot(
+                bodies,
+                small_bodies,
+                overhead_passes,
+                spacecraft_catalog,
+                pass_meta,
+                primary_close_approach,
+            ),
+        )
 
     return build_coordinator_payload(
         bodies,

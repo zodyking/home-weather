@@ -47,6 +47,15 @@ GDACS_QUERY_DAYS = 7
 GDACS_STALE_DAYS = 7
 GDACS_WARNING_COOLDOWN = timedelta(hours=1)
 GDACS_BACKOFF = timedelta(hours=6)
+# One attempt. A hanging SEARCH call must not be retried in a loop; the
+# caller tries one smaller query before the long backoff.
+GDACS_TIMEOUT_SECONDS = 25
+# Official GDACS quickstart (2025): semicolon-separated alert colors.
+GDACS_ALERT_LEVELS = "green;orange;red"
+GDACS_HEADERS = {
+    "Accept": "application/json, application/geo+json",
+    "User-Agent": "Home-Weather/1.0 (volcano monitor)",
+}
 _gdacs_last_warning_at: datetime | None = None
 _gdacs_backoff_until: datetime | None = None
 # Max distance for matching a GDACS alert to a catalog volcano when names differ.
@@ -500,6 +509,26 @@ def build_volcano_geojson(
     return {"type": "FeatureCollection", "features": features}
 
 
+def select_volcano_map_features(
+    features: list[dict[str, Any]],
+    *,
+    show_all: bool = False,
+) -> list[dict[str, Any]]:
+    """Choose which volcano features the hazard map plots.
+
+    The default is the active subset (features the activity merge marked
+    ``active``: advisory, watch, or warning). ``show_all`` returns the full
+    catalog plus those active volcanoes — the set the layer used to plot.
+    """
+    chosen: list[dict[str, Any]] = []
+    for feature in features or []:
+        if not isinstance(feature, dict):
+            continue
+        if show_all or (feature.get("properties") or {}).get("active"):
+            chosen.append(feature)
+    return chosen
+
+
 def build_coordinator_payload(
     catalog: list[dict[str, Any]],
     active_events: list[dict[str, Any]],
@@ -517,8 +546,8 @@ def build_coordinator_payload(
         nearest = pick_nearest_by_distance(sensor_events)
     else:
         nearest = pick_nearest_volcano(sensor_events)
-    # The full worldwide catalog is always plotted; inactive volcanoes render
-    # as dim catalog points while active ones glow with their alert color.
+    # GeoJSON keeps the full catalog so the map can offer "Show all".
+    # The map's default is active-only (advisory / watch / warning).
     # Alert scope: bypass fires spoken alerts for all active volcanoes
     # regardless of zone or level; otherwise it mirrors the sensor geofield.
     alert_mode = str(
@@ -641,9 +670,126 @@ def _gdacs_in_backoff(now: datetime) -> bool:
 
 
 def _mark_gdacs_backoff(now: datetime) -> None:
-    """Pause GDACS polling after repeated upstream failures."""
+    """Pause GDACS polling after the dated query and its smaller fallback both fail."""
     global _gdacs_backoff_until
     _gdacs_backoff_until = now + GDACS_BACKOFF
+
+
+def _gdacs_warn_once(now: datetime, message: str, *args: Any) -> None:
+    """Log one GDACS warning, then stay quiet for the cooldown window."""
+    global _gdacs_last_warning_at
+    if (
+        _gdacs_last_warning_at is not None
+        and now - _gdacs_last_warning_at < GDACS_WARNING_COOLDOWN
+    ):
+        _LOGGER.debug(message, *args)
+        return
+    _gdacs_last_warning_at = now
+    _LOGGER.warning(message, *args)
+
+
+def gdacs_volcano_search_params(now: datetime) -> dict[str, str]:
+    """Documented GDACS SEARCH query for volcano alerts.
+
+    The 2025 GDACS quickstart uses ``eventlist``, lowercase ``fromdate`` /
+    ``todate`` (``YYYY-MM-DD``), and a semicolon-separated ``alertlevel``.
+    ``eventtypes`` is not a SEARCH filter: the live API ignores it and
+    returns other hazards. Non-ISO dates and the ``MAP`` output type
+    return HTTP 400. An empty volcano window returns HTTP 204.
+    """
+    end = now.date()
+    start = end - timedelta(days=GDACS_QUERY_DAYS)
+    return {
+        "eventlist": "VO",
+        "fromdate": start.isoformat(),
+        "todate": end.isoformat(),
+        "alertlevel": GDACS_ALERT_LEVELS,
+    }
+
+
+def gdacs_volcano_alternate_params(now: datetime) -> dict[str, str]:
+    """CamelCase date names the live SEARCH API also accepts.
+
+    Used once when the documented lowercase query is rejected with HTTP 400,
+    not as a substitute for fixing that query.
+    """
+    primary = gdacs_volcano_search_params(now)
+    return {
+        "eventlist": "VO",
+        "fromDate": primary["fromdate"],
+        "toDate": primary["todate"],
+        "alertlevel": "Green;Orange;Red",
+    }
+
+
+def gdacs_volcano_compact_params() -> dict[str, str]:
+    """Smaller undated orange/red query used when the dated request times out.
+
+    Live SEARCH returns this as a few-kilobyte GeoJSON instead of hanging
+    on the dated window. It is still ``eventlist=VO`` on the same endpoint.
+    """
+    return {"eventlist": "VO", "alertlevel": "orange;red"}
+
+
+def _short_response_reason(status: int, body: str) -> str:
+    """Status plus a short body excerpt, for a one-line warning."""
+    detail = _extract_xml_service_exception(body) if body else None
+    if not detail and body:
+        detail = " ".join(body.split())
+    if detail:
+        return f"HTTP {status}: {detail[:160]}"
+    if status == 400:
+        return "HTTP 400: empty response body"
+    return f"HTTP {status}"
+
+
+def _gdacs_records_from_payload(payload: Any, now: datetime) -> list[dict[str, Any]]:
+    if not isinstance(payload, dict):
+        return []
+    features = payload.get("features")
+    if not isinstance(features, list):
+        return []
+    return parse_gdacs_events(features, now=now)
+
+
+async def _request_gdacs(
+    session: Any,
+    params: dict[str, str],
+) -> tuple[str, Any, str]:
+    """One GDACS GET. Returns ``(kind, payload, detail)`` and does not log.
+
+    ``kind`` is ``ok``, ``empty``, ``bad_request``, ``unavailable``,
+    ``timeout``, or ``error``. HTTP 204 is ``empty`` (no alerts).
+    """
+    try:
+        async with session.get(
+            GDACS_EVENTS_URL,
+            params=params,
+            headers=GDACS_HEADERS,
+            timeout=ClientTimeout(total=GDACS_TIMEOUT_SECONDS),
+        ) as resp:
+            text = await resp.text()
+            if resp.status == 204 or (resp.status == 200 and not text.strip()):
+                return "empty", None, ""
+            if resp.status == 400:
+                return "bad_request", None, _short_response_reason(resp.status, text)
+            if resp.status != 200:
+                return "unavailable", None, _short_response_reason(resp.status, text)
+            stripped = text.lstrip()
+            content_type = (resp.headers.get("Content-Type") or "").lower()
+            if stripped.startswith("<?xml") or (
+                stripped.startswith("<") and "xml" in content_type
+            ):
+                detail = _extract_xml_service_exception(text) or "non-JSON XML response"
+                return "error", None, detail
+            try:
+                return "ok", json.loads(text), ""
+            except json.JSONDecodeError as err:
+                return "error", None, f"invalid JSON ({_format_fetch_error(err)})"
+    except TimeoutError:
+        return "timeout", None, f"timed out after {GDACS_TIMEOUT_SECONDS}s"
+    except Exception as err:  # noqa: BLE001 - keep GDACS failures off the other feeds
+        return "error", None, _format_fetch_error(err)
 
 
 async def _fetch_json(
@@ -654,41 +800,21 @@ async def _fetch_json(
     params: dict | None = None,
     retries: int = 3,
 ) -> Any:
-    """Fetch JSON from a source with retry logic, returning None on failure."""
-    global _gdacs_last_warning_at
-    is_gdacs = label == "GDACS volcano alerts"
-    now = dt_util.utcnow()
-    if is_gdacs and _gdacs_in_backoff(now):
-        _LOGGER.debug("%s fetch skipped during backoff", label)
-        return None
+    """Fetch JSON from a source with retry logic, returning None on failure.
 
+    GDACS uses :func:`_fetch_gdacs_activity` instead. This helper is the
+    GVP catalog and USGS HANS feeds.
+    """
     last_error: str | None = None
     for attempt in range(retries):
         try:
             client_timeout = ClientTimeout(total=30)
             async with session.get(url, params=params, timeout=client_timeout) as resp:
                 if resp.status != 200:
-                    if is_gdacs:
-                        if resp.status in (400, 429, 502, 503, 504):
-                            _mark_gdacs_backoff(now)
-                        if (
-                            _gdacs_last_warning_at is None
-                            or now - _gdacs_last_warning_at >= GDACS_WARNING_COOLDOWN
-                        ):
-                            _gdacs_last_warning_at = now
-                            if resp.status in (502, 503, 504):
-                                _LOGGER.debug(
-                                    "%s returned HTTP %s (service unavailable; using other volcano sources)",
-                                    label,
-                                    resp.status,
-                                )
-                            else:
-                                _LOGGER.warning("%s returned HTTP %s", label, resp.status)
-                    else:
-                        _LOGGER.warning(
-                            "%s returned HTTP %s (attempt %d/%d)",
-                            label, resp.status, attempt + 1, retries
-                        )
+                    _LOGGER.warning(
+                        "%s returned HTTP %s (attempt %d/%d)",
+                        label, resp.status, attempt + 1, retries
+                    )
                     last_error = f"HTTP {resp.status}"
                     if attempt < retries - 1:
                         delay = min(DEFAULT_BACKOFF_BASE * (2 ** attempt), DEFAULT_BACKOFF_MAX)
@@ -703,8 +829,6 @@ async def _fetch_json(
                 content_type = (resp.headers.get("Content-Type") or "").lower()
                 if stripped.startswith("<?xml") or "xml" in content_type:
                     detail = _extract_xml_service_exception(text) or "non-JSON XML response"
-                    if is_gdacs:
-                        _mark_gdacs_backoff(now)
                     _LOGGER.warning("%s fetch failed: %s", label, detail)
                     return None
                 if attempt > 0:
@@ -716,34 +840,14 @@ async def _fetch_json(
         except Exception as err:
             detail = _format_fetch_error(err)
             last_error = detail
-            if is_gdacs:
-                _mark_gdacs_backoff(now)
-                if _gdacs_in_backoff(now):
-                    if (
-                        _gdacs_last_warning_at is None
-                        or now - _gdacs_last_warning_at >= GDACS_WARNING_COOLDOWN
-                    ):
-                        _gdacs_last_warning_at = now
-                        _LOGGER.warning(
-                            "%s fetch failed: %s (backing off for %d hours)",
-                            label,
-                            detail,
-                            int(GDACS_BACKOFF.total_seconds() // 3600),
-                        )
-                    else:
-                        _LOGGER.debug("%s fetch failed during backoff: %s", label, detail)
-                else:
-                    _LOGGER.warning("%s fetch failed: %s", label, detail)
-                return None
-            else:
-                _LOGGER.warning(
-                    "%s fetch failed: %s (attempt %d/%d)",
-                    label, detail, attempt + 1, retries
-                )
-                if attempt < retries - 1:
-                    delay = min(DEFAULT_BACKOFF_BASE * (2 ** attempt), DEFAULT_BACKOFF_MAX)
-                    await asyncio.sleep(delay)
-                    continue
+            _LOGGER.warning(
+                "%s fetch failed: %s (attempt %d/%d)",
+                label, detail, attempt + 1, retries
+            )
+            if attempt < retries - 1:
+                delay = min(DEFAULT_BACKOFF_BASE * (2 ** attempt), DEFAULT_BACKOFF_MAX)
+                await asyncio.sleep(delay)
+                continue
 
     _LOGGER.warning("%s all %d attempts failed: %s", label, retries, last_error)
     return None
@@ -760,24 +864,89 @@ async def _fetch_gvp_catalog(session: Any, home: dict[str, float]) -> list[dict[
 
 
 async def _fetch_gdacs_activity(session: Any) -> list[dict[str, Any]]:
+    """Fetch current GDACS volcano alerts.
+
+    HTTP 204 is an empty alert list. A timeout tries one smaller query
+    before the long backoff. Any miss returns no GDACS alerts so USGS HANS
+    and the Smithsonian catalog still populate the map.
+    """
     now = dt_util.utcnow()
-    from_date = (now - timedelta(days=GDACS_QUERY_DAYS)).date().isoformat()
-    to_date = now.date().isoformat()
-    param_sets = (
-        {"eventlist": "VO", "fromdate": from_date, "todate": to_date},
-        {"eventlist": "VO", "fromDate": from_date, "toDate": to_date},
+    if _gdacs_in_backoff(now):
+        _LOGGER.debug("GDACS volcano alerts fetch skipped during backoff")
+        return []
+
+    kind, payload, detail = await _request_gdacs(session, gdacs_volcano_search_params(now))
+    if kind == "ok":
+        return _gdacs_records_from_payload(payload, now)
+    if kind == "empty":
+        return []
+
+    if kind == "bad_request":
+        kind2, payload2, detail2 = await _request_gdacs(
+            session, gdacs_volcano_alternate_params(now)
+        )
+        if kind2 == "ok":
+            _gdacs_warn_once(
+                now,
+                "GDACS volcano alerts returned %s; alternate query succeeded",
+                detail,
+            )
+            return _gdacs_records_from_payload(payload2, now)
+        if kind2 == "empty":
+            _gdacs_warn_once(
+                now,
+                "GDACS volcano alerts returned %s; alternate query had no alerts",
+                detail,
+            )
+            return []
+        _gdacs_warn_once(
+            now,
+            "GDACS volcano alerts returned %s",
+            detail2 or detail,
+        )
+        _mark_gdacs_backoff(now)
+        return []
+
+    if kind in ("timeout", "unavailable"):
+        kind2, payload2, _detail2 = await _request_gdacs(
+            session, gdacs_volcano_compact_params()
+        )
+        if kind2 == "ok":
+            _gdacs_warn_once(
+                now,
+                "GDACS volcano alerts %s; used a smaller alert query",
+                detail,
+            )
+            return _gdacs_records_from_payload(payload2, now)
+        if kind2 == "empty":
+            _gdacs_warn_once(
+                now,
+                "GDACS volcano alerts %s; smaller query returned no alerts",
+                detail,
+            )
+            return []
+        if kind == "timeout":
+            _gdacs_warn_once(
+                now,
+                "GDACS volcano alerts timed out after %ds; using other volcano sources",
+                GDACS_TIMEOUT_SECONDS,
+            )
+        else:
+            _gdacs_warn_once(
+                now,
+                "GDACS volcano alerts failed (%s); using other volcano sources",
+                detail,
+            )
+        _mark_gdacs_backoff(now)
+        return []
+
+    _gdacs_warn_once(
+        now,
+        "GDACS volcano alerts fetch failed: %s; using other volcano sources",
+        detail or kind,
     )
-    data = None
-    for params in param_sets:
-        data = await _fetch_json(session, GDACS_EVENTS_URL, "GDACS volcano alerts", params=params)
-        if isinstance(data, dict):
-            break
-    if not isinstance(data, dict):
-        return []
-    features = data.get("features")
-    if not isinstance(features, list):
-        return []
-    return parse_gdacs_events(features, now=now)
+    _mark_gdacs_backoff(now)
+    return []
 
 
 async def _fetch_hans_activity(session: Any) -> list[dict[str, Any]]:
@@ -841,5 +1010,6 @@ async def async_fetch_volcanoes(
             # Keep serving a stale catalog rather than dropping the layer.
             catalog = catalog_cache["volcanoes"]
 
+    # An empty GDACS list still leaves USGS HANS activity on the catalog.
     active_events = merge_activity(catalog, hans_records + gdacs_records, home)
     return build_coordinator_payload(catalog, active_events, volcano_config)
