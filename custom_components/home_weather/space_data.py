@@ -16,6 +16,7 @@ import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from aiohttp import ClientTimeout
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.util import dt as dt_util
@@ -30,6 +31,11 @@ HORIZONS_LOOKUP_API = "https://ssd-api.jpl.nasa.gov/horizons_lookup.api"
 CAD_API = "https://ssd-api.jpl.nasa.gov/cad.api"
 # One Horizons vector request at a time. CAD is a few dozen objects.
 _HORIZONS_VECTOR_CONCURRENCY = 1
+# A hung Horizons call must not sit for 90s, and one refresh must not run long
+# enough to trip Home Assistant's bootstrap timeout.
+_HORIZONS_VECTOR_TIMEOUT = 15
+_HORIZONS_OBSERVER_TIMEOUT = 25
+_HORIZONS_REFRESH_BUDGET = 45
 SWPC_JSON_BASE = "https://services.swpc.noaa.gov/json"
 SWPC_PRODUCTS_BASE = "https://services.swpc.noaa.gov/products"
 
@@ -489,14 +495,26 @@ def _normalize_region(raw: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
+def _client_timeout(total: int) -> ClientTimeout:
+    """aiohttp rejects a bare int on some versions and otherwise uses a 5-minute default."""
+    return ClientTimeout(total=total)
+
+
+def _horizons_budget_open(deadline: float | None) -> bool:
+    """False once this refresh has used its Horizons time budget."""
+    if deadline is None:
+        return True
+    return asyncio.get_running_loop().time() < deadline
+
+
 async def _fetch_json(session: Any, url: str, timeout: int = 30) -> Any:
-    async with session.get(url, timeout=timeout) as resp:
+    async with session.get(url, timeout=_client_timeout(timeout)) as resp:
         resp.raise_for_status()
         return await resp.json(content_type=None)
 
 
 async def _fetch_text(session: Any, url: str, params: dict[str, str], timeout: int = 60) -> str:
-    async with session.get(url, params=params, timeout=timeout) as resp:
+    async with session.get(url, params=params, timeout=_client_timeout(timeout)) as resp:
         resp.raise_for_status()
         return await resp.text()
 
@@ -505,8 +523,13 @@ async def _fetch_horizons_vector(
     session: Any,
     body_id: str,
     semaphore: asyncio.Semaphore,
+    deadline: float | None = None,
 ) -> dict[str, float] | None:
+    if not _horizons_budget_open(deadline):
+        return None
     async with semaphore:
+        if not _horizons_budget_open(deadline):
+            return None
         start = dt_util.utcnow()
         stop = start + timedelta(minutes=1)
         params = {
@@ -525,7 +548,9 @@ async def _fetch_horizons_vector(
             "OUT_UNITS": "'AU-D'",
         }
         try:
-            text = await _fetch_text(session, HORIZONS_API, params, timeout=90)
+            text = await _fetch_text(
+                session, HORIZONS_API, params, timeout=_HORIZONS_VECTOR_TIMEOUT
+            )
             return _parse_horizons_vectors(text)
         except Exception as err:
             _LOGGER.debug("Horizons vector fetch failed for %s: %s", body_id, err)
@@ -540,8 +565,11 @@ async def _fetch_horizons_observer(
     *,
     lookback_hours: int = 2,
     lookahead_hours: int = 48,
+    deadline: float | None = None,
 ) -> list[dict[str, Any]]:
     """Fetch topocentric alt/az samples for overhead pass detection."""
+    if not _horizons_budget_open(deadline):
+        return []
     now = dt_util.utcnow()
     start = now - timedelta(hours=max(0, lookback_hours))
     stop = now + timedelta(hours=max(1, lookahead_hours))
@@ -565,7 +593,9 @@ async def _fetch_horizons_observer(
         "QUANTITIES": "'4'",
     }
     try:
-        text = await _fetch_text(session, HORIZONS_API, params, timeout=120)
+        text = await _fetch_text(
+            session, HORIZONS_API, params, timeout=_HORIZONS_OBSERVER_TIMEOUT
+        )
         samples = _parse_observer_alt_az(text)
         if not samples:
             head = (text or "")[:400].replace("\n", " ")
@@ -1325,6 +1355,9 @@ async def async_fetch_space(hass: HomeAssistant, config: dict[str, Any]) -> dict
 
     if space_cfg.get("enabled") and not horizons_from_cache:
         semaphore = asyncio.Semaphore(_HORIZONS_VECTOR_CONCURRENCY)
+        horizons_deadline = (
+            asyncio.get_running_loop().time() + _HORIZONS_REFRESH_BUDGET
+        )
         # Planets + Sun
         planet_targets: list[tuple[str, str, str]] = []
         for body_id, name, body_type in PLANET_BODIES:
@@ -1343,7 +1376,9 @@ async def async_fetch_space(hass: HomeAssistant, config: dict[str, Any]) -> dict
                     if rec:
                         bodies.append(rec)
                     return
-                vec = await _fetch_horizons_vector(session, bid, semaphore)
+                vec = await _fetch_horizons_vector(
+                    session, bid, semaphore, horizons_deadline
+                )
                 rec = _build_body_record(
                     bid,
                     bname,
@@ -1356,14 +1391,14 @@ async def async_fetch_space(hass: HomeAssistant, config: dict[str, Any]) -> dict
 
             await asyncio.gather(*[_one(b, n, t) for b, n, t in planet_targets])
 
-        await _load_planets()
-
         async def _load_moons() -> None:
             if not space_cfg.get("show_moons", True):
                 return
             catalog = await _fetch_horizons_catalog(session, "sat")
             async def _one(entry: dict[str, str]) -> None:
-                vec = await _fetch_horizons_vector(session, entry["id"], semaphore)
+                vec = await _fetch_horizons_vector(
+                    session, entry["id"], semaphore, horizons_deadline
+                )
                 rec = _build_body_record(entry["id"], entry["name"], "moon", vec)
                 if rec:
                     bodies.append(rec)
@@ -1377,7 +1412,9 @@ async def async_fetch_space(hass: HomeAssistant, config: dict[str, Any]) -> dict
             catalog = await _fetch_horizons_catalog(session, "sct")
             spacecraft_catalog = catalog
             async def _one(entry: dict[str, str]) -> None:
-                vec = await _fetch_horizons_vector(session, entry["id"], semaphore)
+                vec = await _fetch_horizons_vector(
+                    session, entry["id"], semaphore, horizons_deadline
+                )
                 rec = _build_body_record(entry["id"], entry["name"], "spacecraft", vec)
                 if rec:
                     bodies.append(rec)
@@ -1405,7 +1442,9 @@ async def async_fetch_space(hass: HomeAssistant, config: dict[str, Any]) -> dict
                 if not command:
                     small_bodies.append({**cand, "position_available": False})
                     return
-                vec = await _fetch_horizons_vector(session, command, semaphore)
+                vec = await _fetch_horizons_vector(
+                    session, command, semaphore, horizons_deadline
+                )
                 if not vec:
                     small_bodies.append({**cand, "position_available": False})
                     return
@@ -1475,6 +1514,7 @@ async def async_fetch_space(hass: HomeAssistant, config: dict[str, Any]) -> dict
                     lat_f,
                     lon_f,
                     lookback_hours=lookback,
+                    deadline=horizons_deadline,
                     lookahead_hours=lookahead,
                 )
                 pass_meta["samples_total"] += len(samples)
@@ -1486,7 +1526,13 @@ async def async_fetch_space(hass: HomeAssistant, config: dict[str, Any]) -> dict
                 pass_meta["error"] = "horizons_empty"
             pass_meta["pass_count"] = len(overhead_passes)
 
-        fetch_tasks.extend([_load_moons(), _load_spacecraft(), _load_small_bodies(), _load_passes()])
+        fetch_tasks.extend([
+            _load_planets(),
+            _load_moons(),
+            _load_spacecraft(),
+            _load_small_bodies(),
+            _load_passes(),
+        ])
 
     if solar_cfg.get("enabled"):
         async def _load_solar() -> None:

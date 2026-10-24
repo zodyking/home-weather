@@ -41,34 +41,50 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await storage.async_load()
 
     coordinator = WeatherCoordinator(hass, storage)
-    await coordinator.async_request_refresh()
-
     tornado_coordinator = TornadoCoordinator(hass, storage)
-    await tornado_coordinator.async_config_entry_first_refresh()
-
     earthquake_coordinator = EarthquakeCoordinator(hass, storage)
-    await earthquake_coordinator.async_config_entry_first_refresh()
-
     hurricane_coordinator = HurricaneCoordinator(hass, storage)
-    await hurricane_coordinator.async_config_entry_first_refresh()
-
     lightning_coordinator = LightningCoordinator(hass, storage)
-    await lightning_coordinator.async_config_entry_first_refresh()
-
     volcano_coordinator = VolcanoCoordinator(hass, storage)
-    await volcano_coordinator.async_config_entry_first_refresh()
-
     travel_coordinator = TravelCoordinator(hass, storage)
-    await travel_coordinator.async_config_entry_first_refresh()
-
     wildfire_coordinator = WildfireCoordinator(hass, storage)
-    await wildfire_coordinator.async_config_entry_first_refresh()
-
     air_quality_coordinator = AirQualityCoordinator(hass, storage)
-    await air_quality_coordinator.async_config_entry_first_refresh()
-
     space_coordinator = SpaceCoordinator(hass, storage)
-    await space_coordinator.async_config_entry_first_refresh()
+
+    async def _refresh_in_background(label: str, refresh) -> None:
+        """Load one feed without holding up config-entry setup."""
+        try:
+            await refresh()
+        except Exception as err:
+            _LOGGER.warning(
+                "Home Weather %s data is not ready yet and will retry on its "
+                "update interval: %s",
+                label,
+                err,
+            )
+
+    def _schedule_refresh(label: str, refresh) -> None:
+        task = _refresh_in_background(label, refresh)
+        name = f"{DOMAIN} {label} initial refresh"
+        creator = getattr(entry, "async_create_background_task", None)
+        if creator is not None:
+            creator(hass, task, name)
+            return
+        hass.async_create_task(task, name=name)
+
+    # These feeds hit the network. Awaiting them in series, especially the
+    # serial Horizons pass, runs past Home Assistant's bootstrap stage 2
+    # timeout and the entry is cancelled before platforms load.
+    _schedule_refresh("weather", coordinator.async_request_refresh)
+    _schedule_refresh("tornado", tornado_coordinator.async_config_entry_first_refresh)
+    _schedule_refresh("earthquake", earthquake_coordinator.async_config_entry_first_refresh)
+    _schedule_refresh("hurricane", hurricane_coordinator.async_config_entry_first_refresh)
+    _schedule_refresh("lightning", lightning_coordinator.async_config_entry_first_refresh)
+    _schedule_refresh("volcano", volcano_coordinator.async_config_entry_first_refresh)
+    _schedule_refresh("travel", travel_coordinator.async_config_entry_first_refresh)
+    _schedule_refresh("wildfire", wildfire_coordinator.async_config_entry_first_refresh)
+    _schedule_refresh("air quality", air_quality_coordinator.async_config_entry_first_refresh)
+    _schedule_refresh("space", space_coordinator.async_config_entry_first_refresh)
 
     # Set up TTS trigger manager
     def get_config():
