@@ -50,6 +50,43 @@ def test_parse_advisory_title():
     assert "Reconsider" in label
 
 
+def test_mexico_travel_advisory_title_matches_country_polygon():
+    """The live State Dept title is 'Mexico Travel Advisory - Level N: ...'.
+
+    That prefix does not exist in countries.geo.json, so Mexico never got a
+    fill while Canada (a plain 'Canada - Level N' title) did.
+    """
+    raw = {
+        "Title": "Mexico Travel Advisory - Level 2: Exercise Increased Caution",
+        "Link": "https://travel.state.gov/example",
+        "Category": ["MX"],
+        "Summary": "<p>Exercise increased caution in Mexico.</p>",
+    }
+    advisories = parse_travel_advisories([raw])
+    assert advisories[0]["country"] == "Mexico"
+    assert advisories[0]["level"] == 2
+    geojson = build_travel_advisory_geojson(
+        advisories,
+        {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "properties": {"name": "Mexico"},
+                    "geometry": {
+                        "type": "Polygon",
+                        "coordinates": [[[-118, 32], [-86, 32], [-86, 14], [-118, 14], [-118, 32]]],
+                    },
+                }
+            ],
+        },
+        min_level=1,
+    )
+    assert len(geojson["features"]) == 1
+    assert geojson["features"][0]["properties"]["name"] == "Mexico"
+    assert geojson["features"][0]["geometry"]["type"] == "Polygon"
+
+
 def test_parse_travel_advisories_strips_html():
     advisories = parse_travel_advisories(SAMPLE_RAW)
     assert len(advisories) == 2

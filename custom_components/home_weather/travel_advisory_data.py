@@ -42,6 +42,9 @@ CATEGORY_TO_GEO_NAME: dict[str, str] = {
     "EI": "Ireland",
     "SP": "Spain",
     "US": "United States of America",
+    # Live feed titles this one "Mexico Travel Advisory - Level N: ...", which
+    # does not match the bundled country name. The category code is stable.
+    "MX": "Mexico",
 }
 
 # Parsed advisory title -> geojson country name overrides.
@@ -105,6 +108,9 @@ def _strip_html(text: str) -> str:
 def parse_advisory_title(title: str) -> tuple[str, int, str]:
     """Parse 'Country - Level N: Label' into (country, level, level_label)."""
     cleaned = re.sub(r"\s*-\s*See Summaries.*$", "", (title or "").strip(), flags=re.I)
+    # "Mexico Travel Advisory - Level 2: ..." must resolve to Mexico, not the
+    # whole prefix. The bundled polygons are keyed by country name only.
+    cleaned = re.sub(r"\s+Travel Advisory(?=\s*-\s*Level\b)", "", cleaned, flags=re.I)
     match = _TITLE_RE.match(cleaned)
     if not match:
         return cleaned, 0, ""
