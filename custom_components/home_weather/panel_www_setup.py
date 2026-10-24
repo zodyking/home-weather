@@ -46,21 +46,36 @@ def _copy_tree(src: Path, dest: Path) -> None:
             shutil.copy2(item, target)
 
 
+def _bundle_file_changed(src: Path, dest: Path) -> bool:
+    """True when the served copy is missing or a different size than the bundle.
+
+    A same-version reinstall (replaced git tag) must still refresh JS. Copying
+    only when the manifest version changes left the old map script in place.
+    """
+    if not dest.is_file():
+        return True
+    return src.stat().st_size != dest.stat().st_size
+
+
 def ensure_panel_www_assets(hass: HomeAssistant, version: str) -> None:
     """Copy bundled panel JS and icons into config/www when the version changes."""
     bundle_dir = get_bundle_www_dir()
     target_dir = get_panel_www_dir(hass)
     marker = target_dir / VERSION_MARKER
     current = marker.read_text(encoding="utf-8").strip() if marker.exists() else ""
+    stale_bundle = any(
+        (src := bundle_dir / name).is_file() and _bundle_file_changed(src, target_dir / name)
+        for name in PANEL_JS_FILES
+    )
 
-    if current == version:
+    if current == version and not stale_bundle:
         return
 
     target_dir.mkdir(parents=True, exist_ok=True)
 
     for name in PANEL_JS_FILES:
         src = bundle_dir / name
-        if src.is_file():
+        if src.is_file() and (current != version or _bundle_file_changed(src, target_dir / name)):
             shutil.copy2(src, target_dir / name)
 
     icons_src = bundle_dir / "icons"

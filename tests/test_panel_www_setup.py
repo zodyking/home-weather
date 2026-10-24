@@ -34,6 +34,11 @@ def test_ensure_panel_www_assets_copies_js_on_version_change(tmp_path, monkeypat
     ensure_panel_www_assets(hass, "1.0.26")
     assert marker.read_text(encoding="utf-8") == "1.0.26"
 
+    stale_js = target / "hurricane-tracker.js"
+    stale_js.write_text("stale map", encoding="utf-8")
+    ensure_panel_www_assets(hass, "1.0.26")
+    assert stale_js.read_text(encoding="utf-8") != "stale map"
+
 
 def test_ensure_panel_www_assets_upgrades_on_new_version(tmp_path):
     hass = MagicMock()
